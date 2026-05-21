@@ -40,19 +40,30 @@ export const MARKET_OPTIONS = UNIVERSE_GEOGRAPHIC_MARKETS.map((code) => ({
   label: code,
 }));
 
+// Setup Engine pattern identifiers (must match backend detector `pattern` ids).
+export const SE_PATTERN_OPTIONS = [
+  'cup_with_handle',
+  'double_bottom',
+  'high_tight_flag',
+  'first_pullback',
+  'vcp',
+  'three_weeks_tight',
+  'nr7_inside_day',
+];
+
 export const TECHNICAL_KEYS = [
   'stage', 'rsRating', 'rs1m', 'rs3m', 'rs12m', 'maAlignment',
   'adrPercent', 'perfDay', 'perfWeek', 'perfMonth',
   'perf3m', 'perf6m', 'gapPercent', 'volumeSurge',
   'ema10Distance', 'ema20Distance', 'ema50Distance',
   'week52HighDistance', 'week52LowDistance',
-  'beta', 'betaAdjRs',
+  'beta', 'betaAdjRs', 'pocketPivot', 'powerTrend',
 ];
 
 export const RATING_KEYS = [
   'compositeScore', 'minerviniScore', 'canslimScore', 'ipoScore',
   'customScore', 'volBreakthroughScore',
   'seSetupScore', 'seDistanceToPivot', 'seBbSqueeze', 'seVolumeVs50d',
-  'seSetupReady', 'seRsLineNewHigh',
+  'seUpDownVolume', 'sePatternPrimary', 'seSetupReady', 'seRsLineNewHigh',
   'vcpScore', 'vcpDetected', 'vcpReady', 'passesTemplate',
 ];

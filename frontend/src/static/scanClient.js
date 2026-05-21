@@ -9,6 +9,7 @@ const RANGE_FILTER_TO_FIELD = {
   seDistanceToPivot: 'se_distance_to_pivot_pct',
   seBbSqueeze: 'se_bb_width_pctile_252',
   seVolumeVs50d: 'se_volume_vs_50d',
+  seUpDownVolume: 'se_up_down_volume_ratio_10d',
   rsRating: 'rs_rating',
   rs1m: 'rs_rating_1m',
   rs3m: 'rs_rating_3m',
@@ -46,6 +47,8 @@ const BOOLEAN_FILTER_TO_FIELD = {
   vcpReady: 'vcp_ready_for_breakout',
   maAlignment: 'ma_alignment',
   passesTemplate: 'passes_template',
+  pocketPivot: 'pocket_pivot',
+  powerTrend: 'power_trend',
 };
 
 const RATING_SORT_ORDER = {
@@ -138,6 +141,13 @@ export const filterStaticScanRows = (rows, filters) => {
     }
 
     if (filters.ratings?.length && !filters.ratings.includes(row.rating)) {
+      return false;
+    }
+
+    if (
+      filters.sePatternPrimary?.length &&
+      !filters.sePatternPrimary.includes(row.se_pattern_primary)
+    ) {
       return false;
     }
 

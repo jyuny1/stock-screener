@@ -115,6 +115,7 @@ def parse_scan_filters(
     se_in_early_zone: Optional[bool] = Query(None, description="SE in early zone filter"),
     se_extended_from_pivot: Optional[bool] = Query(None, description="SE extended from pivot filter"),
     se_bb_squeeze: Optional[bool] = Query(None, description="SE BB squeeze filter"),
+    se_pattern_primary: Optional[str] = Query(None, description="SE primary pattern filter (comma-separated)"),
     # RS ratings
     min_rs: Optional[float] = Query(None, ge=0, le=100, description="Minimum RS Rating"),
     max_rs: Optional[float] = Query(None, ge=0, le=100, description="Maximum RS Rating"),
@@ -158,6 +159,8 @@ def parse_scan_filters(
     vcp_ready: Optional[bool] = Query(None, description="VCP ready for breakout filter"),
     # Boolean
     ma_alignment: Optional[bool] = Query(None, description="MA alignment filter"),
+    pocket_pivot: Optional[bool] = Query(None, description="Pocket pivot filter"),
+    power_trend: Optional[bool] = Query(None, description="Power trend filter"),
     # Performance
     min_perf_day: Optional[float] = Query(None, description="Minimum 1-day % change"),
     max_perf_day: Optional[float] = Query(None, description="Maximum 1-day % change"),
@@ -282,6 +285,13 @@ def parse_scan_filters(
         if market_list:
             f.add_categorical("market", market_list)
 
+    if se_pattern_primary:
+        pattern_list = tuple(
+            p.strip() for p in se_pattern_primary.split(",") if p.strip()
+        )
+        if pattern_list:
+            f.add_categorical("se_pattern_primary", pattern_list)
+
     # Boolean filters
     if vcp_detected is not None:
         f.add_boolean("vcp_detected", vcp_detected)
@@ -289,6 +299,10 @@ def parse_scan_filters(
         f.add_boolean("vcp_ready_for_breakout", vcp_ready)
     if ma_alignment is not None:
         f.add_boolean("ma_alignment", ma_alignment)
+    if pocket_pivot is not None:
+        f.add_boolean("pocket_pivot", pocket_pivot)
+    if power_trend is not None:
+        f.add_boolean("power_trend", power_trend)
     if se_setup_ready is not None:
         f.add_boolean("se_setup_ready", se_setup_ready)
     if se_rs_line_new_high is not None:

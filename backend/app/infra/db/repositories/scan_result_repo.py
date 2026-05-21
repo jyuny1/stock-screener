@@ -825,6 +825,8 @@ def _map_row_to_domain(
         "perf_6m": result.perf_6m,
         "gap_percent": result.gap_percent,
         "volume_surge": result.volume_surge,
+        "pocket_pivot": details.get("pocket_pivot"),
+        "power_trend": details.get("power_trend"),
         "ema_10_distance": result.ema_10_distance,
         "ema_20_distance": result.ema_20_distance,
         "ema_50_distance": result.ema_50_distance,

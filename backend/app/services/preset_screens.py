@@ -21,6 +21,7 @@ RANGE_FILTER_TO_FIELD: dict[str, str] = {
     "seDistanceToPivot": "se_distance_to_pivot_pct",
     "seBbSqueeze": "se_bb_width_pctile_252",
     "seVolumeVs50d": "se_volume_vs_50d",
+    "seUpDownVolume": "se_up_down_volume_ratio_10d",
     "rsRating": "rs_rating",
     "rs1m": "rs_rating_1m",
     "rs3m": "rs_rating_3m",
@@ -63,6 +64,13 @@ BOOLEAN_FILTER_TO_FIELD: dict[str, str] = {
     "vcpReady": "vcp_ready_for_breakout",
     "maAlignment": "ma_alignment",
     "passesTemplate": "passes_template",
+    "pocketPivot": "pocket_pivot",
+    "powerTrend": "power_trend",
+}
+
+# Filters whose value is a list of accepted strings (membership test).
+LIST_FILTER_TO_FIELD: dict[str, str] = {
+    "sePatternPrimary": "se_pattern_primary",
 }
 
 # ---------------------------------------------------------------------------
@@ -240,6 +248,124 @@ PRESET_SCREENS: list[dict] = [
         "sort_by": "ipo_score",
         "sort_order": "desc",
     },
+    {
+        "id": "pocket_pivot",
+        "name": "Pocket Pivot",
+        "short_name": "Pocket Pivot",
+        "description": "Up-day volume exceeding every down day of the prior 10 sessions",
+        "tier": 2,
+        "filters": {
+            "pocketPivot": True,
+            "rsRating": {"min": 70, "max": None},
+        },
+        "sort_by": "volume_surge",
+        "sort_order": "desc",
+    },
+    {
+        "id": "power_trend",
+        "name": "Power Trend",
+        "short_name": "Power Trend",
+        "description": "Minervini Power Trend: price riding the 21-EMA above a rising 50-SMA",
+        "tier": 2,
+        "filters": {
+            "powerTrend": True,
+            "rsRating": {"min": 80, "max": None},
+        },
+        "sort_by": "rs_rating",
+        "sort_order": "desc",
+    },
+    {
+        "id": "accumulation",
+        "name": "Under Accumulation",
+        "short_name": "Accumulation",
+        "description": "Strong 10-day up/down volume ratio signalling institutional buying",
+        "tier": 2,
+        "filters": {
+            "seUpDownVolume": {"min": 1.5, "max": None},
+            "rsRating": {"min": 80, "max": None},
+            "stage": 2,
+        },
+        "sort_by": "se_up_down_volume_ratio_10d",
+        "sort_order": "desc",
+    },
+    {
+        "id": "se_cup_handle",
+        "name": "Cup with Handle",
+        "short_name": "Cup & Handle",
+        "description": "Setup Engine cup-with-handle base detections in strong stocks",
+        "tier": 2,
+        "filters": {
+            "sePatternPrimary": ["cup_with_handle"],
+            "rsRating": {"min": 70, "max": None},
+        },
+        "sort_by": "se_setup_score",
+        "sort_order": "desc",
+    },
+    {
+        "id": "se_double_bottom",
+        "name": "Double Bottom",
+        "short_name": "Double Bottom",
+        "description": "Setup Engine double-bottom base detections in strong stocks",
+        "tier": 2,
+        "filters": {
+            "sePatternPrimary": ["double_bottom"],
+            "rsRating": {"min": 70, "max": None},
+        },
+        "sort_by": "se_setup_score",
+        "sort_order": "desc",
+    },
+    {
+        "id": "se_high_tight_flag",
+        "name": "High Tight Flag",
+        "short_name": "High Tight Flag",
+        "description": "Setup Engine high-tight-flag detections — explosive momentum bases",
+        "tier": 2,
+        "filters": {
+            "sePatternPrimary": ["high_tight_flag"],
+            "rsRating": {"min": 80, "max": None},
+        },
+        "sort_by": "se_setup_score",
+        "sort_order": "desc",
+    },
+    {
+        "id": "se_first_pullback",
+        "name": "First Pullback",
+        "short_name": "First Pullback",
+        "description": "Setup Engine first-pullback detections after a breakout",
+        "tier": 2,
+        "filters": {
+            "sePatternPrimary": ["first_pullback"],
+            "rsRating": {"min": 70, "max": None},
+        },
+        "sort_by": "se_setup_score",
+        "sort_order": "desc",
+    },
+    {
+        "id": "se_three_weeks_tight",
+        "name": "Three Weeks Tight",
+        "short_name": "3 Weeks Tight",
+        "description": "Setup Engine three-weeks-tight continuation detections",
+        "tier": 2,
+        "filters": {
+            "sePatternPrimary": ["three_weeks_tight"],
+            "rsRating": {"min": 70, "max": None},
+        },
+        "sort_by": "se_setup_score",
+        "sort_order": "desc",
+    },
+    {
+        "id": "se_nr7_inside_day",
+        "name": "NR7 / Inside Day",
+        "short_name": "NR7 / Inside",
+        "description": "Setup Engine NR7 / inside-day volatility-contraction triggers",
+        "tier": 2,
+        "filters": {
+            "sePatternPrimary": ["nr7_inside_day"],
+            "rsRating": {"min": 70, "max": None},
+        },
+        "sort_by": "se_setup_score",
+        "sort_order": "desc",
+    },
     # -- Tier 3: Super Scanners (Market-Metrics inspired) --
     {
         "id": "gainers_4pct",
@@ -317,6 +443,13 @@ def _matches_preset_filters(row: dict, filters: dict) -> bool:
             field = SCALAR_FILTER_TO_FIELD[key]
             row_val = row.get(field)
             if row_val is None or row_val < value:
+                return False
+            continue
+
+        # List-membership filter (e.g. se_pattern_primary)
+        if key in LIST_FILTER_TO_FIELD:
+            field = LIST_FILTER_TO_FIELD[key]
+            if row.get(field) not in value:
                 return False
             continue
 

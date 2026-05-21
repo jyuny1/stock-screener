@@ -146,6 +146,10 @@ class ScanResultItem(BaseModel):
     vcp_atr_score: Optional[float] = None
     passes_template: Optional[bool] = None
 
+    # Institutional-buying signals
+    pocket_pivot: Optional[bool] = None
+    power_trend: Optional[bool] = None
+
     # Growth fields
     adr_percent: Optional[float] = None
     eps_growth_qq: Optional[float] = None
@@ -290,6 +294,8 @@ class ScanResultItem(BaseModel):
             vcp_contraction_ratio=ef.get("vcp_contraction_ratio"),
             vcp_atr_score=ef.get("vcp_atr_score"),
             passes_template=ef.get("passes_template"),
+            pocket_pivot=ef.get("pocket_pivot"),
+            power_trend=ef.get("power_trend"),
             # Growth fields
             adr_percent=ef.get("adr_percent"),
             eps_growth_qq=ef.get("eps_growth_qq"),

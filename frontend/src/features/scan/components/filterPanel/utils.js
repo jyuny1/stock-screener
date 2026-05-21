@@ -1,7 +1,7 @@
 import { MARKET_CAP_OPTIONS, VOLUME_OPTIONS } from './constants';
 
 const NULL_RESET_KEYS = new Set(['stage', 'minVolume', 'minMarketCap', 'ipoAfter']);
-const ARRAY_RESET_KEYS = new Set(['ratings']);
+const ARRAY_RESET_KEYS = new Set(['ratings', 'sePatternPrimary']);
 const MODED_MULTI_RESET_KEYS = new Set(['ibdIndustries', 'gicsSectors']);
 const BOOLEAN_RESET_KEYS = new Set([
   'vcpDetected',
@@ -10,6 +10,8 @@ const BOOLEAN_RESET_KEYS = new Set([
   'passesTemplate',
   'seSetupReady',
   'seRsLineNewHigh',
+  'pocketPivot',
+  'powerTrend',
 ]);
 
 const SCORE_FILTERS = [
@@ -48,6 +50,7 @@ const TECH_FILTERS = [
   { key: 'seDistanceToPivot', label: 'Pvt Dist' },
   { key: 'seBbSqueeze', label: 'Squeeze' },
   { key: 'seVolumeVs50d', label: 'Vol/50d' },
+  { key: 'seUpDownVolume', label: 'U/D Vol' },
 ];
 
 function hasRangeValue(range) {
@@ -188,6 +191,15 @@ export function buildActiveFilters(filters) {
   }
   if (filters.seRsLineNewHigh != null) {
     active.push({ key: 'seRsLineNewHigh', label: `RS New Hi: ${filters.seRsLineNewHigh ? 'Yes' : 'No'}` });
+  }
+  if (filters.pocketPivot != null) {
+    active.push({ key: 'pocketPivot', label: `Pocket Pivot: ${filters.pocketPivot ? 'Yes' : 'No'}` });
+  }
+  if (filters.powerTrend != null) {
+    active.push({ key: 'powerTrend', label: `Power Trend: ${filters.powerTrend ? 'Yes' : 'No'}` });
+  }
+  if (filters.sePatternPrimary?.length) {
+    active.push({ key: 'sePatternPrimary', label: `Pattern: ${filters.sePatternPrimary.length} selected` });
   }
 
   for (const { key, label } of TECH_FILTERS) {

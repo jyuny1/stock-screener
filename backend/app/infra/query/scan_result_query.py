@@ -96,6 +96,9 @@ _JSON_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "vcp_detected": ("vcp_detected",),
     "vcp_ready_for_breakout": ("vcp_ready_for_breakout",),
     "ma_alignment": ("ma_alignment",),
+    # Institutional-buying signals (top-level details booleans)
+    "pocket_pivot": ("pocket_pivot",),
+    "power_trend": ("power_trend",),
     # Setup Engine (numeric)
     "se_setup_score": ("setup_engine", "setup_score"),
     "se_quality_score": ("setup_engine", "quality_score"),
