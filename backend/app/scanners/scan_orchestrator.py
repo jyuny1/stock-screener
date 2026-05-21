@@ -776,7 +776,7 @@ class ScanOrchestrator:
                 result["gap_percent"] = minervini_details["gap_percent"]
             if "volume_surge" in minervini_details:
                 result["volume_surge"] = minervini_details["volume_surge"]
-            # Institutional-buying signals (Pocket Pivot / Power Trend)
+            # Pocket Pivot / Power Trend signals
             if "pocket_pivot" in minervini_details:
                 result["pocket_pivot"] = minervini_details["pocket_pivot"]
             if "power_trend" in minervini_details:

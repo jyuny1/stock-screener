@@ -146,7 +146,7 @@ class ScanResultItem(BaseModel):
     vcp_atr_score: Optional[float] = None
     passes_template: Optional[bool] = None
 
-    # Institutional-buying signals
+    # Pocket Pivot / Power Trend
     pocket_pivot: Optional[bool] = None
     power_trend: Optional[bool] = None
 

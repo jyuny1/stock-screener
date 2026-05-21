@@ -275,18 +275,16 @@ class MinerviniScanner(BaseStockScreener):
             power_trend = None
             if len(prices_chrono) >= 60:
                 ema_21_series = prices_chrono.ewm(span=21, adjust=False).mean()
-                ma_50_series = prices_chrono.rolling(window=50, min_periods=50).mean()
                 ema_21_last = float(ema_21_series.iloc[-1])
-                ma_50_last = float(ma_50_series.iloc[-1])
-                ma_50_prior = float(ma_50_series.iloc[-6])
+                # 50-SMA 5 sessions ago = mean of the 50 closes ending there.
+                ma_50_prior = float(prices_chrono.iloc[-55:-5].mean())
                 closes_above_21 = bool(
                     (prices_chrono.iloc[-10:] > ema_21_series.iloc[-10:]).all()
                 )
                 power_trend = bool(
-                    not pd.isna(ma_50_prior)
-                    and current_price > ema_21_last
-                    and ema_21_last > ma_50_last
-                    and ma_50_last > ma_50_prior
+                    current_price > ema_21_last
+                    and ema_21_last > ma_50
+                    and ma_50 > ma_50_prior
                     and closes_above_21
                 )
 
@@ -446,7 +444,7 @@ class MinerviniScanner(BaseStockScreener):
                 # Episodic Pivot metrics
                 "gap_percent": round(gap_percent, 2) if gap_percent is not None else None,
                 "volume_surge": round(volume_surge, 2) if volume_surge is not None else None,
-                # Institutional-buying signals
+                # Pocket Pivot / Power Trend
                 "pocket_pivot": pocket_pivot,
                 "power_trend": power_trend,
                 # Beta and Beta-Adjusted RS metrics
