@@ -223,5 +223,22 @@ market_registry = MarketRegistry(
             benchmark_primary_kind="index",
             benchmark_fallback_kind="etf",
         ),
+        MarketProfile(
+            market=Market("MY"),
+            label="Malaysia",
+            currency="MYR",
+            timezone_name="Asia/Kuala_Lumpur",
+            calendar_id="XKLS",
+            provider_calendar_id=None,
+            exchanges=("KLSE", "MYX", "XKLS", "BURSA"),
+            indexes=("FBMKLCI",),
+            # No FBM KLCI-tracking ETF is currently listed in Malaysia (the
+            # original was delisted in 2020), so the index is the only
+            # benchmark we resolve without crossing into non-MYR proxies.
+            primary_benchmark_symbol="^KLSE",
+            benchmark_fallback_symbol=None,
+            benchmark_primary_kind="index",
+            benchmark_fallback_kind=None,
+        ),
     )
 )

@@ -12,7 +12,7 @@ const runtimeState = {
   uiSnapshots: { breadth: false },
   primaryMarket: 'HK',
   enabledMarkets: ['US', 'HK'],
-  supportedMarkets: ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'CA', 'DE', 'SG'],
+  supportedMarkets: ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'CA', 'DE', 'SG', 'MY'],
 };
 
 vi.mock('../contexts/RuntimeContext', () => ({
@@ -65,7 +65,7 @@ beforeEach(() => {
   runtimeState.uiSnapshots = { breadth: false };
   runtimeState.primaryMarket = 'HK';
   runtimeState.enabledMarkets = ['US', 'HK'];
-  runtimeState.supportedMarkets = ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'CA', 'DE', 'SG'];
+  runtimeState.supportedMarkets = ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'CA', 'DE', 'SG', 'MY'];
 
   breadthApi.getCurrentBreadth.mockImplementation((market = 'US') => Promise.resolve(breadthRow(market)));
   breadthApi.getHistoricalBreadth.mockImplementation((startDate, endDate, limit, market = 'US') => (

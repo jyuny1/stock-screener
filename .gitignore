@@ -35,6 +35,7 @@ frontend/public/static-data/
 !data/kabutan_themes_en.csv
 !data/taiwan-deep.csv
 !data/sg_sgx_constituents.csv
+!data/my_klse_constituents.csv
 !backend/data/de_dax40_constituents.csv
 *.db
 *.db-shm

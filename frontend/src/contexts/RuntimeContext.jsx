@@ -115,6 +115,16 @@ export const DEFAULT_MARKET_CATALOG = {
       indexes: ['STI'],
       capabilities: {},
     },
+    {
+      code: 'MY',
+      label: 'Malaysia',
+      currency: 'MYR',
+      timezone: 'Asia/Kuala_Lumpur',
+      calendar_id: 'XKLS',
+      exchanges: ['KLSE', 'MYX', 'XKLS', 'BURSA'],
+      indexes: ['FBMKLCI'],
+      capabilities: {},
+    },
   ],
 };
 

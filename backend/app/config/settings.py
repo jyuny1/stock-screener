@@ -229,6 +229,17 @@ class Settings(BaseSettings):
     # disable the floor and always trust the live SGX feed.
     sg_live_min_universe_size: int = 200
     sg_universe_allow_insecure_fallback: bool = False
+    # Bursa Malaysia (KLSE / Main + ACE markets). Defaults blank to force the
+    # bundled CSV fallback at launch; operators with confirmed access to a
+    # Bursa universe feed can opt in via MY_UNIVERSE_SOURCE_URL.
+    my_universe_source_url: str = ""
+    my_universe_fallback_csv_path: str = str(
+        _PROJECT_ROOT / "data" / "my_klse_constituents.csv"
+    )
+    # Bursa hosts ~900 issuers across Main + ACE markets. The bundled fallback
+    # ships the FBM KLCI 30 plus a handful of FBM Top 100 names; setting the
+    # floor at 25 catches an empty CSV without rejecting the curated seed.
+    my_live_min_universe_size: int = 25
     ibd_industry_csv_path: str = str(_PROJECT_ROOT / "data" / "IBD_industry_group.csv")
 
     # Per-market rate budget overrides. Each value is in requests-per-second
@@ -244,6 +255,7 @@ class Settings(BaseSettings):
     yfinance_rate_limit_tw: float | None = None
     yfinance_rate_limit_cn: float | None = None
     yfinance_rate_limit_sg: float | None = None
+    yfinance_rate_limit_my: float | None = None
     finviz_rate_limit_us: float | None = None
     finviz_rate_limit_hk: float | None = None
     finviz_rate_limit_in: float | None = None
@@ -252,6 +264,7 @@ class Settings(BaseSettings):
     finviz_rate_limit_tw: float | None = None
     finviz_rate_limit_cn: float | None = None
     finviz_rate_limit_sg: float | None = None
+    finviz_rate_limit_my: float | None = None
 
     # Per-market batch sizes for yfinance bulk downloads. Defaults ship via
     # RateBudgetPolicy._DEFAULT_BATCH_SIZE and may be overridden per market.
@@ -263,6 +276,7 @@ class Settings(BaseSettings):
     yfinance_batch_size_tw: int | None = None
     yfinance_batch_size_cn: int | None = None
     yfinance_batch_size_sg: int | None = None
+    yfinance_batch_size_my: int | None = None
 
     # Per-market batch interval overrides for the ``yfinance:batch`` provider key.
     # Values are in requests-per-second for that market specifically; the
@@ -278,6 +292,7 @@ class Settings(BaseSettings):
     yfinance_batch_rate_limit_tw: float | None = None
     yfinance_batch_rate_limit_cn: float | None = None
     yfinance_batch_rate_limit_sg: float | None = None
+    yfinance_batch_rate_limit_my: float | None = None
 
     # Per-market backoff cap (seconds) for consecutive 429-driven backoffs.
     # Defaults in RateBudgetPolicy._DEFAULT_BACKOFF.
@@ -289,6 +304,7 @@ class Settings(BaseSettings):
     yfinance_backoff_max_s_tw: int | None = None
     yfinance_backoff_max_s_cn: int | None = None
     yfinance_backoff_max_s_sg: int | None = None
+    yfinance_backoff_max_s_my: int | None = None
 
     # Per-market parallel worker counts for finviz (which has no batch API,
     # so concurrency is the only knob). Defaults live in
@@ -303,6 +319,7 @@ class Settings(BaseSettings):
     finviz_workers_tw: int | None = None
     finviz_workers_cn: int | None = None
     finviz_workers_sg: int | None = None
+    finviz_workers_my: int | None = None
 
     # Provider circuit breaker (services/provider_circuit_breaker.py).
     # Trips when N consecutive batches/calls hit transient 429-style errors;
@@ -318,6 +335,7 @@ class Settings(BaseSettings):
     circuit_breaker_cooldown_tw: int = 300
     circuit_breaker_cooldown_cn: int = 300
     circuit_breaker_cooldown_sg: int = 300
+    circuit_breaker_cooldown_my: int = 300
 
     # yfinance HTTP session: when enabled, calls are routed through a
     # process-wide curl_cffi session impersonating Chrome to dramatically
@@ -407,6 +425,11 @@ class Settings(BaseSettings):
     # India/HK refresh window.
     cache_warm_hour_sg: int = 5
     cache_warm_minute_sg: int = 0
+    # Bursa Malaysia closes 17:00 MYT (UTC+8) — same window as SGX. Place
+    # the warmup 30 minutes after SG so the global data_fetch worker isn't
+    # contending with two same-timezone exchanges at the same cron tick.
+    cache_warm_hour_my: int = 5
+    cache_warm_minute_my: int = 30
 
     # Enabled markets — subset of SUPPORTED_MARKETS. Lets ops disable a market
     # entirely (beat schedule skips it; its worker can be stopped).
@@ -464,6 +487,7 @@ class Settings(BaseSettings):
     provider_snapshot_min_active_coverage_ca: float = 0.70
     provider_snapshot_min_active_coverage_de: float = 0.70
     provider_snapshot_min_active_coverage_sg: float = 0.70
+    provider_snapshot_min_active_coverage_my: float = 0.70
     provider_snapshot_max_missing_ratio_us: float = 0.005
     provider_snapshot_max_missing_ratio_hk: float = 0.30
     provider_snapshot_max_missing_ratio_in: float = 0.40
@@ -474,6 +498,7 @@ class Settings(BaseSettings):
     provider_snapshot_max_missing_ratio_ca: float = 0.30
     provider_snapshot_max_missing_ratio_de: float = 0.30
     provider_snapshot_max_missing_ratio_sg: float = 0.30
+    provider_snapshot_max_missing_ratio_my: float = 0.30
     market_data_source_mode: str = "github_first"  # github_first | live_only
     github_data_repository: str = "xang1234/stock-screener"
     github_data_api_base: str = "https://api.github.com"
@@ -512,7 +537,7 @@ class Settings(BaseSettings):
         'cache_warm_hour_us', 'cache_warm_hour_hk', 'cache_warm_hour_in',
         'cache_warm_hour_jp', 'cache_warm_hour_kr', 'cache_warm_hour_tw',
         'cache_warm_hour_cn', 'cache_warm_hour_ca', 'cache_warm_hour_de',
-        'cache_warm_hour_sg'
+        'cache_warm_hour_sg', 'cache_warm_hour_my'
     )
     @classmethod
     def validate_per_market_hour(cls, v: int) -> int:
@@ -524,7 +549,7 @@ class Settings(BaseSettings):
         'cache_warm_minute_us', 'cache_warm_minute_hk', 'cache_warm_minute_in',
         'cache_warm_minute_jp', 'cache_warm_minute_kr', 'cache_warm_minute_tw',
         'cache_warm_minute_cn', 'cache_warm_minute_ca', 'cache_warm_minute_de',
-        'cache_warm_minute_sg'
+        'cache_warm_minute_sg', 'cache_warm_minute_my'
     )
     @classmethod
     def validate_per_market_minute(cls, v: int) -> int:
@@ -580,6 +605,7 @@ class Settings(BaseSettings):
         'provider_snapshot_min_active_coverage_ca',
         'provider_snapshot_min_active_coverage_de',
         'provider_snapshot_min_active_coverage_sg',
+        'provider_snapshot_min_active_coverage_my',
         'provider_snapshot_max_missing_ratio_us',
         'provider_snapshot_max_missing_ratio_hk',
         'provider_snapshot_max_missing_ratio_in',
@@ -590,6 +616,7 @@ class Settings(BaseSettings):
         'provider_snapshot_max_missing_ratio_ca',
         'provider_snapshot_max_missing_ratio_de',
         'provider_snapshot_max_missing_ratio_sg',
+        'provider_snapshot_max_missing_ratio_my',
     )
     @classmethod
     def validate_provider_snapshot_ratios(cls, v: float) -> float:
@@ -725,6 +752,7 @@ class Settings(BaseSettings):
             "CA": (self.cache_warm_hour_ca, self.cache_warm_minute_ca),
             "DE": (self.cache_warm_hour_de, self.cache_warm_minute_de),
             "SG": (self.cache_warm_hour_sg, self.cache_warm_minute_sg),
+            "MY": (self.cache_warm_hour_my, self.cache_warm_minute_my),
         }
         if m not in mapping:
             raise ValueError(f"No cache warm schedule for market {market!r}")

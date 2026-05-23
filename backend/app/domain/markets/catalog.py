@@ -205,6 +205,24 @@ MARKET_CATALOG = MarketCatalog(
                 finviz_screening=False,
             ),
         ),
+        MarketCatalogEntry(
+            code="MY",
+            label="Malaysia",
+            currency="MYR",
+            timezone="Asia/Kuala_Lumpur",
+            calendar_id="XKLS",
+            exchanges=("KLSE", "MYX", "XKLS", "BURSA"),
+            indexes=("FBMKLCI",),
+            capabilities=MarketCapabilities(
+                benchmark=True,
+                breadth=False,
+                fundamentals=True,
+                group_rankings=False,
+                feature_snapshot=True,
+                official_universe=True,
+                finviz_screening=False,
+            ),
+        ),
     ]
 )
 

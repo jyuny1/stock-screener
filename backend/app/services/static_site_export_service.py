@@ -68,6 +68,7 @@ STATIC_DEFAULT_SCAN_FILTERS_BY_MARKET: dict[str, dict[str, int | None]] = {
     "CA": {"minVolume":   1_400_000},      # ~USD 1M @ CAD 1.36
     "DE": {"minVolume":     900_000},      # ~USD 1M @ EUR 0.92
     "SG": {"minVolume":   1_300_000},      # ~USD 1M @ SGD 1.35
+    "MY": {"minVolume":   4_500_000},      # ~USD 1M @ MYR 4.5
 }
 STATIC_DEFAULT_SCAN_FILTERS_FALLBACK: dict[str, int | None] = {"minVolume": None}
 
@@ -168,6 +169,14 @@ _DEFAULT_KEY_MARKETS = {
         {"symbol": "SAP.DE", "display_name": "SAP", "currency": "EUR"},
         {"symbol": "SIE.DE", "display_name": "Siemens", "currency": "EUR"},
         {"symbol": "ALV.DE", "display_name": "Allianz", "currency": "EUR"},
+    ),
+    "MY": (
+        {"symbol": "^KLSE", "display_name": "FBM KLCI", "currency": "MYR"},
+        {"symbol": "1155.KL", "display_name": "Maybank", "currency": "MYR"},
+        {"symbol": "1295.KL", "display_name": "Public Bank", "currency": "MYR"},
+        {"symbol": "1023.KL", "display_name": "CIMB Group", "currency": "MYR"},
+        {"symbol": "5347.KL", "display_name": "Tenaga Nasional", "currency": "MYR"},
+        {"symbol": "5183.KL", "display_name": "Petronas Chemicals", "currency": "MYR"},
     ),
 }
 

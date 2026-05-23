@@ -1,4 +1,4 @@
-"""Fetch and parse official exchange universe snapshots for HK, IN, JP, KR, TW, CN, CA, DE, and SG."""
+"""Fetch and parse official exchange universe snapshots for HK, IN, JP, KR, TW, CN, CA, DE, SG, and MY."""
 
 from __future__ import annotations
 
@@ -44,6 +44,10 @@ _SG_SOURCE_NAME = "sgx_official"
 # Source identifier emitted on snapshot rows when the live SGX API is
 # unreachable / blanked and the bundled SG seed CSV is used instead.
 _SG_FALLBACK_SOURCE_NAME = "sg_manual_csv"
+_MY_SOURCE_NAME = "bursa_official"
+# Source identifier emitted when the live Bursa Malaysia feed is unconfigured
+# or unreachable and the bundled MY seed CSV is used instead.
+_MY_FALLBACK_SOURCE_NAME = "my_manual_csv"
 # SGX issuer codes follow the same ``[A-Z0-9]{1,8}`` shape the SG ingestion
 # adapter enforces — reject Yahoo-incompatible codes from the live response
 # before they reach downstream consumers.
@@ -209,6 +213,8 @@ class OfficialMarketUniverseSourceService:
             return self.fetch_de_snapshot()
         if normalized_market == "SG":
             return self.fetch_sg_snapshot()
+        if normalized_market == "MY":
+            return self.fetch_my_snapshot()
         raise ValueError(f"Official universe refresh is unsupported for market {market!r}")
 
     def fetch_hk_snapshot(self) -> OfficialMarketUniverseSnapshot:
@@ -1435,6 +1441,93 @@ class OfficialMarketUniverseSourceService:
             source_metadata=source_metadata,
             rows=tuple(rows),
         )
+
+    def fetch_my_snapshot(self) -> OfficialMarketUniverseSnapshot:
+        """Fetch the MY equity universe.
+
+        At launch Bursa Malaysia is bundled-CSV-only: there is no committed
+        live source URL. Operators with confirmed access to a Bursa universe
+        feed can set ``MY_UNIVERSE_SOURCE_URL`` to opt in — until then the
+        fallback CSV at ``settings.my_universe_fallback_csv_path`` is the
+        authoritative source. The snapshot emits ``source_name == 'my_manual_csv'``
+        and ``fetch_mode == 'csv_fallback'`` so downstream coverage gates can
+        see that the snapshot is seeded rather than live.
+        """
+        if settings.my_universe_source_url:
+            # Live MY ingestion is not yet implemented; raise so operators
+            # who set the env var know it's a no-op rather than silently
+            # falling through to the seed CSV.
+            raise NotImplementedError(
+                "Live Bursa Malaysia universe ingestion is not implemented. "
+                "Blank MY_UNIVERSE_SOURCE_URL to use the bundled CSV fallback."
+            )
+
+        logger.info(
+            "MY universe source URL is blank; using bundled fallback CSV at %s",
+            settings.my_universe_fallback_csv_path,
+        )
+        rows = self._load_my_csv_fallback()
+        if not rows:
+            raise ValueError(
+                "MY official universe fetch returned no rows (fallback CSV empty)"
+            )
+
+        fetched_at = datetime.now(UTC).isoformat()
+        snapshot_as_of = self._utc_today().isoformat()
+        source_metadata: dict[str, Any] = {
+            "source_urls": [],
+            "fetched_at": fetched_at,
+            "http_last_modified": None,
+            "tls_verification_disabled": False,
+            "fetch_mode": "csv_fallback",
+            "fetch_errors": {},
+            "row_counts": {
+                "xkls": len(rows),
+                "total": len(rows),
+            },
+            "fallback_csv_path": settings.my_universe_fallback_csv_path,
+        }
+        return OfficialMarketUniverseSnapshot(
+            market="MY",
+            source_name=_MY_FALLBACK_SOURCE_NAME,
+            snapshot_id=f"my-csv-fallback-{snapshot_as_of}",
+            snapshot_as_of=snapshot_as_of,
+            source_metadata=source_metadata,
+            rows=tuple(rows),
+        )
+
+    @classmethod
+    def _load_my_csv_fallback(cls) -> list[dict[str, Any]]:
+        """Read the bundled MY seed CSV into the same row schema as live paths."""
+        csv_path = Path(settings.my_universe_fallback_csv_path)
+        if not csv_path.exists():
+            return []
+
+        frame = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
+        rows: list[dict[str, Any]] = []
+        seen_symbols: set[str] = set()
+        for record in frame.to_dict("records"):
+            symbol = str(record.get("symbol") or "").strip().upper()
+            name = str(record.get("name") or "").strip()
+            exchange = str(record.get("exchange") or "XKLS").strip().upper() or "XKLS"
+            isin = str(record.get("isin") or "").strip().upper()
+            if not symbol or not name:
+                continue
+            if symbol in seen_symbols:
+                continue
+            seen_symbols.add(symbol)
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "exchange": exchange,
+                    "sector": "",
+                    "industry": "",
+                    "market_cap": None,
+                    "isin": isin,
+                }
+            )
+        return sorted(rows, key=lambda row: row["symbol"])
 
     def _fetch_sg_live(self) -> dict[str, Any]:
         """Download and parse the SGX securities JSON API response.

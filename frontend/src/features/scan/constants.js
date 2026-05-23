@@ -38,7 +38,7 @@ export const SCREENER_OPTIONS = [
 // Geographic markets the backend supports. TEST is a developer utility
 // and deliberately excluded — it's a pseudo-market for bypassing real
 // market selection.
-export const UNIVERSE_GEOGRAPHIC_MARKETS = ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'CA', 'DE', 'SG'];
+export const UNIVERSE_GEOGRAPHIC_MARKETS = ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'CA', 'DE', 'SG', 'MY'];
 
 export const UNIVERSE_MARKETS = [
   { value: 'US', label: 'United States' },
@@ -51,6 +51,7 @@ export const UNIVERSE_MARKETS = [
   { value: 'CA', label: 'Canada' },
   { value: 'DE', label: 'Germany' },
   { value: 'SG', label: 'Singapore' },
+  { value: 'MY', label: 'Malaysia' },
   { value: 'TEST', label: 'Test Mode' },
 ];
 
@@ -110,6 +111,11 @@ export const UNIVERSE_SCOPES_BY_MARKET = {
     { value: 'market', label: 'All Singapore' },
     { value: 'exchange:XSES', label: 'Singapore Exchange' },
     { value: 'index:STI', label: 'Straits Times Index' },
+  ],
+  MY: [
+    { value: 'market', label: 'All Malaysia' },
+    { value: 'exchange:XKLS', label: 'Bursa Malaysia' },
+    { value: 'index:FBMKLCI', label: 'FBM KLCI 30' },
   ],
   TEST: [],
 };

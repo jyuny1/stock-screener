@@ -119,7 +119,7 @@ function BreadthPage() {
     uiSnapshots,
     primaryMarket = 'US',
     enabledMarkets = ['US'],
-    supportedMarkets = ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'SG', 'CA', 'DE'],
+    supportedMarkets = ['US', 'HK', 'IN', 'JP', 'KR', 'TW', 'CN', 'SG', 'MY', 'CA', 'DE'],
   } = useRuntime();
   const queryClient = useQueryClient();
   const [selectedTab, setSelectedTab] = useState(0);

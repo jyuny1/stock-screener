@@ -65,6 +65,7 @@ const MARKET_LABELS = {
   TW: 'TW',
   CN: 'CN',
   SG: 'SG',
+  MY: 'MY',
 };
 
 const REASON_HINTS = {
