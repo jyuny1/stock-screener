@@ -802,6 +802,8 @@ def _map_feature_to_scan_result(
         "perf_6m": d.get("perf_6m"),
         "gap_percent": d.get("gap_percent"),
         "volume_surge": d.get("volume_surge"),
+        "pocket_pivot": d.get("pocket_pivot"),
+        "power_trend": d.get("power_trend"),
         "ema_10_distance": d.get("ema_10_distance"),
         "ema_20_distance": d.get("ema_20_distance"),
         "ema_50_distance": d.get("ema_50_distance"),

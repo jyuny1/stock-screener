@@ -119,6 +119,20 @@ function TechnicalFiltersSection({
             onChange={(value) => updateFilter('maAlignment', value)}
           />
         </Grid>
+        <Grid item xs={6} sm={3} md={1}>
+          <CompactCheckbox
+            label="Pkt Pivot"
+            value={filters.pocketPivot}
+            onChange={(value) => updateFilter('pocketPivot', value)}
+          />
+        </Grid>
+        <Grid item xs={6} sm={3} md={1}>
+          <CompactCheckbox
+            label="Pwr Trend"
+            value={filters.powerTrend}
+            onChange={(value) => updateFilter('powerTrend', value)}
+          />
+        </Grid>
         <Grid item xs={6} sm={4} md={1.5}>
           <CompactRangeInput
             label="1D Chg %"

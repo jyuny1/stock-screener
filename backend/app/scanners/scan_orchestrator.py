@@ -776,6 +776,11 @@ class ScanOrchestrator:
                 result["gap_percent"] = minervini_details["gap_percent"]
             if "volume_surge" in minervini_details:
                 result["volume_surge"] = minervini_details["volume_surge"]
+            # Pocket Pivot / Power Trend signals
+            if "pocket_pivot" in minervini_details:
+                result["pocket_pivot"] = minervini_details["pocket_pivot"]
+            if "power_trend" in minervini_details:
+                result["power_trend"] = minervini_details["power_trend"]
             # EMA distances (new technical filters)
             if "ema_10_distance" in minervini_details:
                 result["ema_10_distance"] = minervini_details["ema_10_distance"]

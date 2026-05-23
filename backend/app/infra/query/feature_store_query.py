@@ -111,6 +111,9 @@ _JSON_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "ma_alignment": ("ma_alignment",),
     "stage_name": ("stage_name",),
     "passes_template": ("passes_template",),
+    # Pocket Pivot / Power Trend
+    "pocket_pivot": ("pocket_pivot",),
+    "power_trend": ("power_trend",),
     "vcp_contraction_ratio": ("vcp_contraction_ratio",),
     "vcp_atr_score": ("vcp_atr_score",),
     # Setup Engine (numeric)

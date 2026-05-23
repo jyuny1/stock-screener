@@ -251,6 +251,46 @@ class MinerviniScanner(BaseStockScreener):
                 if avg_volume_50d > 0:
                     volume_surge = today_volume / avg_volume_50d
 
+            # Pocket Pivot (Gil Morales / O'Neil): an up day whose volume
+            # exceeds the largest down-day volume of the prior 10 sessions,
+            # with price holding above the 50-day MA. Requires at least one
+            # prior down day — with none there is no down-volume to clear.
+            pocket_pivot = None
+            if len(prices_chrono) >= 12 and len(volumes_chrono) >= 12:
+                close_today = float(prices_chrono.iloc[-1])
+                is_up_day = close_today > float(prices_chrono.iloc[-2])
+                prior_down_volumes = [
+                    float(volumes_chrono.iloc[-i])
+                    for i in range(2, 12)
+                    if float(prices_chrono.iloc[-i]) < float(prices_chrono.iloc[-i - 1])
+                ]
+                if not prior_down_volumes:
+                    pocket_pivot = False
+                else:
+                    pocket_pivot = bool(
+                        is_up_day
+                        and float(volumes_chrono.iloc[-1]) > max(prior_down_volumes)
+                        and close_today >= ma_50
+                    )
+
+            # Power Trend (Minervini): close > 21-EMA, 21-EMA > 50-SMA,
+            # 50-SMA rising, and 10+ consecutive closes above the 21-EMA.
+            power_trend = None
+            if len(prices_chrono) >= 60:
+                ema_21_series = prices_chrono.ewm(span=21, adjust=False).mean()
+                ema_21_last = float(ema_21_series.iloc[-1])
+                # 50-SMA 5 sessions ago = mean of the 50 closes ending there.
+                ma_50_prior = float(prices_chrono.iloc[-55:-5].mean())
+                closes_above_21 = bool(
+                    (prices_chrono.iloc[-10:] > ema_21_series.iloc[-10:]).all()
+                )
+                power_trend = bool(
+                    current_price > ema_21_last
+                    and ema_21_last > ma_50
+                    and ma_50 > ma_50_prior
+                    and closes_above_21
+                )
+
             # Reverse for calculations that expect most recent first
             prices = (
                 precomputed.close_rev
@@ -407,6 +447,9 @@ class MinerviniScanner(BaseStockScreener):
                 # Episodic Pivot metrics
                 "gap_percent": round(gap_percent, 2) if gap_percent is not None else None,
                 "volume_surge": round(volume_surge, 2) if volume_surge is not None else None,
+                # Pocket Pivot / Power Trend
+                "pocket_pivot": pocket_pivot,
+                "power_trend": power_trend,
                 # Beta and Beta-Adjusted RS metrics
                 "beta": beta_metrics.get("beta"),
                 "beta_adj_rs": beta_metrics.get("beta_adj_rs"),

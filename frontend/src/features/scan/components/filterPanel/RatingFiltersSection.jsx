@@ -2,8 +2,10 @@ import { Grid } from '@mui/material';
 import {
   CompactRangeInput,
   CompactCheckbox,
+  CompactMultiSelect,
   FilterSection,
 } from '../../../../components/Scan/filters';
+import { SE_PATTERN_OPTIONS } from './constants';
 
 function RatingFiltersSection({
   filters,
@@ -136,6 +138,17 @@ function RatingFiltersSection({
             suffix="x"
           />
         </Grid>
+        <Grid item xs={6} sm={4} md={1.2}>
+          <CompactRangeInput
+            label="U/D Vol"
+            minValue={filters.seUpDownVolume?.min}
+            maxValue={filters.seUpDownVolume?.max}
+            onChange={(range) => updateRangeFilter('seUpDownVolume', range)}
+            step={0.25}
+            minLimit={0}
+            suffix="x"
+          />
+        </Grid>
         <Grid item xs={6} sm={3} md={1}>
           <CompactCheckbox
             label="SE Ready"
@@ -148,6 +161,14 @@ function RatingFiltersSection({
             label="RS Hi"
             value={filters.seRsLineNewHigh}
             onChange={(value) => updateFilter('seRsLineNewHigh', value)}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={2.4}>
+          <CompactMultiSelect
+            label="SE Pattern"
+            values={filters.sePatternPrimary || []}
+            options={SE_PATTERN_OPTIONS}
+            onChange={(values) => updateFilter('sePatternPrimary', values)}
           />
         </Grid>
         <Grid item xs={6} sm={4} md={1.2}>

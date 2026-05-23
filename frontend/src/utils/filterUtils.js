@@ -69,6 +69,11 @@ export const buildFilterParams = (filters, options = {}) => {
   if (filters.seBbSqueeze?.max != null) params.max_se_bb_width_pctile_252 = filters.seBbSqueeze.max;
   if (filters.seVolumeVs50d?.min != null) params.min_se_volume_vs_50d = filters.seVolumeVs50d.min;
   if (filters.seVolumeVs50d?.max != null) params.max_se_volume_vs_50d = filters.seVolumeVs50d.max;
+  if (filters.seUpDownVolume?.min != null) params.min_se_up_down_volume_ratio_10d = filters.seUpDownVolume.min;
+  if (filters.seUpDownVolume?.max != null) params.max_se_up_down_volume_ratio_10d = filters.seUpDownVolume.max;
+  if (Array.isArray(filters.sePatternPrimary) && filters.sePatternPrimary.length) {
+    params.se_pattern_primary = filters.sePatternPrimary.join(',');
+  }
   if (filters.seSetupReady != null) params.se_setup_ready = filters.seSetupReady;
   if (filters.seRsLineNewHigh != null) params.se_rs_line_new_high = filters.seRsLineNewHigh;
 
@@ -107,6 +112,8 @@ export const buildFilterParams = (filters, options = {}) => {
   // Booleans
   if (filters.maAlignment != null) params.ma_alignment = filters.maAlignment;
   if (filters.passesTemplate != null) params.passes_only = filters.passesTemplate;
+  if (filters.pocketPivot != null) params.pocket_pivot = filters.pocketPivot;
+  if (filters.powerTrend != null) params.power_trend = filters.powerTrend;
 
   // Volume & Market Cap (local currency — applied at scan time)
   if (filters.minVolume != null) params.min_volume = filters.minVolume;

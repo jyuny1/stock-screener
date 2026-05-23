@@ -1,7 +1,7 @@
 import { MARKET_CAP_OPTIONS, VOLUME_OPTIONS } from './constants';
 
 const NULL_RESET_KEYS = new Set(['stage', 'minVolume', 'minMarketCap', 'ipoAfter']);
-const ARRAY_RESET_KEYS = new Set(['ratings']);
+const ARRAY_RESET_KEYS = new Set(['ratings', 'sePatternPrimary']);
 const MODED_MULTI_RESET_KEYS = new Set(['ibdIndustries', 'gicsSectors']);
 const BOOLEAN_RESET_KEYS = new Set([
   'vcpDetected',
@@ -10,6 +10,8 @@ const BOOLEAN_RESET_KEYS = new Set([
   'passesTemplate',
   'seSetupReady',
   'seRsLineNewHigh',
+  'pocketPivot',
+  'powerTrend',
 ]);
 
 const SCORE_FILTERS = [
@@ -37,7 +39,7 @@ const TECH_FILTERS = [
   { key: 'perf3m', label: '3M Chg' },
   { key: 'perf6m', label: '6M Chg' },
   { key: 'gapPercent', label: 'Gap' },
-  { key: 'volumeSurge', label: 'Vol Surge' },
+  { key: 'volumeSurge', label: 'Vol Surge', suffix: 'x' },
   { key: 'ema10Distance', label: 'vs EMA10' },
   { key: 'ema20Distance', label: 'vs EMA20' },
   { key: 'ema50Distance', label: 'vs EMA50' },
@@ -47,7 +49,8 @@ const TECH_FILTERS = [
   { key: 'betaAdjRs', label: 'β-adj RS' },
   { key: 'seDistanceToPivot', label: 'Pvt Dist' },
   { key: 'seBbSqueeze', label: 'Squeeze' },
-  { key: 'seVolumeVs50d', label: 'Vol/50d' },
+  { key: 'seVolumeVs50d', label: 'Vol/50d', suffix: 'x' },
+  { key: 'seUpDownVolume', label: 'U/D Vol', suffix: 'x' },
 ];
 
 function hasRangeValue(range) {
@@ -189,13 +192,22 @@ export function buildActiveFilters(filters) {
   if (filters.seRsLineNewHigh != null) {
     active.push({ key: 'seRsLineNewHigh', label: `RS New Hi: ${filters.seRsLineNewHigh ? 'Yes' : 'No'}` });
   }
+  if (filters.pocketPivot != null) {
+    active.push({ key: 'pocketPivot', label: `Pocket Pivot: ${filters.pocketPivot ? 'Yes' : 'No'}` });
+  }
+  if (filters.powerTrend != null) {
+    active.push({ key: 'powerTrend', label: `Power Trend: ${filters.powerTrend ? 'Yes' : 'No'}` });
+  }
+  if (filters.sePatternPrimary?.length) {
+    active.push({ key: 'sePatternPrimary', label: `Pattern: ${filters.sePatternPrimary.length} selected` });
+  }
 
-  for (const { key, label } of TECH_FILTERS) {
+  for (const { key, label, suffix = '%' } of TECH_FILTERS) {
     const range = filters[key];
     if (hasRangeValue(range)) {
       active.push({
         key,
-        label: `${label}: ${formatRangeLabel(range, { suffix: '%' })}`,
+        label: `${label}: ${formatRangeLabel(range, { suffix })}`,
       });
     }
   }
