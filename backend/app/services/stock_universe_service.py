@@ -4093,7 +4093,7 @@ class StockUniverseService:
             1,
         )
         stale_after_seconds = stale_after_hours * 3600
-        reconciliation_markets = {"HK", "IN", "JP", "KR", "TW", "CN", "SG", "MY"}
+        reconciliation_markets = {"HK", "IN", "JP", "KR", "TW", "CN", "CA", "DE", "SG", "MY"}
 
         by_market: Dict[str, Dict[str, Any]] = {
             market: {
