@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ...domain.markets.catalog import get_market_catalog
+from ...domain.universe.runtime_options import build_runtime_universe_options_payload
 from ...domain.scanning.defaults import get_default_scan_profile
 from ...database import get_db
 from ...schemas.app_runtime import (
@@ -65,6 +66,9 @@ async def get_app_capabilities(
         bootstrap_state=bootstrap_status.bootstrap_state,
         supported_markets=market_catalog.supported_market_codes(),
         market_catalog=market_catalog.as_runtime_payload(),
+        universe_options=build_runtime_universe_options_payload(
+            enabled_markets=bootstrap_status.enabled_markets,
+        ),
         auth=AppAuthStatusResponse(**auth.__dict__),
     )
 

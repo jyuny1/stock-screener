@@ -81,6 +81,71 @@ class MarketCatalogResponse(BaseModel):
     markets: list[MarketCatalogEntryResponse]
 
 
+class RuntimeUniverseSelectionResponse(BaseModel):
+    """Display metadata plus a canonical UniverseDefinition payload."""
+
+    value: str
+    label: str
+    universe_def: dict[str, Any]
+
+
+class RuntimeMicUniverseOptionResponse(RuntimeUniverseSelectionResponse):
+    """Canonical MIC-scoped Market Universe option."""
+
+    mic: str
+    aliases: list[str] = Field(default_factory=list)
+
+
+class RuntimeMicAliasOptionResponse(BaseModel):
+    """Market-scoped compatibility alias for a canonical MIC option."""
+
+    value: str
+    alias: str
+    mic: str
+    label: str
+    universe_def: dict[str, Any]
+
+
+class RuntimeIndexUniverseOptionResponse(RuntimeUniverseSelectionResponse):
+    """Canonical Index Universe option."""
+
+    key: str
+    aliases: list[str] = Field(default_factory=list)
+
+
+class RuntimeListingTierUniverseOptionResponse(RuntimeUniverseSelectionResponse):
+    """Market or MIC-scoped listing tier filter option."""
+
+    key: str
+    mic: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+
+class RuntimeUniverseMarketOptionsResponse(BaseModel):
+    """Catalog-backed Universe options for one supported Market."""
+
+    code: str
+    label: str
+    enabled: bool
+    capabilities: MarketCapabilitiesResponse
+    market: RuntimeUniverseSelectionResponse
+    mics: list[RuntimeMicUniverseOptionResponse] = Field(default_factory=list)
+    mic_aliases: list[RuntimeMicAliasOptionResponse] = Field(default_factory=list)
+    indexes: list[RuntimeIndexUniverseOptionResponse] = Field(default_factory=list)
+    listing_tiers: list[RuntimeListingTierUniverseOptionResponse] = Field(
+        default_factory=list
+    )
+
+
+class RuntimeUniverseOptionsResponse(BaseModel):
+    """Stable Universe choices plus runtime preference overlays."""
+
+    version: str
+    supported_markets: list[str]
+    enabled_markets: list[str]
+    markets: list[RuntimeUniverseMarketOptionsResponse]
+
+
 class AppCapabilitiesResponse(BaseModel):
     """Feature/capability flags exposed to the frontend."""
 
@@ -93,6 +158,7 @@ class AppCapabilitiesResponse(BaseModel):
     bootstrap_state: str = "not_started"
     supported_markets: list[str] = Field(default_factory=_supported_market_codes)
     market_catalog: MarketCatalogResponse
+    universe_options: RuntimeUniverseOptionsResponse
     api_base_path: str = "/api"
     auth: AppAuthStatusResponse = Field(default_factory=AppAuthStatusResponse)
 

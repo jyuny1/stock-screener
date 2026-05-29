@@ -89,6 +89,91 @@ async def test_app_capabilities_includes_scan_defaults(client, monkeypatch):
     assert data["api_base_path"] == "/api"
 
 
+@pytest.mark.asyncio
+async def test_app_capabilities_exposes_catalog_backed_universe_options(client, monkeypatch):
+    from app.api.v1 import app_runtime as module
+
+    class _OnlyHongKongEnabledStatus(_FakeBootstrapStatus):
+        primary_market = "HK"
+        enabled_markets = ["HK"]
+
+    monkeypatch.setattr(
+        type(module.settings),
+        "capability_flags",
+        lambda _self: {"themes": True, "chatbot": True, "tasks": True},
+    )
+    monkeypatch.setattr(
+        "app.wiring.bootstrap.get_ui_snapshot_service",
+        lambda: _FakeUISnapshotService(),
+    )
+    monkeypatch.setattr(
+        module,
+        "get_runtime_bootstrap_status",
+        lambda _db: _OnlyHongKongEnabledStatus(),
+    )
+    app.dependency_overrides[get_db] = lambda: _FakeDb()
+
+    try:
+        response = await client.get("/api/v1/app-capabilities")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 200
+    data = response.json()
+    options = data["universe_options"]
+    catalog = get_market_catalog()
+    assert options["version"] == data["market_catalog"]["version"]
+    assert options["supported_markets"] == catalog.supported_market_codes()
+    assert options["enabled_markets"] == ["HK"]
+
+    markets = {market["code"]: market for market in options["markets"]}
+    assert set(markets) == set(catalog.supported_market_codes())
+    assert markets["US"]["enabled"] is False
+    assert markets["HK"]["enabled"] is True
+    assert markets["US"]["market"]["universe_def"] == {
+        "type": "market",
+        "market": "US",
+    }
+    assert markets["HK"]["capabilities"]["official_universe"] is True
+
+    us_mics = {mic["mic"]: mic for mic in markets["US"]["mics"]}
+    assert us_mics["XNYS"]["universe_def"] == {
+        "type": "market",
+        "market": "US",
+        "mic": "XNYS",
+    }
+    assert "NYSE" in us_mics["XNYS"]["aliases"]
+
+    us_aliases = {
+        (alias["alias"], alias["mic"])
+        for alias in markets["US"]["mic_aliases"]
+    }
+    assert ("NYSE", "XNYS") in us_aliases
+
+    us_indexes = {index["key"]: index for index in markets["US"]["indexes"]}
+    assert us_indexes["SP500"]["universe_def"] == {
+        "type": "index",
+        "index": "SP500",
+    }
+
+    hk_listing_tiers = {
+        tier["key"]: tier
+        for tier in markets["HK"]["listing_tiers"]
+    }
+    assert hk_listing_tiers["main_board"]["universe_def"] == {
+        "type": "market",
+        "market": "HK",
+        "mic": "XHKG",
+        "listing_tier": "main_board",
+    }
+
+    assert "readiness" not in options
+    for market in options["markets"]:
+        assert "scan_ready" not in market
+        assert "status" not in market
+        assert "bootstrap_state" not in market
+
+
 def test_market_catalog_runtime_schema_requires_canonical_market_facts():
     payload = get_market_catalog().get("US").as_runtime_payload()
     for key in (
