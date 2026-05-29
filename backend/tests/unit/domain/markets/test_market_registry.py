@@ -44,7 +44,15 @@ def test_market_for_exchange_uses_registry_mapping() -> None:
     assert market_registry.market_for_exchange("KOSPI") == Market("KR")
     assert market_registry.market_for_exchange("KOSDAQ") == Market("KR")
     assert market_registry.market_for_exchange("SZSE") == Market("CN")
+    assert market_registry.market_for_exchange("BSE") is None
     assert market_registry.market_for_exchange("unknown") is None
+
+
+def test_mic_for_exchange_requires_market_context_for_ambiguous_aliases() -> None:
+    assert market_registry.mic_for_exchange("IN", "BSE") == "XBOM"
+    assert market_registry.mic_for_exchange("CN", "BSE") == "XBSE"
+    assert market_registry.mic_for_exchange("HK", "SEHK") == "XHKG"
+    assert market_registry.mic_for_exchange("US", "unknown") is None
 
 
 def test_custom_registry_rejects_duplicate_market_profiles() -> None:

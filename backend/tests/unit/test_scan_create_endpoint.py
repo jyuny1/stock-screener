@@ -63,17 +63,25 @@ class _ConflictCreateScanUseCase(_FakeCreateScanUseCase):
         )
 
 
-def test_scan_guard_resolves_beijing_and_bombay_exchange_codes_distinctly():
+def test_scan_guard_requires_market_context_for_ambiguous_bse_alias():
     cn_universe = UniverseDefinition(type=UniverseType.EXCHANGE, market=Market.CN, exchange=Exchange.BJSE)
-    legacy_bombay = SimpleNamespace(market=None, exchange=SimpleNamespace(value="BSE"), index=None)
+    legacy_bse = SimpleNamespace(market=None, exchange=SimpleNamespace(value="BSE"), index=None)
+    scoped_bombay = SimpleNamespace(
+        market=SimpleNamespace(value="IN"),
+        exchange=SimpleNamespace(value="BSE"),
+        index=None,
+    )
 
     assert _resolve_scan_guard_market(cn_universe) == "CN"
-    assert _resolve_scan_guard_market(legacy_bombay) == "IN"
+    assert _resolve_scan_guard_market(scoped_bombay) == "IN"
+    assert _resolve_scan_guard_market(legacy_bse) is None
 
 
 def test_scan_guard_resolves_registry_exchanges_and_indexes():
     for profile in market_registry.profiles():
         for exchange in profile.exchanges:
+            if exchange == "BSE":
+                continue
             universe = SimpleNamespace(market=None, exchange=SimpleNamespace(value=exchange), index=None)
             assert _resolve_scan_guard_market(universe) == profile.market.code
 

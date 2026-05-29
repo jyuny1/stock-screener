@@ -100,10 +100,11 @@ def test_resolve_identity_defaults_india_market_to_nse_suffix():
 def test_resolve_identity_uses_bse_suffix_for_explicit_bse_exchange():
     resolver = SecurityMasterResolver()
 
-    identity = resolver.resolve_identity(symbol="500325", exchange="xbom")
+    identity = resolver.resolve_identity(symbol="500325", market="IN", exchange="bse")
 
     assert identity.market == "IN"
-    assert identity.exchange == "XBOM"
+    assert identity.exchange == "BSE"
+    assert identity.mic == "XBOM"
     assert identity.currency == "INR"
     assert identity.timezone == "Asia/Kolkata"
     assert identity.canonical_symbol == "500325.BO"
@@ -141,19 +142,35 @@ def test_resolve_identity_uses_china_suffixes_by_exchange():
     sse = resolver.resolve_identity(symbol="600519", exchange="xshg")
     szse = resolver.resolve_identity(symbol="000001.SS", exchange="szse")
     bjse = resolver.resolve_identity(symbol="920118", market="cn", exchange="bjse")
-    india_bse = resolver.resolve_identity(symbol="500325", exchange="bse")
+    china_bse = resolver.resolve_identity(symbol="920118", market="cn", exchange="bse")
 
     assert sse.market == "CN"
+    assert sse.mic == "XSHG"
     assert sse.currency == "CNY"
     assert sse.timezone == "Asia/Shanghai"
     assert sse.canonical_symbol == "600519.SS"
     assert szse.market == "CN"
+    assert szse.mic == "XSHE"
     assert szse.canonical_symbol == "000001.SZ"
     assert bjse.market == "CN"
     assert bjse.exchange == "BJSE"
+    assert bjse.mic == "XBSE"
     assert bjse.canonical_symbol == "920118.BJ"
-    assert india_bse.market == "IN"
-    assert india_bse.canonical_symbol == "500325.BO"
+    assert china_bse.market == "CN"
+    assert china_bse.exchange == "BSE"
+    assert china_bse.mic == "XBSE"
+    assert china_bse.canonical_symbol == "920118.BJ"
+
+
+def test_resolve_identity_does_not_infer_market_from_ambiguous_bse_alias() -> None:
+    resolver = SecurityMasterResolver()
+
+    identity = resolver.resolve_identity(symbol="500325", exchange="bse")
+
+    assert identity.market == "US"
+    assert identity.exchange == "BSE"
+    assert identity.mic is None
+    assert identity.canonical_symbol == "500325"
 
 
 def test_resolve_identity_uses_singapore_suffix_by_exchange_and_market():

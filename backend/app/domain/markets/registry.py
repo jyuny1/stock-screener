@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from .market import Market
+from .mic_aliases import mic_alias_registry
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +70,19 @@ class MarketRegistry:
         return tuple(profile.market.code for profile in self._profiles)
 
     def market_for_exchange(self, exchange: str | None) -> Market | None:
-        normalized = str(exchange or "").strip().upper()
-        if not normalized:
+        resolved = mic_alias_registry.resolve_global(exchange)
+        if resolved is None:
             return None
-        return self._market_by_exchange.get(normalized)
+        return Market(resolved.market)
+
+    def mic_for_exchange(
+        self, market: Market | str | None, exchange: str | None
+    ) -> str | None:
+        if market is None:
+            return None
+        market_code = market.code if isinstance(market, Market) else str(market)
+        resolved = mic_alias_registry.resolve(market_code, exchange)
+        return resolved.mic if resolved else None
 
     def market_for_index(self, index: str | None) -> Market | None:
         normalized = str(index or "").strip().upper()
