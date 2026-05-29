@@ -7,7 +7,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from ..domain.markets import UnsupportedMarketError, market_registry
+from ..domain.markets.catalog import (
+    MarketCatalog,
+    MarketCatalogError,
+    get_market_catalog,
+)
+from ..domain.markets.mic import MicFacts
 
 try:
     import exchange_calendars as xcals  # type: ignore
@@ -25,19 +30,12 @@ class MarketCalendarService:
 
     WEEKDAY_BOUNDS_FALLBACK_MARKETS = frozenset({"CN", "SG"})
 
-    CALENDAR_ID_BY_MARKET: dict[str, str] = {
-        profile.market.code: profile.calendar_id for profile in market_registry.profiles()
-    }
-    TIMEZONE_BY_MARKET: dict[str, str] = {
-        profile.market.code: profile.timezone_name for profile in market_registry.profiles()
-    }
-    PROVIDER_CALENDAR_ID_BY_MARKET: dict[str, str] = {
-        profile.market.code: profile.provider_calendar_id
-        for profile in market_registry.profiles()
-        if profile.provider_calendar_id is not None
-    }
-
-    def __init__(self, calendar_provider=None):
+    def __init__(
+        self,
+        calendar_provider=None,
+        market_catalog: MarketCatalog | None = None,
+    ):
+        self._market_catalog = market_catalog or get_market_catalog()
         self._calendar_provider = calendar_provider
         self._xcals_provider = xcals.get_calendar if xcals is not None else None
         self._pmc_provider = pmc.get_calendar if pmc is not None else None
@@ -45,32 +43,53 @@ class MarketCalendarService:
 
     def normalize_market(self, market: str | None) -> str:
         try:
-            normalized = market_registry.profile(market or "US").market.code
-        except UnsupportedMarketError as exc:
-            raise ValueError(f"Unsupported market for calendar service: {market}")
+            normalized = self._market_catalog.get(market or "US").code
+        except MarketCatalogError as exc:
+            raise ValueError(
+                f"Unsupported market for calendar service: {market}"
+            ) from exc
         return normalized
 
-    def market_timezone(self, market: str) -> ZoneInfo:
+    def _mic_facts(self, market: str | None, *, mic: str | None = None) -> MicFacts:
         normalized = self.normalize_market(market)
-        return ZoneInfo(self.TIMEZONE_BY_MARKET[normalized])
+        return self._market_catalog.get(normalized).mic_facts_for(mic)
 
-    def market_now(self, market: str, now: datetime | None = None) -> datetime:
-        tz = self.market_timezone(market)
+    def market_timezone(self, market: str, *, mic: str | None = None) -> ZoneInfo:
+        return ZoneInfo(self._mic_facts(market, mic=mic).timezone)
+
+    def market_now(
+        self,
+        market: str,
+        now: datetime | None = None,
+        *,
+        mic: str | None = None,
+    ) -> datetime:
+        tz = self.market_timezone(market, mic=mic)
         if now is None:
             return datetime.now(tz)
         if now.tzinfo is None:
             return now.replace(tzinfo=tz)
         return now.astimezone(tz)
 
-    def calendar_id(self, market: str) -> str:
-        normalized = self.normalize_market(market)
-        return self.CALENDAR_ID_BY_MARKET[normalized]
+    def calendar_id(self, market: str, *, mic: str | None = None) -> str:
+        return self._mic_facts(market, mic=mic).calendar_id
 
-    def _get_calendar(self, market: str):
+    def provider_calendar_id(
+        self,
+        market: str,
+        *,
+        mic: str | None = None,
+    ) -> str | None:
+        return self._mic_facts(market, mic=mic).provider_calendar_id
+
+    def default_currency(self, market: str, *, mic: str | None = None) -> str:
+        return self._mic_facts(market, mic=mic).default_currency
+
+    def _get_calendar(self, market: str, *, mic: str | None = None):
         normalized = self.normalize_market(market)
-        profile = market_registry.profile(normalized)
-        calendar_id = profile.calendar_id
-        provider_calendar_id = profile.provider_calendar_id or calendar_id
+        facts = self._mic_facts(normalized, mic=mic)
+        calendar_id = facts.calendar_id
+        provider_calendar_id = facts.provider_calendar_id or calendar_id
         provider = self._calendar_provider
         uses_pmc_provider = False
         if provider is None:
@@ -142,11 +161,17 @@ class MarketCalendarService:
             candidate -= timedelta(days=1)
         return candidate
 
-    def is_trading_day(self, market: str, day: date | None = None) -> bool:
+    def is_trading_day(
+        self,
+        market: str,
+        day: date | None = None,
+        *,
+        mic: str | None = None,
+    ) -> bool:
         normalized = self.normalize_market(market)
-        candidate_day = day or self.market_now(normalized).date()
+        candidate_day = day or self.market_now(normalized, mic=mic).date()
         try:
-            calendar = self._get_calendar(normalized)
+            calendar = self._get_calendar(normalized, mic=mic)
             return self._is_session(calendar, pd.Timestamp(candidate_day))
         except Exception as exc:
             if (
@@ -156,9 +181,15 @@ class MarketCalendarService:
                 return self._is_weekday(candidate_day)
             raise
 
-    def is_market_open(self, market: str, now: datetime | None = None) -> bool:
-        calendar = self._get_calendar(market)
-        market_now = self.market_now(market, now=now)
+    def is_market_open(
+        self,
+        market: str,
+        now: datetime | None = None,
+        *,
+        mic: str | None = None,
+    ) -> bool:
+        calendar = self._get_calendar(market, mic=mic)
+        market_now = self.market_now(market, now=now, mic=mic)
         current_session = pd.Timestamp(market_now.date())
         if not self._is_session(calendar, current_session):
             return False
@@ -187,14 +218,20 @@ class MarketCalendarService:
             market_close = market_close.tz_localize("UTC")
         return bool(market_open.floor("min") <= minute_utc < market_close.floor("min"))
 
-    def last_completed_trading_day(self, market: str, now: datetime | None = None) -> date:
+    def last_completed_trading_day(
+        self,
+        market: str,
+        now: datetime | None = None,
+        *,
+        mic: str | None = None,
+    ) -> date:
         """Return the latest trading day that should already have end-of-day bars."""
         normalized = self.normalize_market(market)
-        market_now = self.market_now(normalized, now=now)
+        market_now = self.market_now(normalized, now=now, mic=mic)
         current_session = pd.Timestamp(market_now.date())
 
         try:
-            calendar = self._get_calendar(normalized)
+            calendar = self._get_calendar(normalized, mic=mic)
 
             if not self._is_session(calendar, current_session):
                 date_to_session = getattr(calendar, "date_to_session", None)
@@ -217,7 +254,9 @@ class MarketCalendarService:
             if market_close.tzinfo is None:
                 market_close = market_close.tz_localize("UTC")
             close_with_buffer = (
-                market_close.tz_convert(self.market_timezone(normalized)).to_pydatetime()
+                market_close.tz_convert(
+                    self.market_timezone(normalized, mic=mic)
+                ).to_pydatetime()
                 + timedelta(minutes=30)
             )
             if market_now >= close_with_buffer:

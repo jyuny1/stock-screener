@@ -3,7 +3,7 @@ from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from app.domain.markets.registry import market_registry
+from app.domain.markets.catalog import get_market_catalog
 from app.services.market_calendar_service import MarketCalendarService
 
 
@@ -71,11 +71,39 @@ def test_market_calendar_service_uses_canonical_calendar_ids():
     assert service.calendar_id("CN") == "XSHG"
 
 
-def test_market_calendar_service_matches_market_registry():
+def test_market_calendar_service_matches_catalog_primary_mic_facts():
     service = MarketCalendarService(calendar_provider=lambda _: _FakeCalendar())
 
-    for market in market_registry.supported_markets():
-        assert service.calendar_id(market.code) == market_registry.profile(market).calendar_id
+    catalog = get_market_catalog()
+    for market in catalog.supported_market_codes():
+        assert (
+            service.calendar_id(market)
+            == catalog.get(market).primary_mic_facts.calendar_id
+        )
+
+
+def test_market_calendar_service_uses_primary_mic_facts_for_market_level_calls():
+    service = MarketCalendarService(calendar_provider=lambda _: _FakeCalendar())
+    india = get_market_catalog().get("IN")
+    primary_facts = india.primary_mic_facts
+
+    assert service.calendar_id("IN") == primary_facts.calendar_id
+    assert service.provider_calendar_id("IN") == primary_facts.provider_calendar_id
+    assert service.market_timezone("IN").key == primary_facts.timezone
+    assert service.default_currency("IN") == primary_facts.default_currency
+
+
+def test_market_calendar_service_supports_mic_specific_fact_lookup():
+    service = MarketCalendarService(calendar_provider=lambda _: _FakeCalendar())
+    bombay_facts = get_market_catalog().get("IN").mic_facts_for("XBOM")
+
+    assert service.calendar_id("IN", mic="XBOM") == bombay_facts.calendar_id
+    assert (
+        service.provider_calendar_id("IN", mic="XBOM")
+        == bombay_facts.provider_calendar_id
+    )
+    assert service.market_timezone("IN", mic="XBOM").key == bombay_facts.timezone
+    assert service.default_currency("IN", mic="XBOM") == bombay_facts.default_currency
 
 
 def test_last_completed_trading_day_before_close_returns_previous_session():
@@ -151,11 +179,37 @@ def test_singapore_lookup_uses_exchange_calendars_calendar_id():
 
 def test_india_injected_calendar_provider_uses_provider_specific_calendar_id():
     calls = []
-    service = MarketCalendarService(calendar_provider=lambda calendar_id: calls.append(calendar_id) or _ProviderCalendar())
+    service = MarketCalendarService(
+        calendar_provider=lambda calendar_id: calls.append(calendar_id)
+        or _ProviderCalendar()
+    )
 
     service._get_calendar("IN")
 
     assert calls == ["NSE"]
+
+
+def test_injected_calendar_provider_uses_mic_specific_provider_calendar_id():
+    calls = []
+    service = MarketCalendarService(
+        calendar_provider=lambda calendar_id: calls.append(calendar_id)
+        or _ProviderCalendar()
+    )
+
+    service._get_calendar("IN", mic="XBOM")
+
+    assert calls == ["XBOM"]
+
+
+def test_trading_day_lookup_uses_mic_specific_calendar_id():
+    calls = []
+    service = MarketCalendarService(
+        calendar_provider=lambda calendar_id: calls.append(calendar_id)
+        or _FakeCalendar()
+    )
+
+    assert service.is_trading_day("IN", date(2026, 4, 10), mic="XBOM") is True
+    assert calls == ["XBOM"]
 
 
 @pytest.mark.parametrize("market", ["CN", "SG"])
