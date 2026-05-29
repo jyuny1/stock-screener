@@ -275,11 +275,15 @@ def test_endpoint_capability_allowlists_match_catalog_capabilities() -> None:
         "group_rankings"
     )
     assert scans.SUPPORTED_SCAN_REFRESH_MARKETS == _catalog_market_codes_by_capability(
-        "fundamentals"
+        "feature_snapshot"
     )
 
 
-def _assert_allowlist_assigned_from_capability_query(module, constant_name: str) -> None:
+def _assert_allowlist_assigned_from_capability_query(
+    module,
+    constant_name: str,
+    capability_name: str,
+) -> None:
     tree = ast.parse(inspect.getsource(module))
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -302,6 +306,10 @@ def _assert_allowlist_assigned_from_capability_query(module, constant_name: str)
             else None
         )
         assert function_name == "market_codes_with_capability"
+        assert len(call.args) == 1
+        capability_arg = call.args[0]
+        assert isinstance(capability_arg, ast.Constant)
+        assert capability_arg.value == capability_name
         return
 
     raise AssertionError(f"{module.__name__}.{constant_name} is missing")
@@ -311,12 +319,15 @@ def test_endpoint_capability_allowlists_are_catalog_queries_not_local_lists() ->
     _assert_allowlist_assigned_from_capability_query(
         breadth,
         "SUPPORTED_BREADTH_MARKETS",
+        "breadth",
     )
     _assert_allowlist_assigned_from_capability_query(
         groups,
         "SUPPORTED_GROUP_MARKETS",
+        "group_rankings",
     )
     _assert_allowlist_assigned_from_capability_query(
         scans,
         "SUPPORTED_SCAN_REFRESH_MARKETS",
+        "feature_snapshot",
     )

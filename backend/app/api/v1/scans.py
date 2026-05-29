@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 _market_catalog = get_market_catalog()
 SUPPORTED_SCAN_REFRESH_MARKETS = _market_catalog.market_codes_with_capability(
-    "fundamentals"
+    "feature_snapshot"
 )
 
 
