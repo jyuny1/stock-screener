@@ -2439,6 +2439,7 @@ def test_parse_au_asx_csv_raises_on_missing_header():
 
 def test_bundled_au_fallback_covers_broad_asx_universe():
     rows = OfficialMarketUniverseSourceService._load_au_csv_fallback()
+    symbols = {row["symbol"] for row in rows}
 
     assert len(rows) >= 1500
-    assert any(row["symbol"] in {"BHP.AX", "CBA.AX"} for row in rows)
+    assert {"BHP.AX", "CBA.AX"} <= symbols
