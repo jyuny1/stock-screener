@@ -332,7 +332,7 @@ def refresh_official_market_universe(
     market: str,
     activity_lifecycle: str | None = None,
 ):
-    """Refresh HK/IN/JP/TW universe snapshots from official exchange sources."""
+    """Refresh supported market universe snapshots from official exchange sources."""
     from ..services.official_market_universe_source_service import (
         OfficialMarketUniverseSourceService,
     )
