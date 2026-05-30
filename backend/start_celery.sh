@@ -29,7 +29,7 @@ echo "Starting Celery workers..."
 POOL="${CELERY_POOL:-solo}"
 
 # Enabled markets (comma-separated). Override via env to skip markets locally.
-ENABLED_MARKETS="${ENABLED_MARKETS:-US,HK,IN,JP,KR,TW,CN,CA,DE,SG,MY}"
+ENABLED_MARKETS="${ENABLED_MARKETS:-US,HK,IN,JP,KR,TW,CN,CA,DE,SG,AU,MY}"
 
 echo "  Pool: $POOL"
 echo "  Enabled markets: $ENABLED_MARKETS"

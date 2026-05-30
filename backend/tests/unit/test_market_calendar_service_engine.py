@@ -21,13 +21,14 @@ def test_calendar_ids_are_canonical_for_supported_markets():
     assert service.calendar_id("JP") == "XTKS"
     assert service.calendar_id("TW") == "XTAI"
     assert service.calendar_id("SG") == "XSES"
+    assert service.calendar_id("AU") == "XASX"
 
 
 def test_weekend_is_non_trading_day_for_all_supported_markets():
     service = MarketCalendarService()
     saturday = date(2026, 4, 11)
 
-    for market in ("US", "HK", "JP", "TW", "SG"):
+    for market in ("US", "HK", "JP", "TW", "SG", "AU"):
         assert service.is_trading_day(market, saturday) is False
 
 

@@ -218,8 +218,10 @@ class TestSettingsValidators:
         [
             ("provider_snapshot_min_active_coverage_in", 1.1),
             ("provider_snapshot_min_active_coverage_kr", 1.1),
+            ("provider_snapshot_min_active_coverage_au", 1.1),
             ("provider_snapshot_max_missing_ratio_in", -0.1),
             ("provider_snapshot_max_missing_ratio_kr", -0.1),
+            ("provider_snapshot_max_missing_ratio_au", -0.1),
         ],
     )
     def test_invalid_market_provider_snapshot_ratio(self, field_name, value):

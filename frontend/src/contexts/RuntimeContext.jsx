@@ -116,6 +116,16 @@ export const DEFAULT_MARKET_CATALOG = {
       capabilities: {},
     },
     {
+      code: 'AU',
+      label: 'Australia',
+      currency: 'AUD',
+      timezone: 'Australia/Sydney',
+      calendar_id: 'XASX',
+      exchanges: ['ASX', 'XASX'],
+      indexes: ['ASX200'],
+      capabilities: {},
+    },
+    {
       code: 'MY',
       label: 'Malaysia',
       currency: 'MYR',

@@ -132,6 +132,7 @@ describe('parseLegacyUniverseDefault', () => {
     expect(parseLegacyUniverseDefault('market:jp')).toEqual({ market: 'JP', scope: 'market' });
     expect(parseLegacyUniverseDefault('market:kr')).toEqual({ market: 'KR', scope: 'market' });
     expect(parseLegacyUniverseDefault('market:cn')).toEqual({ market: 'CN', scope: 'market' });
+    expect(parseLegacyUniverseDefault('market:au')).toEqual({ market: 'AU', scope: 'market' });
   });
 
   // The 'all' default is deliberately ambiguous (it used to mean "all US"), so
@@ -161,6 +162,14 @@ describe('UNIVERSE_SCOPES_BY_MARKET', () => {
       { value: 'exchange:SSE', label: 'Shanghai Stock Exchange' },
       { value: 'exchange:SZSE', label: 'Shenzhen Stock Exchange' },
       { value: 'exchange:BJSE', label: 'Beijing Stock Exchange' },
+    ]);
+  });
+
+  it('exposes ASX and ASX 200 scopes for Australia', () => {
+    expect(UNIVERSE_SCOPES_BY_MARKET.AU).toEqual([
+      { value: 'market', label: 'All Australia' },
+      { value: 'exchange:XASX', label: 'ASX' },
+      { value: 'index:ASX200', label: 'ASX 200' },
     ]);
   });
 });

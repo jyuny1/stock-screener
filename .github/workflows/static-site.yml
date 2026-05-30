@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        market: [US, HK, IN, JP, KR, TW, CN, CA, DE, SG, MY]
+        market: [US, HK, IN, JP, KR, TW, CN, CA, DE, SG, AU, MY]
     services:
       postgres:
         image: postgres:16-alpine
@@ -119,12 +119,12 @@ jobs:
             retry_download "${MARKET_MANIFEST}"
             echo "WEEKLY_REFERENCE_MODE=market_scoped" >> "$GITHUB_ENV"
             echo "WEEKLY_REFERENCE_MANIFEST=/tmp/weekly-reference/${MARKET_MANIFEST}" >> "$GITHUB_ENV"
-          elif printf '%s\n' "${ASSET_NAMES}" | grep -Fxq "${LEGACY_MANIFEST}"; then
+          elif [ "${{ matrix.market }}" = "US" ] && printf '%s\n' "${ASSET_NAMES}" | grep -Fxq "${LEGACY_MANIFEST}"; then
             retry_download "${LEGACY_MANIFEST}"
             echo "WEEKLY_REFERENCE_MODE=legacy" >> "$GITHUB_ENV"
             echo "WEEKLY_REFERENCE_MANIFEST=/tmp/weekly-reference/${LEGACY_MANIFEST}" >> "$GITHUB_ENV"
           else
-            echo "No weekly reference manifest found for ${MARKET_LOWER} and no legacy fallback is available." >&2
+            echo "No market-scoped weekly reference manifest found for ${MARKET_LOWER}." >&2
             exit 1
           fi
 

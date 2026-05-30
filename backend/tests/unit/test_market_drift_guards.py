@@ -43,6 +43,8 @@ DOCUMENTED_CATALOG_MIC_CODES: dict[str, set[str]] = {
     "CA": {"XTSE", "XTNX"},
     "DE": {"XETR", "XFRA"},
     "SG": {"XSES"},
+    "AU": {"XASX"},
+    "MY": {"XKLS"},
 }
 
 DOCUMENTED_CATALOG_ALIAS_CODES: dict[str, set[str]] = {
@@ -56,6 +58,8 @@ DOCUMENTED_CATALOG_ALIAS_CODES: dict[str, set[str]] = {
     "CA": {"TSX", "TSXV"},
     "DE": {"XETRA", "FRA", "FWB"},
     "SG": {"SGX", "SES"},
+    "AU": {"ASX"},
+    "MY": {"KLSE", "MYX", "BURSA"},
 }
 
 DOCUMENTED_CATALOG_CANONICAL_MICS: dict[str, tuple[str, ...]] = {
@@ -69,6 +73,8 @@ DOCUMENTED_CATALOG_CANONICAL_MICS: dict[str, tuple[str, ...]] = {
     "CA": ("XTSE", "XTNX"),
     "DE": ("XETR", "XFRA"),
     "SG": ("XSES",),
+    "AU": ("XASX",),
+    "MY": ("XKLS",),
 }
 
 DOCUMENTED_REGISTRY_ONLY_EXCHANGE_ALIASES: dict[str, set[str]] = {}

@@ -498,6 +498,7 @@ class Settings(BaseSettings):
     provider_snapshot_min_active_coverage_ca: float = 0.70
     provider_snapshot_min_active_coverage_de: float = 0.70
     provider_snapshot_min_active_coverage_sg: float = 0.70
+    provider_snapshot_min_active_coverage_au: float = 0.70
     provider_snapshot_min_active_coverage_my: float = 0.70
     provider_snapshot_max_missing_ratio_us: float = 0.005
     provider_snapshot_max_missing_ratio_hk: float = 0.30
@@ -509,6 +510,7 @@ class Settings(BaseSettings):
     provider_snapshot_max_missing_ratio_ca: float = 0.30
     provider_snapshot_max_missing_ratio_de: float = 0.30
     provider_snapshot_max_missing_ratio_sg: float = 0.30
+    provider_snapshot_max_missing_ratio_au: float = 0.30
     provider_snapshot_max_missing_ratio_my: float = 0.30
     market_data_source_mode: str = "github_first"  # github_first | live_only
     github_data_repository: str = "xang1234/stock-screener"
@@ -616,6 +618,7 @@ class Settings(BaseSettings):
         'provider_snapshot_min_active_coverage_ca',
         'provider_snapshot_min_active_coverage_de',
         'provider_snapshot_min_active_coverage_sg',
+        'provider_snapshot_min_active_coverage_au',
         'provider_snapshot_min_active_coverage_my',
         'provider_snapshot_max_missing_ratio_us',
         'provider_snapshot_max_missing_ratio_hk',
@@ -627,6 +630,7 @@ class Settings(BaseSettings):
         'provider_snapshot_max_missing_ratio_ca',
         'provider_snapshot_max_missing_ratio_de',
         'provider_snapshot_max_missing_ratio_sg',
+        'provider_snapshot_max_missing_ratio_au',
         'provider_snapshot_max_missing_ratio_my',
     )
     @classmethod

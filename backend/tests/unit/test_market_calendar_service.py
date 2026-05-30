@@ -69,6 +69,7 @@ def test_market_calendar_service_uses_canonical_calendar_ids():
     assert service.calendar_id("KR") == "XKRX"
     assert service.calendar_id("TW") == "XTAI"
     assert service.calendar_id("CN") == "XSHG"
+    assert service.calendar_id("AU") == "XASX"
 
 
 def test_market_calendar_service_matches_catalog_primary_mic_facts():

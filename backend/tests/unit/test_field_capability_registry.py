@@ -34,6 +34,7 @@ from app.services.fundamentals_completeness import (
 )
 from app.services.provider_routing_policy import (
     KNOWN_MARKETS,
+    MARKET_AU,
     MARKET_CA,
     MARKET_CN,
     MARKET_DE,
@@ -62,7 +63,7 @@ def _field_map(artifact: dict) -> dict:
 def test_registry_is_versioned_and_shape_is_deterministic():
     artifact = field_capability_registry.artifact()
 
-    assert artifact["registry_version"] == "2026.05.24.1"
+    assert artifact["registry_version"] == "2026.05.30.1"
     assert artifact["routing_policy_version"] == POLICY_VERSION
     assert artifact["markets"] == [
         MARKET_US,
@@ -72,10 +73,11 @@ def test_registry_is_versioned_and_shape_is_deterministic():
         MARKET_KR,
         MARKET_TW,
         MARKET_CN,
-        MARKET_SG,
-        MARKET_MY,
         MARKET_CA,
         MARKET_DE,
+        MARKET_SG,
+        MARKET_AU,
+        MARKET_MY,
     ]
     assert artifact["providers"] == [
         "finviz",
@@ -146,7 +148,17 @@ def test_yfinance_core_field_is_partial_for_us_and_supported_for_asia():
     # Finviz can also supply market_cap in US and is primary in the chain.
     assert us["provider_states"][PROVIDER_FINVIZ] == SUPPORT_STATE_SUPPORTED
 
-    for market in (MARKET_HK, MARKET_IN, MARKET_JP, MARKET_TW, MARKET_SG, MARKET_MY, MARKET_CA):
+    for market in (
+        MARKET_HK,
+        MARKET_IN,
+        MARKET_JP,
+        MARKET_TW,
+        MARKET_CA,
+        MARKET_DE,
+        MARKET_SG,
+        MARKET_AU,
+        MARKET_MY,
+    ):
         row = market_cap[market]
         assert row["canonical_provider"] == PROVIDER_YFINANCE
         assert row["support_state"] == SUPPORT_STATE_SUPPORTED
@@ -178,7 +190,19 @@ def test_finviz_only_field_is_unsupported_for_non_us_markets():
     assert us["fallback_behavior"] == FALLBACK_BEHAVIOR_PRIMARY
     assert us["canonical_provider_position"] == 0
 
-    for market in (MARKET_HK, MARKET_IN, MARKET_JP, MARKET_KR, MARKET_TW, MARKET_CN, MARKET_SG, MARKET_MY, MARKET_CA):
+    for market in (
+        MARKET_HK,
+        MARKET_IN,
+        MARKET_JP,
+        MARKET_KR,
+        MARKET_TW,
+        MARKET_CN,
+        MARKET_CA,
+        MARKET_DE,
+        MARKET_SG,
+        MARKET_AU,
+        MARKET_MY,
+    ):
         row = short_interest[market]
         assert row["canonical_provider"] == PROVIDER_FINVIZ
         assert row["support_state"] == SUPPORT_STATE_UNSUPPORTED
@@ -201,7 +225,19 @@ def test_technical_fields_are_computed_for_all_markets():
     assert us["provider_states"][PROVIDER_FINVIZ] == SUPPORT_STATE_SUPPORTED
     assert us["provider_states"][PROVIDER_YFINANCE] == SUPPORT_STATE_UNSUPPORTED
 
-    for market in (MARKET_HK, MARKET_IN, MARKET_JP, MARKET_KR, MARKET_TW, MARKET_CN, MARKET_SG, MARKET_MY, MARKET_CA):
+    for market in (
+        MARKET_HK,
+        MARKET_IN,
+        MARKET_JP,
+        MARKET_KR,
+        MARKET_TW,
+        MARKET_CN,
+        MARKET_CA,
+        MARKET_DE,
+        MARKET_SG,
+        MARKET_AU,
+        MARKET_MY,
+    ):
         row = rsi[market]
         assert row["canonical_provider"] == SOURCE_TECHNICALS
         assert row["support_state"] == SUPPORT_STATE_COMPUTED
@@ -229,7 +265,17 @@ def test_auxiliary_scan_field_is_enumerated():
     assert us["provider_states"][PROVIDER_YFINANCE] == SUPPORT_STATE_PARTIAL
     assert us["provider_states"][PROVIDER_FINVIZ] == SUPPORT_STATE_UNSUPPORTED
 
-    for market in (MARKET_HK, MARKET_IN, MARKET_JP, MARKET_TW, MARKET_MY, MARKET_CA):
+    for market in (
+        MARKET_HK,
+        MARKET_IN,
+        MARKET_JP,
+        MARKET_TW,
+        MARKET_CA,
+        MARKET_DE,
+        MARKET_SG,
+        MARKET_AU,
+        MARKET_MY,
+    ):
         row = first_trade_date[market]
         assert row["support_state"] == SUPPORT_STATE_SUPPORTED
         assert row["provider_states"][PROVIDER_YFINANCE] == SUPPORT_STATE_SUPPORTED
@@ -361,6 +407,16 @@ def test_sg_missing_ownership_fields_surface_non_us_gap_reason():
     availability = field_capability_registry.derive_ownership_sentiment_availability(
         data={},
         market=MARKET_SG,
+    )
+    assert availability["institutional_ownership"]["status"] == SUPPORT_STATE_UNSUPPORTED
+    assert availability["institutional_ownership"]["reason_code"] == REASON_CODE_NON_US_GAP
+
+
+def test_au_missing_ownership_fields_surface_non_us_gap_reason():
+    """AU routes to yfinance only — same non-US-gap classification as SG/DE/HK."""
+    availability = field_capability_registry.derive_ownership_sentiment_availability(
+        data={},
+        market=MARKET_AU,
     )
     assert availability["institutional_ownership"]["status"] == SUPPORT_STATE_UNSUPPORTED
     assert availability["institutional_ownership"]["reason_code"] == REASON_CODE_NON_US_GAP
