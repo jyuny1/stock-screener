@@ -92,11 +92,11 @@ const MARKET_LABELS = {
   KR: 'South Korea',
   TW: 'Taiwan',
   CN: 'China A-shares',
+  CA: 'Canada',
   DE: 'Germany',
   SG: 'Singapore',
   AU: 'Australia',
   MY: 'Malaysia',
-  CA: 'Canada',
 };
 
 const MARKET_LIVE_BENCHMARK_SYMBOLS = {
@@ -107,11 +107,11 @@ const MARKET_LIVE_BENCHMARK_SYMBOLS = {
   KR: '069500.KS',
   TW: '0050.TW',
   CN: '000300.SS',
+  CA: 'XIU.TO',
   DE: '^GDAXI',
   SG: 'ES3.SI',
   AU: 'IOZ.AX',
   MY: '^KLSE',
-  CA: 'XIU.TO',
 };
 
 function normalizeMarket(market) {

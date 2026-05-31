@@ -19,26 +19,17 @@ from ..services.market_activity_service import (
     mark_market_activity_progress,
     mark_market_activity_started,
 )
+from ..services.official_universe_dispatch import (
+    OFFICIAL_SOURCE_MARKETS as _OFFICIAL_SOURCE_MARKETS,
+    OFFICIAL_UNIVERSE_INGEST_METHODS as _OFFICIAL_UNIVERSE_INGEST_METHODS,
+    ingest_official_market_snapshot,
+)
 from ..wiring.bootstrap import get_provider_snapshot_service, get_stock_universe_service
 from .data_fetch_lock import serialized_data_fetch
 from .transient_database import raise_if_transient_database_error
 
 logger = logging.getLogger(__name__)
 
-_OFFICIAL_UNIVERSE_INGEST_METHODS = {
-    "AU": "ingest_au_snapshot_rows",
-    "HK": "ingest_hk_snapshot_rows",
-    "IN": "ingest_in_snapshot_rows",
-    "JP": "ingest_jp_snapshot_rows",
-    "KR": "ingest_kr_snapshot_rows",
-    "TW": "ingest_tw_snapshot_rows",
-    "CN": "ingest_cn_snapshot_rows",
-    "CA": "ingest_ca_snapshot_rows",
-    "DE": "ingest_de_snapshot_rows",
-    "SG": "ingest_sg_snapshot_rows",
-    "MY": "ingest_my_snapshot_rows",
-}
-_OFFICIAL_SOURCE_MARKETS = frozenset(_OFFICIAL_UNIVERSE_INGEST_METHODS)
 _GITHUB_SYNC_SUCCESS_STATUSES = frozenset({"success", "up_to_date"})
 _OFFICIAL_UNIVERSE_LOCK_RETRY_BASE_SECONDS = 300
 _OFFICIAL_UNIVERSE_LOCK_RETRY_MAX_SECONDS = 1800
@@ -139,21 +130,7 @@ def _ingest_official_snapshot(snapshot: Any) -> dict[str, Any]:
     db = SessionLocal()
     try:
         stock_universe_service = get_stock_universe_service()
-        market = str(snapshot.market or "").strip().upper()
-        method_name = _OFFICIAL_UNIVERSE_INGEST_METHODS.get(market)
-        if method_name is None:
-            raise ValueError(
-                f"Unsupported official universe snapshot market {snapshot.market!r}"
-            )
-        ingest_snapshot = getattr(stock_universe_service, method_name)
-        return ingest_snapshot(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
+        return ingest_official_market_snapshot(db, stock_universe_service, snapshot)
     finally:
         db.close()
 

@@ -108,6 +108,32 @@ def _fallback_catalog_codes_from_frontend() -> list[str]:
     return re.findall(r"code:\s*'([A-Z]{2})'", fallback_catalog)
 
 
+def _frontend_scan_geographic_market_codes() -> list[str]:
+    scan_constants = (
+        REPO_ROOT / "frontend" / "src" / "features" / "scan" / "constants.js"
+    )
+    source = scan_constants.read_text()
+    match = re.search(r"UNIVERSE_GEOGRAPHIC_MARKETS = \[([^\]]+)\]", source)
+    assert match is not None, "frontend scan market list is missing"
+    return re.findall(r"'([A-Z]{2})'", match.group(1))
+
+
+def _frontend_breadth_object_market_keys(object_name: str) -> list[str]:
+    breadth_page = REPO_ROOT / "frontend" / "src" / "pages" / "BreadthPage.jsx"
+    source = breadth_page.read_text()
+    match = re.search(rf"const {object_name} = \{{(?P<body>.*?)\n\}};", source, re.S)
+    assert match is not None, f"{object_name} is missing from BreadthPage"
+    return re.findall(r"^\s*([A-Z]{2}):", match.group("body"), re.M)
+
+
+def _frontend_breadth_default_supported_markets() -> list[str]:
+    breadth_page = REPO_ROOT / "frontend" / "src" / "pages" / "BreadthPage.jsx"
+    source = breadth_page.read_text()
+    match = re.search(r"supportedMarkets = \[([^\]]+)\]", source)
+    assert match is not None, "BreadthPage supportedMarkets fallback is missing"
+    return re.findall(r"'([A-Z]{2})'", match.group(1))
+
+
 def test_supported_market_code_surfaces_match_catalog_codes() -> None:
     expected = set(_catalog_codes())
 
@@ -271,6 +297,18 @@ def test_bse_alias_ambiguity_is_documented_with_market_context() -> None:
 
 def test_frontend_fallback_catalog_codes_match_backend_catalog_codes() -> None:
     assert _fallback_catalog_codes_from_frontend() == _catalog_codes()
+
+
+def test_frontend_fallback_market_lists_match_backend_catalog_order() -> None:
+    catalog_codes = _catalog_codes()
+
+    assert _frontend_scan_geographic_market_codes() == catalog_codes
+    assert _frontend_breadth_object_market_keys("MARKET_LABELS") == catalog_codes
+    assert (
+        _frontend_breadth_object_market_keys("MARKET_LIVE_BENCHMARK_SYMBOLS")
+        == catalog_codes
+    )
+    assert _frontend_breadth_default_supported_markets() == catalog_codes
 
 
 def test_endpoint_capability_allowlists_match_catalog_capabilities() -> None:

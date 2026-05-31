@@ -10,6 +10,7 @@ from celery.exceptions import Retry
 import pytest
 import requests
 
+from app.services.asx_official_universe_source import ASXOfficialUniverseSource
 from app.services.official_market_universe_source_service import (
     OfficialMarketUniverseSourceService,
     OfficialMarketUniverseSnapshot,
@@ -2456,13 +2457,13 @@ def test_fetch_au_snapshot_rejects_tiny_fallback_csv(monkeypatch, tmp_path):
 
 def test_parse_au_asx_csv_raises_on_missing_header():
     with pytest.raises(ValueError, match="ASX CSV header not found"):
-        OfficialMarketUniverseSourceService._parse_au_asx_csv(
+        ASXOfficialUniverseSource.parse_asx_csv(
             b"Company,Code,Industry\nBHP,BHP,Materials\n"
         )
 
 
 def test_bundled_au_fallback_covers_broad_asx_universe():
-    rows = OfficialMarketUniverseSourceService._load_au_csv_fallback()
+    rows = ASXOfficialUniverseSource.load_csv_fallback()
     symbols = {row["symbol"] for row in rows}
 
     assert len(rows) >= 1500

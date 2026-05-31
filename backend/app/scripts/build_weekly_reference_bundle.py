@@ -17,6 +17,7 @@ from app.scripts._runtime import prepare_runtime, repo_root
 from app.services.official_market_universe_source_service import (
     OfficialMarketUniverseSourceService,
 )
+from app.services.official_universe_dispatch import ingest_official_market_snapshot
 from app.services.provider_snapshot_service import ProviderSnapshotService
 from app.wiring.bootstrap import (
     get_fundamentals_cache,
@@ -248,109 +249,6 @@ def _raise_publish_blocked(
     )
 
 
-def _ingest_official_market_snapshot(db, stock_universe_service, snapshot) -> dict[str, Any]:
-    if snapshot.market == "HK":
-        return stock_universe_service.ingest_hk_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "IN":
-        return stock_universe_service.ingest_in_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "JP":
-        return stock_universe_service.ingest_jp_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "KR":
-        return stock_universe_service.ingest_kr_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "TW":
-        return stock_universe_service.ingest_tw_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "CN":
-        return stock_universe_service.ingest_cn_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "SG":
-        return stock_universe_service.ingest_sg_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "AU":
-        return stock_universe_service.ingest_au_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "CA":
-        return stock_universe_service.ingest_ca_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "DE":
-        return stock_universe_service.ingest_de_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    if snapshot.market == "MY":
-        return stock_universe_service.ingest_my_snapshot_rows(
-            db,
-            rows=snapshot.rows,
-            source_name=snapshot.source_name,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_as_of=snapshot.snapshot_as_of,
-            source_metadata=snapshot.source_metadata,
-        )
-    raise ValueError(f"Unsupported official weekly reference market {snapshot.market!r}")
-
-
 def _build_us_bundle(
     db,
     *,
@@ -534,12 +432,14 @@ def _build_asia_bundle(
     universe_error: str | None = None
     try:
         official_snapshot = official_source_service.fetch_market_snapshot(market)
-        universe_stats = _ingest_official_market_snapshot(db, stock_universe_service, official_snapshot)
+        universe_stats = ingest_official_market_snapshot(
+            db, stock_universe_service, official_snapshot
+        )
         print(f"Universe refresh complete: {universe_stats}", flush=True)
     except Exception as exc:
         if not allow_partial_publish:
             raise
-        # _ingest_official_market_snapshot may have raised mid-transaction
+        # The shared official ingestion dispatch may have raised mid-transaction
         # (after bulk_save_objects but before commit), leaving the session in
         # a doomed state. Roll back before the seeded-rows query so we don't
         # mask the original error with a PendingRollbackError. The rollback
