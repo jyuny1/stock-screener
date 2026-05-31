@@ -28,8 +28,20 @@ echo "Starting Celery workers..."
 # On Linux, you can change this to 'prefork' for parallel execution
 POOL="${CELERY_POOL:-solo}"
 
+# Supported markets and queue names are owned by the backend Market Catalog.
+SUPPORTED_MARKETS="$(./venv/bin/python - <<'PY'
+from app.tasks.market_queues import SUPPORTED_MARKETS
+print(",".join(SUPPORTED_MARKETS))
+PY
+)"
+DATA_FETCH_QUEUES="$(./venv/bin/python - <<'PY'
+from app.tasks.market_queues import all_data_fetch_queues
+print(",".join(all_data_fetch_queues()))
+PY
+)"
+
 # Enabled markets (comma-separated). Override via env to skip markets locally.
-ENABLED_MARKETS="${ENABLED_MARKETS:-US,HK,IN,JP,KR,TW,CN,CA,DE,SG,AU,MY}"
+ENABLED_MARKETS="${ENABLED_MARKETS:-$SUPPORTED_MARKETS}"
 
 echo "  Pool: $POOL"
 echo "  Enabled markets: $ENABLED_MARKETS"
@@ -47,7 +59,7 @@ echo "  Enabled markets: $ENABLED_MARKETS"
     --loglevel=info \
     --pool="$POOL" \
     --concurrency=1 \
-    -Q data_fetch_shared,data_fetch_us,data_fetch_hk,data_fetch_in,data_fetch_jp,data_fetch_kr,data_fetch_tw,data_fetch_cn,data_fetch_ca,data_fetch_de,data_fetch_sg,data_fetch_my \
+    -Q "$DATA_FETCH_QUEUES" \
     -n datafetch-global@%h &
 
 # Shared user-scans worker — same safety-net pattern for user-initiated scans.
@@ -63,13 +75,10 @@ for RAW_MARKET in "${MARKET_ARRAY[@]}"; do
     MARKET_UPPER="$(echo "$RAW_MARKET" | tr '[:lower:]' '[:upper:]' | xargs)"
     MARKET_LOWER="$(echo "$MARKET_UPPER" | tr '[:upper:]' '[:lower:]')"
 
-    case "$MARKET_UPPER" in
-        US|HK|IN|JP|KR|TW|CN|CA|DE|SG|MY) ;;
-        *)
-            echo "  Skipping unknown market: $MARKET_UPPER"
-            continue
-            ;;
-    esac
+    if [[ ",$SUPPORTED_MARKETS," != *",$MARKET_UPPER,"* ]]; then
+        echo "  Skipping unknown market: $MARKET_UPPER"
+        continue
+    fi
 
     echo "  Starting marketjobs-$MARKET_LOWER and userscans-$MARKET_LOWER workers"
 

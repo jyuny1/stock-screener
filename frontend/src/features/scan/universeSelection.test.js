@@ -150,9 +150,10 @@ describe('parseLegacyUniverseDefault', () => {
 describe('UNIVERSE_SCOPES_BY_MARKET', () => {
   it('exposes KOSPI and KOSDAQ scopes for Korea', () => {
     expect(UNIVERSE_SCOPES_BY_MARKET.KR).toEqual([
-      { value: 'market', label: 'All Korea' },
+      { value: 'market', label: 'All South Korea' },
       { value: 'exchange:KOSPI', label: 'KOSPI' },
       { value: 'exchange:KOSDAQ', label: 'KOSDAQ' },
+      { value: 'index:KOSPI', label: 'KOSPI Composite' },
     ]);
   });
 
@@ -162,6 +163,7 @@ describe('UNIVERSE_SCOPES_BY_MARKET', () => {
       { value: 'exchange:SSE', label: 'Shanghai Stock Exchange' },
       { value: 'exchange:SZSE', label: 'Shenzhen Stock Exchange' },
       { value: 'exchange:BJSE', label: 'Beijing Stock Exchange' },
+      { value: 'index:CSI300', label: 'CSI 300' },
     ]);
   });
 
@@ -169,7 +171,7 @@ describe('UNIVERSE_SCOPES_BY_MARKET', () => {
     expect(UNIVERSE_SCOPES_BY_MARKET.AU).toEqual([
       { value: 'market', label: 'All Australia' },
       { value: 'exchange:XASX', label: 'ASX' },
-      { value: 'index:ASX200', label: 'ASX 200' },
+      { value: 'index:ASX200', label: 'S&P/ASX 200' },
     ]);
   });
 });

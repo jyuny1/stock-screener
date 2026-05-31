@@ -35,3 +35,13 @@ def test_static_workflow_legacy_weekly_reference_manifest_is_us_only():
 
     assert '[ "${{ matrix.market }}" = "US" ] &&' in content
     assert "No market-scoped weekly reference manifest found" in content
+
+
+def test_local_celery_startup_derives_market_workers_from_backend_topology():
+    content = (_PROJECT_ROOT / "backend" / "start_celery.sh").read_text(encoding="utf-8")
+
+    assert "from app.tasks.market_queues import SUPPORTED_MARKETS" in content
+    assert "from app.tasks.market_queues import all_data_fetch_queues" in content
+    assert 'ENABLED_MARKETS="${ENABLED_MARKETS:-$SUPPORTED_MARKETS}"' in content
+    assert '-Q "$DATA_FETCH_QUEUES"' in content
+    assert "US|HK|IN|JP|KR|TW|CN|CA|DE|SG|MY" not in content

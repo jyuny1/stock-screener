@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..domain.markets.catalog import get_market_catalog
+
 
 OFFICIAL_UNIVERSE_INGEST_METHODS = {
     "HK": "ingest_hk_snapshot_rows",
@@ -18,7 +20,24 @@ OFFICIAL_UNIVERSE_INGEST_METHODS = {
     "AU": "ingest_au_snapshot_rows",
     "MY": "ingest_my_snapshot_rows",
 }
-OFFICIAL_SOURCE_MARKETS = frozenset(OFFICIAL_UNIVERSE_INGEST_METHODS)
+OFFICIAL_SOURCE_MARKETS = frozenset(
+    get_market_catalog().market_codes_with_capability("official_universe")
+)
+
+
+def _validate_ingest_dispatch_table() -> None:
+    method_markets = frozenset(OFFICIAL_UNIVERSE_INGEST_METHODS)
+    if method_markets == OFFICIAL_SOURCE_MARKETS:
+        return
+    missing = sorted(OFFICIAL_SOURCE_MARKETS - method_markets)
+    extra = sorted(method_markets - OFFICIAL_SOURCE_MARKETS)
+    raise RuntimeError(
+        "Official universe ingest dispatch must match Market Catalog "
+        f"official_universe capability; missing={missing}, extra={extra}"
+    )
+
+
+_validate_ingest_dispatch_table()
 
 
 def ingest_official_market_snapshot(

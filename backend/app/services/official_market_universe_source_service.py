@@ -31,6 +31,7 @@ import requests
 import urllib3
 
 from ..config import settings
+from ..domain.markets.catalog import get_market_catalog
 from .asx_official_universe_source import ASXOfficialUniverseSource
 from .official_market_universe_types import (
     FetchedSource as _FetchedSource,
@@ -177,6 +178,9 @@ _BSE_SOURCE_HEADERS = {
     "Accept": "application/json,*/*",
     "Referer": "https://www.bseindia.com/corporates/List_Scrips.html",
 }
+_OFFICIAL_SOURCE_MARKETS = frozenset(
+    get_market_catalog().market_codes_with_capability("official_universe")
+)
 
 
 class OfficialMarketUniverseSourceService:
@@ -205,6 +209,13 @@ class OfficialMarketUniverseSourceService:
 
     def fetch_market_snapshot(self, market: str) -> OfficialMarketUniverseSnapshot:
         normalized_market = str(market or "").strip().upper()
+        fetchers = self._snapshot_fetchers()
+        fetcher = fetchers.get(normalized_market)
+        if fetcher is not None:
+            return fetcher()
+        raise ValueError(f"Official universe refresh is unsupported for market {market!r}")
+
+    def _snapshot_fetchers(self) -> dict[str, Any]:
         fetchers = {
             "HK": self.fetch_hk_snapshot,
             "IN": self.fetch_in_snapshot,
@@ -218,10 +229,15 @@ class OfficialMarketUniverseSourceService:
             "MY": self.fetch_my_snapshot,
             "AU": self._asx_source.fetch_snapshot,
         }
-        fetcher = fetchers.get(normalized_market)
-        if fetcher is not None:
-            return fetcher()
-        raise ValueError(f"Official universe refresh is unsupported for market {market!r}")
+        fetcher_markets = frozenset(fetchers)
+        if fetcher_markets != _OFFICIAL_SOURCE_MARKETS:
+            missing = sorted(_OFFICIAL_SOURCE_MARKETS - fetcher_markets)
+            extra = sorted(fetcher_markets - _OFFICIAL_SOURCE_MARKETS)
+            raise RuntimeError(
+                "Official universe fetch dispatch must match Market Catalog "
+                f"official_universe capability; missing={missing}, extra={extra}"
+            )
+        return fetchers
 
     def fetch_hk_snapshot(self) -> OfficialMarketUniverseSnapshot:
         fetched = self._http_get(settings.hk_universe_source_url)

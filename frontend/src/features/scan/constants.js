@@ -58,12 +58,11 @@ export const UNIVERSE_MARKETS = [
 
 // Scope values are encoded as "kind:value" so a single Select can handle
 // exchanges, indices, and whole-market. "market" alone means every symbol
-// in the parent market. Asia index scopes (HSI/NIKKEI225/TAIEX) resolve
-// via stock_universe_index_membership — an unseeded index will still show
-// here but return zero symbols when scanned.
+// in the parent market. Index scopes resolve via stock_universe_index_membership;
+// an unseeded index will still show here but return zero symbols when scanned.
 export const UNIVERSE_SCOPES_BY_MARKET = {
   US: [
-    { value: 'market', label: 'All US' },
+    { value: 'market', label: 'All United States' },
     { value: 'exchange:NYSE', label: 'NYSE' },
     { value: 'exchange:NASDAQ', label: 'NASDAQ' },
     { value: 'exchange:AMEX', label: 'AMEX' },
@@ -71,40 +70,49 @@ export const UNIVERSE_SCOPES_BY_MARKET = {
   ],
   HK: [
     { value: 'market', label: 'All Hong Kong' },
+    { value: 'exchange:XHKG', label: 'Hong Kong Exchange' },
     { value: 'index:HSI', label: 'Hang Seng Index' },
   ],
   IN: [
     { value: 'market', label: 'All India' },
+    { value: 'exchange:XNSE', label: 'National Stock Exchange' },
+    { value: 'exchange:XBOM', label: 'Bombay Stock Exchange' },
+    { value: 'index:NIFTY50', label: 'NIFTY 50' },
   ],
   JP: [
     { value: 'market', label: 'All Japan' },
+    { value: 'exchange:XTKS', label: 'Tokyo Stock Exchange' },
     { value: 'index:NIKKEI225', label: 'Nikkei 225' },
   ],
   KR: [
-    { value: 'market', label: 'All Korea' },
+    { value: 'market', label: 'All South Korea' },
     { value: 'exchange:KOSPI', label: 'KOSPI' },
     { value: 'exchange:KOSDAQ', label: 'KOSDAQ' },
+    { value: 'index:KOSPI', label: 'KOSPI Composite' },
   ],
   TW: [
     { value: 'market', label: 'All Taiwan' },
-    { value: 'index:TAIEX', label: 'TAIEX 50' },
+    { value: 'exchange:XTAI', label: 'Taiwan Stock Exchange' },
+    { value: 'index:TAIEX', label: 'TAIEX' },
   ],
   CN: [
     { value: 'market', label: 'All China A-shares' },
     { value: 'exchange:SSE', label: 'Shanghai Stock Exchange' },
     { value: 'exchange:SZSE', label: 'Shenzhen Stock Exchange' },
     { value: 'exchange:BJSE', label: 'Beijing Stock Exchange' },
+    { value: 'index:CSI300', label: 'CSI 300' },
   ],
   CA: [
     { value: 'market', label: 'All Canada' },
     { value: 'exchange:TSX', label: 'Toronto Stock Exchange' },
     { value: 'exchange:TSXV', label: 'TSX Venture Exchange' },
+    { value: 'index:TSX_COMPOSITE', label: 'S&P/TSX Composite' },
   ],
   DE: [
     { value: 'market', label: 'All Germany' },
     { value: 'exchange:XETR', label: 'Xetra' },
     { value: 'exchange:XFRA', label: 'Frankfurt' },
-    { value: 'index:DAX', label: 'DAX 40' },
+    { value: 'index:DAX', label: 'DAX' },
     { value: 'index:MDAX', label: 'MDAX' },
     { value: 'index:SDAX', label: 'SDAX' },
   ],
@@ -116,12 +124,12 @@ export const UNIVERSE_SCOPES_BY_MARKET = {
   AU: [
     { value: 'market', label: 'All Australia' },
     { value: 'exchange:XASX', label: 'ASX' },
-    { value: 'index:ASX200', label: 'ASX 200' },
+    { value: 'index:ASX200', label: 'S&P/ASX 200' },
   ],
   MY: [
     { value: 'market', label: 'All Malaysia' },
     { value: 'exchange:XKLS', label: 'Bursa Malaysia' },
-    { value: 'index:FBMKLCI', label: 'FBM KLCI 30' },
+    { value: 'index:FBMKLCI', label: 'FTSE Bursa Malaysia KLCI' },
   ],
   TEST: [],
 };
