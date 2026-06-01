@@ -141,6 +141,16 @@ def test_ibd_industry_loader_falls_back_to_project_data_when_override_is_missing
             assert model is IBDIndustryGroup
             self.inserted.extend(rows)
 
+        def query(self, *args):
+            class _Q:
+                def filter(self, *a, **k):
+                    return self
+
+                def all(self):
+                    return []
+
+            return _Q()
+
         def rollback(self) -> None:
             self.rollback_calls += 1
 
@@ -155,12 +165,14 @@ def test_ibd_industry_loader_falls_back_to_project_data_when_override_is_missing
     loaded = ibd_industry_service.IBDIndustryService.load_from_csv(fake_db)
 
     assert loaded == 2
-    assert fake_db.execute_calls == 1
+    # Two deletes (csv-sourced rows, then classifier rows for claimed symbols).
+    assert fake_db.execute_calls == 2
     assert fake_db.commit_calls == 2
     assert fake_db.rollback_calls == 0
+    # Rows now carry provenance (source='csv', market='US').
     assert fake_db.inserted == [
-        {"symbol": "AAPL", "industry_group": "Software"},
-        {"symbol": "MSFT", "industry_group": "Software"},
+        {"symbol": "AAPL", "industry_group": "Software", "market": "US", "source": "csv"},
+        {"symbol": "MSFT", "industry_group": "Software", "market": "US", "source": "csv"},
     ]
 
 
@@ -250,6 +262,16 @@ def test_ibd_industry_loader_treats_empty_csv_path_as_unset(
             assert model is IBDIndustryGroup
             self.inserted.extend(rows)
 
+        def query(self, *args):
+            class _Q:
+                def filter(self, *a, **k):
+                    return self
+
+                def all(self):
+                    return []
+
+            return _Q()
+
         def rollback(self) -> None:
             self.rollback_calls += 1
 
@@ -266,12 +288,14 @@ def test_ibd_industry_loader_treats_empty_csv_path_as_unset(
     loaded = ibd_industry_service.IBDIndustryService.load_from_csv(fake_db, csv_path="")
 
     assert loaded == 2
-    assert fake_db.execute_calls == 1
+    # Two deletes (csv-sourced rows, then classifier rows for claimed symbols).
+    assert fake_db.execute_calls == 2
     assert fake_db.commit_calls == 2
     assert fake_db.rollback_calls == 0
+    # Rows now carry provenance (source='csv', market='US').
     assert fake_db.inserted == [
-        {"symbol": "AAPL", "industry_group": "Software"},
-        {"symbol": "MSFT", "industry_group": "Software"},
+        {"symbol": "AAPL", "industry_group": "Software", "market": "US", "source": "csv"},
+        {"symbol": "MSFT", "industry_group": "Software", "market": "US", "source": "csv"},
     ]
 
 

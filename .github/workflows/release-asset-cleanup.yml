@@ -71,6 +71,16 @@ jobs:
                       re.compile(r"^weekly-reference-(?P<date>\d{8})-.+\.json\.gz$"),
                   ),
               ),
+              Policy(
+                  release="ibd-classification-data",
+                  keep=4,
+                  mode="dates",
+                  patterns=(
+                      re.compile(
+                          r"^ibd-classification-(?P<market>[a-z]{2})-(?P<date>\d{8})-.+\.json\.gz$"
+                      ),
+                  ),
+              ),
           )
 
           def gh_json(args: list[str]) -> dict:

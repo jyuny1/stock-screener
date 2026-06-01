@@ -87,7 +87,21 @@ class SectorRotation(Base):
 
 
 class IBDIndustryGroup(Base):
-    """IBD Industry Group Classifications"""
+    """IBD Industry Group Classifications.
+
+    Historically populated US-only from the tracked ``data/IBD_industry_group.csv``.
+    The hybrid classifier (see ``IBDClassificationService``) now also fills symbols
+    and markets the CSV doesn't cover, so each row records its provenance:
+
+    - ``source``  — how the group was assigned: ``csv`` (curated, authoritative) /
+      ``manual`` (human) / ``crosswalk`` (GICS→IBD) / ``embedding`` / ``llm``.
+    - ``confidence`` — 0..1 score for auto-classified rows (NULL for csv/manual).
+    - ``method`` — finer-grained method tag (e.g. ``gics_subindustry``, ``centroid_nn``).
+    - ``model_version`` — classifier/model identifier for LLM/embedding rows.
+
+    ``csv`` and ``manual`` rows are authoritative: the classifier skips symbols that
+    already carry them, and ``import_ibd_classification_bundle`` never overwrites them.
+    """
 
     __tablename__ = "ibd_industry_groups"
 
@@ -95,12 +109,25 @@ class IBDIndustryGroup(Base):
     symbol = Column(String(20), nullable=False, unique=True, index=True)
     industry_group = Column(String(100), nullable=False, index=True)
 
+    # Market the symbol belongs to (symbols are already market-namespaced, e.g.
+    # ``0700.HK``, so ``symbol`` stays globally unique; ``market`` is for filtering
+    # and per-market coverage reporting).
+    market = Column(String(8), nullable=False, default="US", index=True)
+
+    # Provenance of the classification.
+    source = Column(String(20), nullable=False, default="csv", index=True)
+    confidence = Column(Float)
+    method = Column(String(40))
+    model_version = Column(String(80))
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         Index("idx_ibd_industry_group", "industry_group"),
+        Index("idx_ibd_industry_group_market", "market"),
+        Index("idx_ibd_industry_group_source", "source"),
     )
 
 

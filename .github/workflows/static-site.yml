@@ -202,6 +202,20 @@ jobs:
           python -m app.scripts.load_ibd_industry_groups \
             --csv ../data/IBD_industry_group.csv
 
+      # Fills IBD groups for symbols/markets the curated CSV doesn't cover (new
+      # listings, non-US markets) without overwriting CSV/manual rows. Additive
+      # and non-fatal: if the classification release isn't published yet, the
+      # build proceeds with CSV-only coverage.
+      - name: Apply IBD classification (fills gaps beyond the CSV seed)
+        continue-on-error: true
+        env:
+          GITHUB_DATA_TOKEN: ${{ github.token }}
+        run: |
+          cd backend
+          python -m app.scripts.sync_ibd_classification_from_github \
+            --market "${{ matrix.market }}" \
+            --allow-stale
+
       - name: Seed daily price bundle from GitHub
         env:
           GITHUB_DATA_TOKEN: ${{ github.token }}

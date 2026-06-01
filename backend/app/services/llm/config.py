@@ -89,6 +89,24 @@ COMPRESSION_PRESET = ModelPreset(
     fallbacks=[GROQ_LLAMA_8B],
 )
 
+# IBD industry-group classification (closed-set tiebreaker). Low temperature for
+# deterministic single-label selection. This is the *sanctioned* fallback used
+# when the env-driven OpenAI-compatible path (IBD_LLM_*) is not configured.
+IBD_CLASSIFICATION_MINIMAX = ModelConfig(
+    model_id="minimax/MiniMax-M2.7",
+    temperature=0.1,
+    max_tokens=200,
+)
+IBD_CLASSIFICATION_ZAI = ModelConfig(
+    model_id="openai/glm-4.7-flash",
+    temperature=0.1,
+    max_tokens=200,
+)
+IBD_CLASSIFICATION_PRESET = ModelPreset(
+    primary=IBD_CLASSIFICATION_MINIMAX,
+    fallbacks=[IBD_CLASSIFICATION_ZAI],
+)
+
 
 PROVIDER_ENV_VARS = {
     "groq": "GROQ_API_KEY",
@@ -125,6 +143,10 @@ SUPPORTED_MODELS_BY_USE_CASE: dict[str, set[str]] = {
         "minimax/MiniMax-M2.7",
         "openai/glm-4.7-flash",
     },
+    "ibd_classification": {
+        "minimax/MiniMax-M2.7",
+        "openai/glm-4.7-flash",
+    },
 }
 
 
@@ -133,6 +155,7 @@ DEFAULT_MODEL_BY_USE_CASE: dict[str, str] = {
     "research": "groq/qwen/qwen3-32b",
     "extraction": "minimax/MiniMax-M2.7",
     "merge": "minimax/MiniMax-M2.7",
+    "ibd_classification": "minimax/MiniMax-M2.7",
 }
 
 
@@ -163,6 +186,7 @@ def get_preset_for_use_case(use_case: str) -> ModelPreset:
         "merge": MERGE_PRESET,
         "report": REPORT_PRESET,
         "compression": COMPRESSION_PRESET,
+        "ibd_classification": IBD_CLASSIFICATION_PRESET,
     }
     return presets.get(use_case, CHATBOT_PRESET)
 

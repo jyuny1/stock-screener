@@ -59,10 +59,20 @@ class IBDIndustryService:
 
         return configured_path
 
+    # Provenance values that are authoritative and must not be clobbered by the
+    # hybrid classifier or its bundle import.
+    AUTHORITATIVE_SOURCES = ("csv", "manual")
+
     @staticmethod
     def load_from_csv(db: Session, csv_path: str = None) -> int:
         """
-        Load IBD industry groups from CSV file.
+        Load IBD industry groups from the curated CSV (US, ``source='csv'``).
+
+        The CSV is the authoritative seed layer. To preserve classifier-derived
+        rows (``source in {crosswalk, embedding, llm}``) and human overrides
+        (``source='manual'``) across reloads, this only clears ``csv`` rows rather
+        than the whole table, and drops classifier rows for any symbol the CSV now
+        claims (CSV wins) while leaving ``manual`` rows untouched.
 
         Args:
             db: Database session
@@ -77,47 +87,79 @@ class IBDIndustryService:
 
         logger.info(f"Loading IBD industry groups from {csv_path}")
 
-        # Clear existing data
-        db.execute(delete(IBDIndustryGroup))
-        db.commit()
-        logger.info("Cleared existing IBD industry data")
+        # Parse the full CSV up front so we know which symbols the curated file
+        # claims before we mutate the table.
+        parsed: dict[str, str] = {}
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            for row in csv.reader(f):
+                if len(row) != 2:
+                    continue
+                symbol, industry_group = row
+                symbol = symbol.strip().upper()
+                industry_group = industry_group.strip()
+                if not symbol or not industry_group:
+                    continue
+                parsed[symbol] = industry_group  # last write wins on dup symbol
 
-        loaded = 0
-        batch = []
+        csv_symbols = list(parsed.keys())
 
         try:
-            with open(csv_path, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
+            # 1. Clear previously-loaded CSV rows (not classifier/manual rows).
+            db.execute(
+                delete(IBDIndustryGroup).where(IBDIndustryGroup.source == "csv")
+            )
 
-                for row in reader:
-                    if len(row) != 2:
-                        continue
+            # 2. Drop classifier rows for symbols the CSV now claims (CSV is
+            #    authoritative); keep human ``manual`` rows. Chunked to respect
+            #    SQLite's bound-parameter limit.
+            for start in range(0, len(csv_symbols), 500):
+                chunk = csv_symbols[start:start + 500]
+                db.execute(
+                    delete(IBDIndustryGroup).where(
+                        IBDIndustryGroup.symbol.in_(chunk),
+                        IBDIndustryGroup.source.notin_(
+                            IBDIndustryService.AUTHORITATIVE_SOURCES
+                        ),
+                    )
+                )
+            db.commit()
+            logger.info("Cleared existing CSV-sourced IBD industry data")
 
-                    symbol, industry_group = row
-                    symbol = symbol.strip().upper()
-                    industry_group = industry_group.strip()
+            # 3. Symbols still present are ``manual`` overrides — never replace them.
+            protected: set[str] = set()
+            for start in range(0, len(csv_symbols), 500):
+                chunk = csv_symbols[start:start + 500]
+                rows = db.query(IBDIndustryGroup.symbol).filter(
+                    IBDIndustryGroup.symbol.in_(chunk)
+                ).all()
+                protected.update(r.symbol for r in rows)
+            if protected:
+                logger.info(
+                    "Preserving %d manual IBD overrides over CSV values", len(protected)
+                )
 
-                    if not symbol or not industry_group:
-                        continue
-
-                    batch.append({
-                        'symbol': symbol,
-                        'industry_group': industry_group
-                    })
-
-                    # Batch insert every 500 records
-                    if len(batch) >= 500:
-                        db.bulk_insert_mappings(IBDIndustryGroup, batch)
-                        db.commit()
-                        loaded += len(batch)
-                        logger.info(f"Loaded {loaded} IBD industry mappings...")
-                        batch = []
-
-                # Insert remaining records
-                if batch:
+            loaded = 0
+            batch = []
+            for symbol, industry_group in parsed.items():
+                if symbol in protected:
+                    continue
+                batch.append({
+                    'symbol': symbol,
+                    'industry_group': industry_group,
+                    'market': 'US',
+                    'source': 'csv',
+                })
+                if len(batch) >= 500:
                     db.bulk_insert_mappings(IBDIndustryGroup, batch)
                     db.commit()
                     loaded += len(batch)
+                    logger.info(f"Loaded {loaded} IBD industry mappings...")
+                    batch = []
+
+            if batch:
+                db.bulk_insert_mappings(IBDIndustryGroup, batch)
+                db.commit()
+                loaded += len(batch)
 
             logger.info(f"Successfully loaded {loaded} IBD industry group mappings")
             return loaded
