@@ -272,8 +272,9 @@ jobs:
         if: ${{ steps.seed.outputs.seeded == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          MARKET: ${{ matrix.market }}
         run: |
-          export MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
+          export MARKET_LOWER="$(echo "$MARKET" | tr '[:upper:]' '[:lower:]')"
           mkdir -p /tmp/ibd-prev
           PREV_BUNDLE=""
           if gh release download ibd-classification-data \
@@ -300,23 +301,27 @@ jobs:
 
       - name: Build IBD classification bundle
         if: ${{ steps.seed.outputs.seeded == 'true' }}
+        env:
+          MARKET: ${{ matrix.market }}
+          PREV_BUNDLE: ${{ steps.prev.outputs.prev_bundle }}
         run: |
           cd backend
-          PREV_ARG=""
-          if [ -n "${{ steps.prev.outputs.prev_bundle }}" ]; then
-            PREV_ARG="--prev-bundle ${{ steps.prev.outputs.prev_bundle }}"
+          PREV_ARG=()
+          if [ -n "$PREV_BUNDLE" ]; then
+            PREV_ARG=(--prev-bundle "$PREV_BUNDLE")
           fi
           python -m app.scripts.build_ibd_classification_bundle \
-            --market "${{ matrix.market }}" \
+            --market "$MARKET" \
             --output-dir /tmp/ibd-classification \
-            $PREV_ARG
+            "${PREV_ARG[@]}"
 
       - name: Upload IBD health report
         if: ${{ steps.seed.outputs.seeded == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          MARKET: ${{ matrix.market }}
         run: |
-          MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
+          MARKET_LOWER="$(echo "$MARKET" | tr '[:upper:]' '[:lower:]')"
           HEALTH_PATH="/tmp/ibd-classification/ibd-classification-health-${MARKET_LOWER}.json"
           if [ ! -f "$HEALTH_PATH" ]; then
             echo "Missing IBD health report at $HEALTH_PATH" >&2
@@ -326,14 +331,19 @@ jobs:
 
       - name: Evaluate classification health gate
         if: ${{ steps.seed.outputs.seeded == 'true' }}
+        env:
+          MARKET: ${{ matrix.market }}
+          MAX_CHURN_PCT: ${{ vars.IBD_GATE_MAX_CHURN_PCT || '25' }}
+          MIN_COVERAGE_PCT: ${{ vars.IBD_GATE_MIN_COVERAGE_PCT || '50' }}
+          GATE_MODE: ${{ github.event.inputs.gate_mode || vars.IBD_GATE_MODE || 'warn' }}
         run: |
           cd backend
-          MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
+          MARKET_LOWER="$(echo "$MARKET" | tr '[:upper:]' '[:lower:]')"
           python -m app.scripts.check_ibd_classification_gate \
             --health "/tmp/ibd-classification/ibd-classification-health-${MARKET_LOWER}.json" \
-            --max-churn-pct "${{ vars.IBD_GATE_MAX_CHURN_PCT || '25' }}" \
-            --min-coverage-pct "${{ vars.IBD_GATE_MIN_COVERAGE_PCT || '50' }}" \
-            --mode "${{ github.event.inputs.gate_mode || vars.IBD_GATE_MODE || 'warn' }}"
+            --max-churn-pct "$MAX_CHURN_PCT" \
+            --min-coverage-pct "$MIN_COVERAGE_PCT" \
+            --mode "$GATE_MODE"
 
       - name: Upload IBD classification assets
         if: ${{ steps.seed.outputs.seeded == 'true' }}
