@@ -25,6 +25,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in desktop packaging
 
 from ..database import SessionLocal
 from ..models.stock import StockFundamental
+from ..models.stock_universe import StockUniverse
 from ..config import settings
 from .errors import CacheRefreshError
 from .fundamentals_completeness import (
@@ -48,6 +49,45 @@ def _assign_if_present(record: Any, attr: str, data: Dict[str, Any], key: str) -
     payloads from wiping previously stored market-state fields."""
     if key in data and data[key] is not None:
         setattr(record, attr, data[key])
+
+
+# Sector/industry values that mean "no real classification" — foreign-market
+# universe ingest leaves these (CN="Other", HK=""), starving the IBD classifier.
+_PLACEHOLDER_CLASSIFICATION = frozenset({"", "other", "unknown", "n/a", "none"})
+
+
+def _is_meaningful_classification(value: object) -> bool:
+    """True when ``value`` is a real sector/industry label (not blank/Other/Unknown)."""
+    return bool(value) and str(value).strip().lower() not in _PLACEHOLDER_CLASSIFICATION
+
+
+def _backfill_universe_classification(db: Session, symbol: str, data: Dict[str, Any]) -> bool:
+    """Backfill ``StockUniverse.sector``/``industry`` from a fundamentals payload.
+
+    Foreign-market universe rows arrive without classification; yfinance returns it
+    on the same fundamentals fetch. Fill the universe row only where it's currently
+    missing (empty/Other/Unknown) and the fetched value is real — never clobber an
+    existing meaningful value (e.g. US finviz sectors). Returns True if anything changed.
+    """
+    sector = data.get("sector")
+    industry = data.get("industry")
+    if not (_is_meaningful_classification(sector) or _is_meaningful_classification(industry)):
+        return False
+
+    row = db.query(StockUniverse).filter(StockUniverse.symbol == symbol).first()
+    if row is None:
+        return False
+
+    changed = False
+    if _is_meaningful_classification(sector) and not _is_meaningful_classification(row.sector):
+        row.sector = str(sector).strip()
+        changed = True
+    if _is_meaningful_classification(industry) and not _is_meaningful_classification(row.industry):
+        row.industry = str(industry).strip()
+        changed = True
+    if changed:
+        logger.info("Backfilled StockUniverse sector/industry for %s from fundamentals", symbol)
+    return changed
 
 
 _RECOMMENDATION_SCORE_BY_KEY: dict[str, float | None] = {
@@ -1115,6 +1155,10 @@ class FundamentalsCacheService:
                 )
                 db.add(new_record)
                 logger.info(f"Inserted fundamental data for {symbol} in database")
+
+            # Propagate sector/industry into the universe row when it's missing
+            # there (foreign-market ingest lacks it); never clobbers a real value.
+            _backfill_universe_classification(db, symbol, data)
 
             db.commit()
 

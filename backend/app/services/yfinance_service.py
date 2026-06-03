@@ -220,6 +220,11 @@ class YFinanceService:
 
             result = {
                 "symbol": symbol,
+                # Classification — already present in ``info``; surfaced so the
+                # universe sector/industry backfill can use it (foreign-market
+                # ingest otherwise lands without sector/industry).
+                "sector": info.get("sector"),
+                "industry": info.get("industry"),
                 "market_cap": info.get("marketCap"),
                 "pe_ratio": info.get("trailingPE"),
                 "peg_ratio": info.get("pegRatio"),
