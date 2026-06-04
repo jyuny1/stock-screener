@@ -50,6 +50,13 @@ class _FakeResponse:
         return {"access_token": "access", "refresh_token": "rotated", "expires_in": 1800}
 
 
+def test_optionable_retryable_failure_classifier():
+    assert optionable_script._is_retryable_failure("http_401") is True
+    assert optionable_script._is_retryable_failure("error:Timeout") is True
+    assert optionable_script._is_retryable_failure("empty_chain") is False
+    assert optionable_script._is_retryable_failure("not_found") is False
+
+
 def test_optionable_checkpoint_loader_accepts_published_latest_artifact(tmp_path):
     checkpoint = tmp_path / "optionable-symbols-latest-us.json"
     checkpoint.write_text(
@@ -67,6 +74,51 @@ def test_optionable_checkpoint_loader_accepts_published_latest_artifact(tmp_path
 
     assert loaded["optionable"] == ["AAPL", "MSFT"]
     assert loaded["failures"] == {"XYZ": "http_401", "ABC": "empty_chain"}
+
+
+def test_optionable_scanner_refreshes_token_and_retries_401(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeChainResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+    responses = [
+        FakeChainResponse(401),
+        FakeChainResponse(200, {"callExpDateMap": {"2026-06-19:15": {}}}),
+    ]
+
+    def fake_get(url, *, params, headers, timeout):
+        calls.append({"symbol": params["symbol"], "auth": headers["Authorization"]})
+        return responses.pop(0)
+
+    class FakeTokenService:
+        def refresh_from_env(self):
+            return SimpleNamespace(access_token="new-access", new_refresh_token="new-refresh")
+
+    token_path = tmp_path / "new-refresh.txt"
+    monkeypatch.setattr(optionable_script.requests, "get", fake_get)
+    scanner = optionable_script.SchwabOptionableScanner(
+        access_token="expired-access",
+        calls_per_minute=120,
+        token_service=FakeTokenService(),
+        new_refresh_token_path=token_path,
+    )
+
+    is_optionable, reason = scanner.is_optionable("MSFT")
+
+    assert is_optionable is True
+    assert reason is None
+    assert scanner.refresh_count == 1
+    assert token_path.read_text(encoding="utf-8") == "new-refresh"
+    assert calls == [
+        {"symbol": "MSFT", "auth": "Bearer expired-access"},
+        {"symbol": "MSFT", "auth": "Bearer new-access"},
+    ]
 
 
 def test_schwab_token_service_refreshes_without_logging_secret(monkeypatch):
@@ -202,6 +254,8 @@ def test_workflows_default_static_us_to_optionable():
     assert "SCHWAB_SECRET_WRITE_TOKEN" in optionable
     assert "Refresh Schwab token and persist rotation" in optionable
     assert "retry_errors_from_latest" in optionable
+    assert "max_retry_rounds" in optionable
+    assert "--max-retry-rounds" in optionable
     assert "Seed checkpoint from latest artifact" in optionable
     assert "cp /tmp/optionable-symbols/optionable-symbols-latest-us.json /tmp/optionable-symbols/checkpoint.json" in optionable
     assert "SCHWAB_ACCESS_TOKEN=$(cat /tmp/schwab-access-token.txt)" in optionable

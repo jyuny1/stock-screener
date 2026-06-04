@@ -128,6 +128,10 @@ def _write_checkpoint(path: Path | None, *, optionable: set[str], failures: dict
     )
 
 
+def _is_retryable_failure(reason: str | None) -> bool:
+    return str(reason or "").startswith(("http_", "error:"))
+
+
 def build_optionable_payload(
     *,
     dry_run: bool,
@@ -135,6 +139,7 @@ def build_optionable_payload(
     max_symbols: int | None,
     checkpoint_path: Path | None,
     calls_per_minute: int,
+    max_retry_rounds: int = 3,
 ) -> dict[str, Any]:
     service = NasdaqTraderUniverseService()
     snapshot = service.fetch_clean_snapshot()
@@ -150,7 +155,7 @@ def build_optionable_payload(
     retryable_failures = {
         symbol
         for symbol, reason in failures.items()
-        if reason.startswith(("http_", "error:"))
+        if _is_retryable_failure(reason)
     }
     checked_before = optionable | (set(failures) - retryable_failures)
 
@@ -179,23 +184,44 @@ def build_optionable_payload(
             new_refresh_token_path=new_refresh_token_path,
         )
         retry_candidates = [symbol for symbol in candidates if symbol not in checked_before]
-        total = len(retry_candidates)
-        for index, symbol in enumerate(retry_candidates, start=1):
-            try:
-                is_optionable, reason = scanner.is_optionable(symbol)
-            except Exception as exc:  # pragma: no cover - defensive around remote API
-                is_optionable, reason = False, f"error:{type(exc).__name__}"
-            if is_optionable:
-                optionable.add(symbol)
-                failures.pop(symbol, None)
-            else:
-                failures[symbol] = reason or "not_optionable"
-            if index % 25 == 0 or index == total:
-                print(
-                    f"[chains] retried {index}/{total} optionable={len(optionable)} failures={len(failures)}",
-                    flush=True,
-                )
-                _write_checkpoint(checkpoint_path, optionable=optionable, failures=failures)
+        retry_budget = max(0, int(max_retry_rounds))
+        round_index = 0
+        while retry_candidates:
+            round_index += 1
+            total = len(retry_candidates)
+            round_label = "initial" if round_index == 1 else f"retry {round_index - 1}/{retry_budget}"
+            print(f"[chains] starting {round_label} round for {total} symbols", flush=True)
+            for index, symbol in enumerate(retry_candidates, start=1):
+                try:
+                    is_optionable, reason = scanner.is_optionable(symbol)
+                except Exception as exc:  # pragma: no cover - defensive around remote API
+                    is_optionable, reason = False, f"error:{type(exc).__name__}"
+                if is_optionable:
+                    optionable.add(symbol)
+                    failures.pop(symbol, None)
+                else:
+                    failures[symbol] = reason or "not_optionable"
+                if index % 25 == 0 or index == total:
+                    print(
+                        f"[chains] {round_label} {index}/{total} "
+                        f"optionable={len(optionable)} failures={len(failures)}",
+                        flush=True,
+                    )
+                    _write_checkpoint(checkpoint_path, optionable=optionable, failures=failures)
+
+            retryable_after_round = [
+                symbol
+                for symbol in retry_candidates
+                if _is_retryable_failure(failures.get(symbol))
+            ]
+            if not retryable_after_round or round_index > retry_budget:
+                break
+            print(
+                f"[chains] {len(retryable_after_round)} retryable API failures remain; "
+                "starting another retry round",
+                flush=True,
+            )
+            retry_candidates = retryable_after_round
 
     selected = sorted(symbol for symbol in optionable if symbol in rows_by_symbol)
     metadata = {symbol: asdict(rows_by_symbol[symbol]) for symbol in selected}
@@ -238,6 +264,12 @@ def main() -> int:
         default=0,
         help="Maximum allowed http_/error: scan failures before exiting non-zero (default 0).",
     )
+    parser.add_argument(
+        "--max-retry-rounds",
+        type=int,
+        default=3,
+        help="Additional rounds for retryable http_/error: scan failures before finalizing (default 3).",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -250,6 +282,7 @@ def main() -> int:
         max_symbols=args.max_symbols,
         checkpoint_path=checkpoint_path,
         calls_per_minute=args.calls_per_minute,
+        max_retry_rounds=max(0, int(args.max_retry_rounds)),
     )
     latest_path = output_dir / args.output_name
     latest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

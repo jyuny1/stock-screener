@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: false
+      max_retry_rounds:
+        description: "Additional in-run retry rounds for remaining http_/error failures."
+        required: false
+        type: string
+        default: '3'
 
 concurrency:
   group: schwab-token-refresh
@@ -155,6 +160,7 @@ jobs:
           SCHWAB_NEW_REFRESH_TOKEN_FILE: /tmp/schwab-new-refresh-token.txt
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_MAX_SYMBOLS: ${{ github.event.inputs.max_symbols }}
+          INPUT_MAX_RETRY_ROUNDS: ${{ github.event.inputs.max_retry_rounds || '3' }}
         run: |
           cd backend
           args=(--output-dir /tmp/optionable-symbols --checkpoint /tmp/optionable-symbols/checkpoint.json)
@@ -164,6 +170,7 @@ jobs:
           if [ -n "$INPUT_MAX_SYMBOLS" ]; then
             args+=(--max-symbols "$INPUT_MAX_SYMBOLS")
           fi
+          args+=(--max-retry-rounds "${INPUT_MAX_RETRY_ROUNDS:-3}")
           python -m app.scripts.build_optionable_symbols "${args[@]}"
 
       - name: Persist final Schwab refresh token
