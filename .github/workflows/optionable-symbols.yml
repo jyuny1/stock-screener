@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: ''
+      retry_errors_from_latest:
+        description: "Seed checkpoint from latest artifact and retry only prior http_/error failures."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: schwab-token-refresh
@@ -128,6 +133,19 @@ jobs:
           cat /tmp/schwab-new-refresh-token.txt | gh secret set SCHWAB_REFRESH_TOKEN \
             --repo "${{ github.repository }}" \
             --app actions
+
+      - name: Seed checkpoint from latest artifact
+        if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.retry_errors_from_latest == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
+        run: |
+          mkdir -p /tmp/optionable-symbols
+          gh release download optionable-symbols \
+            --repo "${{ github.repository }}" \
+            --pattern "optionable-symbols-latest-us.json" \
+            --dir /tmp/optionable-symbols \
+            --clobber
+          cp /tmp/optionable-symbols/optionable-symbols-latest-us.json /tmp/optionable-symbols/checkpoint.json
 
       - name: Build optionable symbols artifact
         if: ${{ steps.cadence.outputs.run_scan == 'true' }}
