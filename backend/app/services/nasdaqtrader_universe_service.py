@@ -128,7 +128,9 @@ class NasdaqTraderUniverseService:
         rows: list[NasdaqTraderSymbol] = []
         for record in _pipe_records(text):
             symbol = _normalize_symbol(record.get("ACT Symbol"))
-            listing_exchange = (record.get("Listing Exchange") or "").strip().upper()
+            listing_exchange = (
+                record.get("Listing Exchange") or record.get("Exchange") or ""
+            ).strip().upper()
             if not symbol or listing_exchange not in _ALLOWED_OTHER_LISTING_EXCHANGES:
                 continue
             exchange, mic = _ALLOWED_OTHER_LISTING_EXCHANGES[listing_exchange]

@@ -22,11 +22,12 @@ ABCW|ABC Warrants|Q|N|N|100|N|N
 FOO.U|Foo Units|Q|N|N|100|N|N
 File Creation Time: 2026-06-04
 """
-    other_text = """ACT Symbol|Security Name|Exchange|Listing Exchange|Market Category|Reg SHO Threshold Flag|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
-SPY|SPDR S&P 500 ETF Trust|P|P|N|N|Y|100|N|SPY
-BRK.B|Berkshire Hathaway Class B|N|N|N|N|N|100|N|BRK.B
-XYZ|XYZ Debenture|A|A|N|N|N|100|N|XYZ
-CBOE|Cboe Listed Co|Z|Z|N|N|N|100|N|CBOE
+    other_text = """ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
+SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY
+HAL|Halliburton Company Common Stock|N|HAL|N|100|N|HAL
+BRK.B|Berkshire Hathaway Class B|N|BRK.B|N|100|N|BRK.B
+XYZ|XYZ Debenture|A|XYZ|N|100|N|XYZ
+CBOE|Cboe Listed Co|Z|CBOE|N|100|N|CBOE
 File Creation Time: 2026-06-04
 """
 
@@ -37,7 +38,7 @@ File Creation Time: 2026-06-04
     service = NasdaqTraderUniverseService(etf_allowlist={"SPY"})
     kept = [row.symbol for row in rows if service._keep_symbol(row)]
 
-    assert kept == ["AAPL", "SPY"]
+    assert kept == ["AAPL", "SPY", "HAL"]
 
 
 class _FakeResponse:
