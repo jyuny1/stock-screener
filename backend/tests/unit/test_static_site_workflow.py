@@ -22,10 +22,7 @@ def _build_market_job() -> str:
 
 def _combine_and_build_job() -> str:
     content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
-    return content.split("  combine-and-build:\n", 1)[1].split(
-        "\n  deploy:",
-        1,
-    )[0]
+    return content.split("  combine-and-build:\n", 1)[1]
 
 
 def _fallback_download_script() -> str:
@@ -80,6 +77,26 @@ def test_static_site_market_export_skips_artifact_steps_for_closed_market() -> N
     assert "steps.export-market.outputs.has_artifact == 'true'" in build_price_step
     assert "steps.export-market.outputs.has_artifact == 'true'" in upload_price_step
     assert "steps.export-market.outputs.has_artifact == 'true'" in upload_market_step
+
+
+def test_static_site_cloudflare_pages_and_r2_deployment_configuration() -> None:
+    content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
+    combine_job = _combine_and_build_job()
+
+    assert "pages: write" not in content
+    assert "id-token: write" not in content
+    assert "actions/configure-pages" not in content
+    assert "actions/upload-pages-artifact" not in content
+    assert "actions/deploy-pages" not in content
+    assert "cloudflare/pages-action@v1" in combine_job
+    assert "Upload static data to Cloudflare R2" in combine_job
+    assert "r2.cloudflarestorage.com" in combine_job
+    assert "VITE_BASE_PATH: /" in combine_job
+    assert "VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}" in combine_job
+    assert "Strip static-data from Pages bundle" in combine_job
+    assert "CLOUDFLARE_PAGES_PROJECT" in combine_job
+    assert "R2_BUCKET" in combine_job
+    assert "STATIC_DATA_BASE_URL" in combine_job
 
 
 def test_static_site_combine_downloads_current_and_per_market_fallback_artifacts() -> None:

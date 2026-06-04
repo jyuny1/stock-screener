@@ -16,6 +16,8 @@ Static demo: [https://xang1234.github.io/stock-screener/](https://xang1234.githu
 
 The static page is for demo purposes only. It is a read-only daily snapshot with reduced functionality compared with the full application, which includes live workflows such as chatbot, themes pipeline, watchlists, and the full interactive backend.
 
+Cloudflare static deployment runbook: **[Static Cloudflare Deployment](docs/STATIC_CLOUDFLARE_DEPLOYMENT.md)**
+
 ## Highlights
 
 ### Multi-Market Coverage

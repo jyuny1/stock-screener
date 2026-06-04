@@ -13,8 +13,6 @@ concurrency:
 permissions:
   actions: write
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   ensure_daily_price_release:
@@ -305,10 +303,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
 
@@ -595,85 +589,65 @@ jobs:
             --combine-artifacts-dir /tmp/static-market-artifacts-current \
             --fallback-artifacts-dir /tmp/static-market-artifacts-fallback
 
+      - name: Validate Cloudflare deployment configuration
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          missing=0
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            R2_ACCESS_KEY_ID \
+            R2_SECRET_ACCESS_KEY \
+            R2_BUCKET \
+            STATIC_DATA_BASE_URL \
+            CLOUDFLARE_PAGES_PROJECT; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required Cloudflare deployment setting: ${name}" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
       - name: Build static frontend
         env:
           VITE_STATIC_SITE: "true"
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_BASE_PATH: /
+          VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
         run: cd frontend && npm run build
 
-      - name: Upload Pages artifact
-        id: upload-pages-artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: frontend/dist
-
-      - name: Prune duplicate Pages artifacts
+      - name: Upload static data to Cloudflare R2
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          KEEP_ARTIFACT_ID: ${{ steps.upload-pages-artifact.outputs.artifact_id }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
         run: |
-          python - <<'PY'
-          import json
-          import os
-          import subprocess
+          pip install awscli --quiet
+          aws s3 sync frontend/public/static-data/ \
+            "s3://${R2_BUCKET}/static-data" \
+            --endpoint-url "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --cache-control "public, max-age=300" \
+            --delete
 
-          repo = os.environ["REPOSITORY"]
-          run_id = os.environ["RUN_ID"]
-          keep_artifact_id = int(os.environ["KEEP_ARTIFACT_ID"])
+      - name: Strip static-data from Pages bundle
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        run: rm -rf frontend/dist/static-data
 
-          result = subprocess.run(
-              [
-                  "gh",
-                  "api",
-                  "--paginate",
-                  "--slurp",
-                  f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
-              ],
-              check=True,
-              capture_output=True,
-              text=True,
-          )
-          pages = json.loads(result.stdout)
-          payload = {
-              "artifacts": [
-                  artifact
-                  for page in pages
-                  for artifact in page.get("artifacts", [])
-              ]
-          }
-          duplicates = [
-              artifact["id"]
-              for artifact in payload.get("artifacts", [])
-              if artifact.get("name") == "github-pages" and artifact.get("id") != keep_artifact_id
-          ]
-
-          if not duplicates:
-              print("No duplicate github-pages artifacts found.", flush=True)
-              raise SystemExit(0)
-
-          print(
-              f"::warning::Pruning {len(duplicates)} duplicate github-pages artifact(s) "
-              f"from run {run_id}; keeping {keep_artifact_id}.",
-              flush=True,
-          )
-          for artifact_id in duplicates:
-              subprocess.run(
-                  ["gh", "api", "--method", "DELETE", f"repos/{repo}/actions/artifacts/{artifact_id}"],
-                  check=True,
-              )
-              print(f"Deleted duplicate github-pages artifact {artifact_id}.", flush=True)
-          PY
-
-  deploy:
-    if: ${{ always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.combine-and-build.result == 'success' }}
-    needs: combine-and-build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to Cloudflare Pages
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          directory: frontend/dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
