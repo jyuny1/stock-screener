@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from app.services.nasdaqtrader_universe_service import NasdaqTraderUniverseService
+from app.services.schwab_token_service import SchwabTokenService
+import app.scripts.build_weekly_reference_bundle as weekly_script
+
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_nasdaqtrader_service_filters_to_clean_common_symbols_and_liquid_etfs():
+    nasdaq_text = """Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
+AAPL|Apple Inc. Common Stock|Q|N|N|100|N|N
+TQQQ|ProShares UltraPro QQQ|G|N|N|100|Y|N
+ABCW|ABC Warrants|Q|N|N|100|N|N
+FOO.U|Foo Units|Q|N|N|100|N|N
+File Creation Time: 2026-06-04
+"""
+    other_text = """ACT Symbol|Security Name|Exchange|Listing Exchange|Market Category|Reg SHO Threshold Flag|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
+SPY|SPDR S&P 500 ETF Trust|P|P|N|N|Y|100|N|SPY
+BRK.B|Berkshire Hathaway Class B|N|N|N|N|N|100|N|BRK.B
+XYZ|XYZ Debenture|A|A|N|N|N|100|N|XYZ
+CBOE|Cboe Listed Co|Z|Z|N|N|N|100|N|CBOE
+File Creation Time: 2026-06-04
+"""
+
+    rows = [
+        *NasdaqTraderUniverseService.parse_nasdaqlisted(nasdaq_text),
+        *NasdaqTraderUniverseService.parse_otherlisted(other_text),
+    ]
+    service = NasdaqTraderUniverseService(etf_allowlist={"SPY"})
+    kept = [row.symbol for row in rows if service._keep_symbol(row)]
+
+    assert kept == ["AAPL", "SPY"]
+
+
+class _FakeResponse:
+    status_code = 200
+
+    def json(self):
+        return {"access_token": "access", "refresh_token": "rotated", "expires_in": 1800}
+
+
+def test_schwab_token_service_refreshes_without_logging_secret(monkeypatch):
+    calls = []
+
+    def fake_post(url, *, data, headers, timeout):
+        calls.append({"url": url, "data": data, "headers": headers, "timeout": timeout})
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.schwab_token_service.requests.post", fake_post)
+    pair = SchwabTokenService(token_url="https://example.test/token").refresh(
+        client_id="client",
+        client_secret="secret",
+        refresh_token="old-refresh",
+    )
+
+    assert pair.access_token == "access"
+    assert pair.new_refresh_token == "rotated"
+    assert calls[0]["data"] == {"grant_type": "refresh_token", "refresh_token": "old-refresh"}
+    assert calls[0]["headers"]["Authorization"].startswith("Basic ")
+
+
+def test_weekly_us_optionable_mode_publishes_from_artifact(monkeypatch, tmp_path):
+    payload = {
+        "schema_version": "optionable-symbols-v1",
+        "as_of": "2026-06-04",
+        "symbols": ["AAPL", "SPY"],
+        "symbol_metadata": {
+            "AAPL": {"name": "Apple Inc.", "mic": "XNAS"},
+            "SPY": {"name": "SPDR S&P 500 ETF Trust", "mic": "ARCX"},
+        },
+    }
+    artifact = tmp_path / "optionable-symbols-latest-us.json"
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+
+    active_rows = [
+        SimpleNamespace(symbol="AAPL", market="US", exchange="XNAS", name="Apple", sector=None, industry=None, market_cap=None),
+        SimpleNamespace(symbol="SPY", market="US", exchange="ARCX", name="SPY", sector=None, industry=None, market_cap=None),
+    ]
+
+    class FakeQuery:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return active_rows
+
+    class FakeDB:
+        def __init__(self):
+            self.added = []
+            self.commits = 0
+
+        def query(self, model):
+            return FakeQuery()
+
+        def add(self, row):
+            self.added.append(row)
+
+        def commit(self):
+            self.commits += 1
+
+    fake_db = FakeDB()
+    cached = {
+        "AAPL": {"market_cap": 100.0, "sector": "Technology"},
+        "SPY": {"market_cap": 200.0, "sector": "ETF"},
+    }
+    monkeypatch.setattr(weekly_script, "get_fundamentals_cache", lambda: SimpleNamespace(get_many=lambda symbols: cached))
+    monkeypatch.setattr(
+        weekly_script,
+        "get_hybrid_fundamentals_service",
+        lambda: SimpleNamespace(
+            fetch_fundamentals_batch=lambda symbols, **kwargs: {symbol: cached[symbol] for symbol in symbols},
+            store_all_caches=lambda data, *args, **kwargs: {
+                "fundamentals_stored": len(data),
+                "persisted_symbols": len(data),
+                "failed_persistence_symbols": 0,
+                "failed": 0,
+                "provider_error_counts": {},
+            },
+        ),
+    )
+    publish_calls = []
+    provider = SimpleNamespace(
+        build_market_snapshot_row=lambda **kwargs: {"symbol": kwargs["symbol"], "exchange": kwargs["exchange"]},
+        publish_market_snapshot_run=lambda db, **kwargs: publish_calls.append(kwargs)
+        or {"published": True, "coverage": kwargs["coverage_stats"], "coverage_thresholds": {"market": "US"}},
+        get_published_run=lambda db, snapshot_key: SimpleNamespace(
+            published_at=weekly_script.datetime(2026, 6, 4),
+            created_at=weekly_script.datetime(2026, 6, 4),
+            source_revision="fundamentals_v1_us:optionable:20260604",
+        ),
+        export_weekly_reference_bundle=lambda db, **kwargs: {"bundle_path": str(kwargs["output_path"])},
+    )
+
+    summary = weekly_script._build_us_bundle(
+        fake_db,
+        provider_snapshot_service=provider,
+        stock_universe_service=SimpleNamespace(populate_universe=lambda db: pytest.fail("Finviz should not run")),
+        market="US",
+        output_dir=tmp_path,
+        bundle_name=None,
+        latest_manifest_name="weekly-reference-latest-us.json",
+        universe_mode="optionable",
+        optionable_symbols_path=str(artifact),
+    )
+
+    assert summary["universe_refresh"]["mode"] == "US_OPTIONABLE"
+    assert publish_calls[0]["coverage_stats"]["universe_mode"] == "US_OPTIONABLE"
+    assert [row["symbol"] for row in publish_calls[0]["rows"]] == ["AAPL", "SPY"]
+
+
+def test_workflows_default_static_us_to_optionable():
+    weekly = (ROOT / ".github" / "workflows" / "weekly-reference-data.yml").read_text()
+    static = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
+    optionable = (ROOT / ".github" / "workflows" / "optionable-symbols.yml").read_text()
+
+    assert "US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}" in weekly
+    assert "Download US optionable symbols" in weekly
+    assert "--us-universe-mode \"${US_UNIVERSE_MODE}\"" in weekly
+    assert "US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}" in static
+    assert "group: schwab-token-refresh" in optionable
+    assert "optionable-symbols-latest-us.json" in optionable
+    assert "gh secret set SCHWAB_REFRESH_TOKEN" in optionable

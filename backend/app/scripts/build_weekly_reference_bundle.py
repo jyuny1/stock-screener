@@ -11,8 +11,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+
 from app.database import SessionLocal
-from app.models.stock_universe import StockUniverse
+from app.models.stock_universe import StockUniverse, UNIVERSE_STATUS_ACTIVE
 from app.scripts._runtime import prepare_runtime, repo_root
 from app.services.official_market_universe_source_service import (
     OfficialMarketUniverseSourceService,
@@ -249,6 +250,209 @@ def _raise_publish_blocked(
     )
 
 
+def _load_optionable_symbols_payload(path: str | None) -> dict[str, Any]:
+    resolved = path or os.environ.get("OPTIONABLE_SYMBOLS_PATH")
+    if not resolved:
+        raise RuntimeError(
+            "US_UNIVERSE_MODE=optionable requires --optionable-symbols-path "
+            "or OPTIONABLE_SYMBOLS_PATH"
+        )
+    payload = json.loads(Path(resolved).read_text(encoding="utf-8"))
+    if payload.get("schema_version") != "optionable-symbols-v1":
+        raise RuntimeError(f"Unexpected optionable symbols schema: {payload.get('schema_version')}")
+    symbols = payload.get("symbols")
+    if not isinstance(symbols, list) or not symbols:
+        raise RuntimeError("Optionable symbols artifact contains no symbols")
+    return payload
+
+
+def _seed_us_optionable_universe(db, payload: dict[str, Any]) -> dict[str, Any]:
+    symbols = [str(symbol).strip().upper() for symbol in payload.get("symbols", []) if str(symbol).strip()]
+    metadata = payload.get("symbol_metadata") or {}
+    existing = {
+        row.symbol: row
+        for row in db.query(StockUniverse).filter(StockUniverse.symbol.in_(symbols)).all()
+    }
+    now = datetime.utcnow()
+    added = 0
+    updated = 0
+    for symbol in symbols:
+        meta = metadata.get(symbol) or {}
+        row = existing.get(symbol)
+        exchange = meta.get("mic") or meta.get("exchange") or "US"
+        name = meta.get("name") or symbol
+        if row is None:
+            db.add(
+                StockUniverse(
+                    symbol=symbol,
+                    name=name,
+                    market="US",
+                    exchange=exchange,
+                    currency="USD",
+                    timezone="America/New_York",
+                    is_active=True,
+                    status=UNIVERSE_STATUS_ACTIVE,
+                    status_reason="Seeded from Schwab optionable artifact",
+                    source="optionable_symbols_schwab",
+                    added_at=now,
+                    first_seen_at=now,
+                    last_seen_in_source_at=now,
+                    updated_at=now,
+                )
+            )
+            added += 1
+        else:
+            row.name = name or row.name
+            row.market = "US"
+            row.exchange = exchange or row.exchange
+            row.currency = getattr(row, "currency", None) or "USD"
+            row.timezone = getattr(row, "timezone", None) or "America/New_York"
+            row.is_active = True
+            row.status = UNIVERSE_STATUS_ACTIVE
+            row.status_reason = "Seeded from Schwab optionable artifact"
+            row.source = "optionable_symbols_schwab"
+            row.last_seen_in_source_at = now
+            row.updated_at = now
+            updated += 1
+    db.commit()
+    return {
+        "source": "optionable_symbols_schwab",
+        "mode": "US_OPTIONABLE",
+        "added": added,
+        "updated": updated,
+        "total": len(symbols),
+        "artifact_as_of": payload.get("as_of"),
+    }
+
+
+def _build_us_optionable_bundle(
+    db,
+    *,
+    provider_snapshot_service,
+    market: str,
+    output_dir: Path,
+    bundle_name: str | None,
+    latest_manifest_name: str,
+    optionable_symbols_path: str | None,
+    max_runtime_seconds: float = 0.0,
+    fetch_chunk_size: int = _DEFAULT_FETCH_CHUNK_SIZE,
+    allow_partial_publish: bool = False,
+) -> dict[str, Any]:
+    snapshot_key = ProviderSnapshotService.snapshot_key_for_market(market)
+    payload = _load_optionable_symbols_payload(optionable_symbols_path)
+    universe_stats = _seed_us_optionable_universe(db, payload)
+    print(f"Seeded US optionable universe: {universe_stats}", flush=True)
+
+    fundamentals_cache = get_fundamentals_cache()
+    hybrid_service = get_hybrid_fundamentals_service()
+    symbols = [str(symbol).upper() for symbol in payload["symbols"]]
+    active_rows = (
+        db.query(StockUniverse)
+        .filter(
+            StockUniverse.active_filter(),
+            StockUniverse.market == market,
+            StockUniverse.symbol.in_(symbols),
+        )
+        .order_by(StockUniverse.symbol.asc())
+        .all()
+    )
+    if not active_rows:
+        raise RuntimeError("No active US optionable universe rows found after seeding")
+    symbols = [row.symbol for row in active_rows]
+    market_by_symbol = {row.symbol: market for row in active_rows}
+
+    print("Starting hybrid fundamentals refresh for US_OPTIONABLE...", flush=True)
+    fundamentals_stats, attempted_symbols, deadline_hit = _run_chunked_fundamentals_refresh(
+        hybrid_service=hybrid_service,
+        fundamentals_cache=fundamentals_cache,
+        market=market,
+        symbols=symbols,
+        market_by_symbol=market_by_symbol,
+        chunk_size=fetch_chunk_size,
+        max_runtime_seconds=max_runtime_seconds,
+    )
+    print(f"Fundamentals refresh complete: {fundamentals_stats}", flush=True)
+
+    cached_fundamentals = fundamentals_cache.get_many(symbols)
+    snapshot_rows = []
+    for row in active_rows:
+        normalized = dict(cached_fundamentals.get(row.symbol) or {})
+        if not normalized:
+            continue
+        normalized.setdefault("company_name", row.name)
+        normalized.setdefault("sector", row.sector)
+        normalized.setdefault("industry", row.industry)
+        normalized.setdefault("market_cap", row.market_cap)
+        snapshot_rows.append(
+            provider_snapshot_service.build_market_snapshot_row(
+                market=market,
+                symbol=row.symbol,
+                exchange=row.exchange,
+                normalized_payload=normalized,
+                raw_payload=None,
+            )
+        )
+
+    coverage_stats = {
+        "active_symbols": len(symbols),
+        "snapshot_symbols": len(snapshot_rows),
+        "covered_active_symbols": len(snapshot_rows),
+        "missing_active_symbols": max(len(symbols) - len(snapshot_rows), 0),
+        "attempted_symbols": len(attempted_symbols),
+        "universe_mode": "US_OPTIONABLE",
+        "optionable_artifact_as_of": payload.get("as_of"),
+        "partial_run": deadline_hit,
+    }
+    warnings: list[str] = []
+    if deadline_hit:
+        warnings.append(
+            f"Weekly fetch deadline reached after {len(attempted_symbols)}/{len(symbols)} US optionable symbols."
+        )
+        if not allow_partial_publish:
+            warnings.append("Partial publish disabled; blocking publish because the weekly fetch deadline was reached.")
+    if fundamentals_stats.get("failed"):
+        warnings.append(f"{fundamentals_stats['failed']} symbols failed during US optionable refresh")
+
+    source_revision = f"{snapshot_key}:optionable:{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    snapshot_stats = provider_snapshot_service.publish_market_snapshot_run(
+        db,
+        snapshot_key=snapshot_key,
+        market=market,
+        source_revision=source_revision,
+        rows=snapshot_rows,
+        coverage_stats=coverage_stats,
+        warnings=warnings,
+        publish=not (deadline_hit and not allow_partial_publish),
+        force_publish=bool(allow_partial_publish and deadline_hit),
+    )
+    summary = {
+        "output_dir": output_dir,
+        "universe_refresh": universe_stats,
+        "fundamentals_refresh": fundamentals_stats,
+        "snapshot_publish": snapshot_stats,
+    }
+    if not snapshot_stats.get("published"):
+        _raise_publish_blocked(market=market, summary=summary, snapshot_stats=snapshot_stats)
+    _print_snapshot_publish_summary(snapshot_stats)
+
+    published_run = provider_snapshot_service.get_published_run(db, snapshot_key=snapshot_key)
+    if published_run is None:
+        raise RuntimeError("Published weekly fundamentals snapshot was not found after publish")
+    resolved_bundle_name = bundle_name or _default_bundle_name(market, published_run)
+    bundle_path = output_dir / resolved_bundle_name
+    latest_manifest_path = output_dir / latest_manifest_name
+    export_stats = provider_snapshot_service.export_weekly_reference_bundle(
+        db,
+        output_path=bundle_path,
+        bundle_asset_name=resolved_bundle_name,
+        latest_manifest_path=latest_manifest_path,
+        snapshot_key=snapshot_key,
+        market=market,
+    )
+    summary.update({"bundle": bundle_path, "latest_manifest": latest_manifest_path, "export": export_stats})
+    return summary
+
+
 def _build_us_bundle(
     db,
     *,
@@ -258,7 +462,26 @@ def _build_us_bundle(
     output_dir: Path,
     bundle_name: str | None,
     latest_manifest_name: str,
+    universe_mode: str = "full",
+    optionable_symbols_path: str | None = None,
+    max_runtime_seconds: float = 0.0,
+    fetch_chunk_size: int = _DEFAULT_FETCH_CHUNK_SIZE,
+    allow_partial_publish: bool = False,
 ) -> dict[str, Any]:
+    if universe_mode == "optionable":
+        return _build_us_optionable_bundle(
+            db,
+            provider_snapshot_service=provider_snapshot_service,
+            market=market,
+            output_dir=output_dir,
+            bundle_name=bundle_name,
+            latest_manifest_name=latest_manifest_name,
+            optionable_symbols_path=optionable_symbols_path,
+            max_runtime_seconds=max_runtime_seconds,
+            fetch_chunk_size=fetch_chunk_size,
+            allow_partial_publish=allow_partial_publish,
+        )
+
     snapshot_key = ProviderSnapshotService.snapshot_key_for_market(market)
 
     print("Starting stock universe refresh from Finviz...", flush=True)
@@ -693,6 +916,17 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--us-universe-mode",
+        choices=("full", "optionable"),
+        default=os.environ.get("US_UNIVERSE_MODE", "full").strip().lower() or "full",
+        help="US weekly-reference universe mode. Use optionable for static deployments.",
+    )
+    parser.add_argument(
+        "--optionable-symbols-path",
+        default=os.environ.get("OPTIONABLE_SYMBOLS_PATH"),
+        help="Path to optionable-symbols-latest-us.json when --us-universe-mode=optionable.",
+    )
+    parser.add_argument(
         "--resume-partial-seed",
         action="store_true",
         help=(
@@ -722,6 +956,11 @@ def main() -> int:
                 output_dir=output_dir,
                 bundle_name=args.bundle_name,
                 latest_manifest_name=latest_manifest_name,
+                universe_mode=args.us_universe_mode,
+                optionable_symbols_path=args.optionable_symbols_path,
+                max_runtime_seconds=max(0.0, float(args.max_runtime_minutes)) * 60.0,
+                fetch_chunk_size=max(1, int(args.fetch_chunk_size)),
+                allow_partial_publish=bool(args.allow_partial_publish),
             )
         else:
             summary = _build_asia_bundle(

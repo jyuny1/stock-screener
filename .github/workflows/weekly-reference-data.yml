@@ -114,6 +114,7 @@ jobs:
     env:
       REDIS_ENABLED: "false"
       DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
+      US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}
       SG_UNIVERSE_SOURCE_URL: ${{ matrix.market == 'SG' && 'https://api.sgx.com/securities/v1.1?excludetypes=bonds' || '' }}
       # Bursa Malaysia equities-listing JSON endpoint. The bundled CSV
       # fallback only ships the FBM KLCI 30 + a handful of Top 100 names
@@ -194,6 +195,20 @@ jobs:
             echo "No prior weekly reference bundle found for ${{ matrix.market }}; continuing without seed."
           fi
 
+      - name: Download US optionable symbols
+        if: ${{ matrix.market == 'US' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/optionable-symbols
+          if ! gh release download optionable-symbols \
+            --pattern "optionable-symbols-latest-us.json" \
+            --dir /tmp/optionable-symbols; then
+            echo "Missing optionable-symbols-latest-us.json. Run the Optionable Symbols workflow first." >&2
+            exit 1
+          fi
+          echo "OPTIONABLE_SYMBOLS_PATH=/tmp/optionable-symbols/optionable-symbols-latest-us.json" >> "$GITHUB_ENV"
+
       - name: Resolve build inputs
         id: build_inputs
         env:
@@ -250,6 +265,7 @@ jobs:
             --market "${{ matrix.market }}" \
             --output-dir /tmp/weekly-reference \
             --max-runtime-minutes "${{ steps.build_inputs.outputs.max_runtime_minutes }}" \
+            --us-universe-mode "${US_UNIVERSE_MODE}" \
             ${{ steps.build_inputs.outputs.resume_flag }} \
             ${{ steps.build_inputs.outputs.partial_flag }}
 

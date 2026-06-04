@@ -9,6 +9,7 @@ import json
 import logging
 import math
 from numbers import Integral, Real
+import os
 from pathlib import Path
 import shutil
 from typing import Any
@@ -88,6 +89,13 @@ STATIC_MARKET_METADATA_FILENAME = "manifest.market.json"
 STATIC_MARKET_DISPLAY = {
     market: _MARKET_CATALOG.get(market).label for market in STATIC_SUPPORTED_MARKETS
 }
+STATIC_US_OPTIONABLE_DISPLAY = "US Optionable Universe"
+
+
+def _static_market_display(market: str) -> str:
+    if market == "US" and os.environ.get("US_UNIVERSE_MODE", "").strip().lower() == "optionable":
+        return STATIC_US_OPTIONABLE_DISPLAY
+    return STATIC_MARKET_DISPLAY.get(market, market)
 STATIC_GROUP_HISTORY_RUNS = 40
 STATIC_GROUP_CHANGE_OFFSETS = {
     "1w": 5,
@@ -437,7 +445,7 @@ class StaticSiteExportService:
 
         return {
             "market": market,
-            "display_name": STATIC_MARKET_DISPLAY.get(market, market),
+            "display_name": _static_market_display(market),
             "as_of_date": latest_run.as_of_date.isoformat(),
             "features": {
                 "scan": True,
@@ -1321,7 +1329,7 @@ class StaticSiteExportService:
             "generated_at": generated_at,
             "as_of_date": latest_run.as_of_date.isoformat(),
             "market": market,
-            "market_display_name": STATIC_MARKET_DISPLAY.get(market, market),
+            "market_display_name": _static_market_display(market),
             "freshness": {
                 "scan_run_id": latest_run.id,
                 "scan_as_of_date": latest_run.as_of_date.isoformat(),

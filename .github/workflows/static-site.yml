@@ -75,6 +75,7 @@ jobs:
     env:
       REDIS_ENABLED: "false"
       DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
+      US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}
       # IN-specific yfinance throttle: smaller batches + 10s between batches to
       # stay under Yahoo's 429 window for the ~4.4k IN universe. Other markets
       # ignore these (the policy looks up settings.<provider>_<key>_<market>).
