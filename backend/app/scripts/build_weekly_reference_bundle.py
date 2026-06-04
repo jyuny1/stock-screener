@@ -293,7 +293,7 @@ def _seed_us_optionable_universe(db, payload: dict[str, Any]) -> dict[str, Any]:
                     is_active=True,
                     status=UNIVERSE_STATUS_ACTIVE,
                     status_reason="Seeded from Schwab optionable artifact",
-                    source="optionable_symbols_schwab",
+                    source="optionable_schwab",
                     added_at=now,
                     first_seen_at=now,
                     last_seen_in_source_at=now,
@@ -310,13 +310,13 @@ def _seed_us_optionable_universe(db, payload: dict[str, Any]) -> dict[str, Any]:
             row.is_active = True
             row.status = UNIVERSE_STATUS_ACTIVE
             row.status_reason = "Seeded from Schwab optionable artifact"
-            row.source = "optionable_symbols_schwab"
+            row.source = "optionable_schwab"
             row.last_seen_in_source_at = now
             row.updated_at = now
             updated += 1
     db.commit()
     return {
-        "source": "optionable_symbols_schwab",
+        "source": "optionable_schwab",
         "mode": "US_OPTIONABLE",
         "added": added,
         "updated": updated,
