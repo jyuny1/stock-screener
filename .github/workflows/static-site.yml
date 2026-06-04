@@ -2,8 +2,10 @@ name: Static Site
 
 on:
   schedule:
-    - cron: '10 16 * * 1-6'
-      timezone: 'America/New_York'
+    # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
+    # the real cadence is Monday-Saturday 08:00 America/New_York
+    # (Taiwan 20:00 during EDT / 21:00 during EST), before the US market opens.
+    - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       market:
@@ -35,8 +37,35 @@ permissions:
   contents: write
 
 jobs:
-  ensure_daily_price_release:
+  schedule_gate:
     if: ${{ github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    outputs:
+      run_workflow: ${{ steps.gate.outputs.run_workflow }}
+    steps:
+      - name: Decide whether to run
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          et_dow="$(TZ=America/New_York date +%u)"
+          et_hour="$(TZ=America/New_York date +%H)"
+          taiwan_now="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')"
+          eastern_now="$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "Taiwan now: ${taiwan_now}"
+          echo "Eastern now: ${eastern_now}"
+          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 6 ] && [ "$et_hour" = "08" ]; then
+            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping; target is Monday-Saturday 08:00 America/New_York."
+            echo "run_workflow=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ensure_daily_price_release:
+    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
+    needs: schedule_gate
     runs-on: ubuntu-latest
     steps:
       - name: Ensure daily price release exists
@@ -51,8 +80,10 @@ jobs:
             --notes "Automated daily market-scoped OHLCV bundles for runtime bootstrap and refresh."
 
   build-market:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: ensure_daily_price_release
+    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
+    needs:
+      - schedule_gate
+      - ensure_daily_price_release
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -302,8 +333,10 @@ jobs:
           if-no-files-found: error
 
   combine-and-build:
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
-    needs: build-market
+    if: ${{ always() && needs.schedule_gate.outputs.run_workflow == 'true' }}
+    needs:
+      - schedule_gate
+      - build-market
     runs-on: ubuntu-latest
     env:
       REDIS_ENABLED: "false"

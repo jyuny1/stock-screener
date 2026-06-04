@@ -14,9 +14,22 @@ import app.scripts.import_weekly_reference_bundle as import_script
 import app.scripts.load_ibd_industry_groups as load_ibd_script
 
 
+ROOT = Path(__file__).resolve().parents[3]
+
+
 @contextmanager
 def _fake_session(db="db-session"):
     yield db
+
+
+def test_weekly_reference_schedule_runs_after_optionable_refresh() -> None:
+    content = (ROOT / ".github" / "workflows" / "weekly-reference-data.yml").read_text()
+
+    assert "cron: '0 * * * *'" in content
+    assert "Monday 01:00 America/New_York" in content
+    assert "Taiwan Monday 13:00 during EDT / 14:00 during EST" in content
+    assert "TZ=Asia/Taipei" in content
+    assert "needs.schedule_gate.outputs.run_workflow == 'true'" in content
 
 
 def test_build_weekly_reference_bundle_requires_market(monkeypatch, tmp_path):

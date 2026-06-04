@@ -2,8 +2,10 @@ name: Weekly Reference Data
 
 on:
   schedule:
-    - cron: '10 8 * * 6'
-      timezone: 'America/New_York'
+    # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
+    # the real cadence is Monday 01:00 America/New_York
+    # (Taiwan Monday 13:00 during EDT / 14:00 during EST).
+    - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       market:
@@ -67,8 +69,35 @@ permissions:
   contents: write
 
 jobs:
-  ensure_release:
+  schedule_gate:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    outputs:
+      run_workflow: ${{ steps.gate.outputs.run_workflow }}
+    steps:
+      - name: Decide whether to run
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          et_dow="$(TZ=America/New_York date +%u)"
+          et_hour="$(TZ=America/New_York date +%H)"
+          taiwan_now="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')"
+          eastern_now="$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "Taiwan now: ${taiwan_now}"
+          echo "Eastern now: ${eastern_now}"
+          if [ "$et_dow" = "1" ] && [ "$et_hour" = "01" ]; then
+            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping; target is Monday 01:00 America/New_York."
+            echo "run_workflow=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ensure_release:
+    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
+    needs: schedule_gate
     runs-on: ubuntu-latest
     steps:
       - name: Ensure weekly release exists
@@ -83,8 +112,10 @@ jobs:
             --notes "Automated weekly market-scoped reference bundles for static-site builds."
 
   publish:
-    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: ensure_release
+    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
+    needs:
+      - schedule_gate
+      - ensure_release
     runs-on: ubuntu-latest
     # GitHub Actions hard-caps a job at 360 minutes. Setting an explicit ceiling
     # below that gives the build script's --max-runtime-minutes deadline a

@@ -36,8 +36,14 @@ def _fallback_download_script() -> str:
 
 def test_static_site_market_build_failures_are_not_marked_continue_on_error() -> None:
     build_market_job = _build_market_job()
+    job_header = build_market_job.split("    services:", 1)[0]
+    export_step = build_market_job.split("      - name: Export market static data bundle\n", 1)[1].split(
+        "\n      - name: Build daily price bundle",
+        1,
+    )[0]
 
-    assert "continue-on-error: true" not in build_market_job
+    assert "continue-on-error: true" not in job_header
+    assert "continue-on-error: true" not in export_step
 
 
 def test_static_site_daily_price_seed_allows_stale_bootstrap() -> None:
@@ -77,6 +83,16 @@ def test_static_site_market_export_skips_artifact_steps_for_closed_market() -> N
     assert "steps.export-market.outputs.has_artifact == 'true'" in build_price_step
     assert "steps.export-market.outputs.has_artifact == 'true'" in upload_price_step
     assert "steps.export-market.outputs.has_artifact == 'true'" in upload_market_step
+
+
+def test_static_site_schedule_uses_eastern_gate_for_taiwan_observed_market_open() -> None:
+    content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
+
+    assert "cron: '0 * * * *'" in content
+    assert "Monday-Saturday 08:00 America/New_York" in content
+    assert "Taiwan 20:00 during EDT / 21:00 during EST" in content
+    assert "TZ=Asia/Taipei" in content
+    assert "needs.schedule_gate.outputs.run_workflow == 'true'" in content
 
 
 def test_static_site_cloudflare_pages_and_r2_deployment_configuration() -> None:

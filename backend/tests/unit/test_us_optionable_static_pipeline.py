@@ -168,6 +168,10 @@ def test_workflows_default_static_us_to_optionable():
     assert "Download US optionable symbols" in weekly
     assert "--us-universe-mode \"${US_UNIVERSE_MODE}\"" in weekly
     assert "US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}" in static
+    assert "cron: '0 * * * *'" in optionable
+    assert "target is every other Sunday 20:00 America/New_York" in optionable
+    assert "TZ=Asia/Taipei" in optionable
+    assert "timeout-minutes: 75" in optionable
     assert "group: schwab-token-refresh" in optionable
     assert "Install optionable-symbols dependencies" in optionable
     assert "pip install requests" in optionable
