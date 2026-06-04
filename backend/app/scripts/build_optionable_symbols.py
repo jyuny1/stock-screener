@@ -101,8 +101,15 @@ def _load_checkpoint(path: Path | None) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {"optionable": [], "failures": {}}
+    # Checkpoints written by this script use ``optionable``. Published latest
+    # artifacts use ``symbols``. Support both so retry_errors_from_latest can
+    # seed prior successful symbols instead of rescanning them and accidentally
+    # replacing the artifact with only the retried subset.
+    optionable_symbols = payload.get("optionable")
+    if optionable_symbols is None:
+        optionable_symbols = payload.get("symbols")
     return {
-        "optionable": list(payload.get("optionable") or []),
+        "optionable": list(optionable_symbols or []),
         "failures": dict(payload.get("failures") or {}),
     }
 
@@ -171,10 +178,9 @@ def build_optionable_payload(
             token_service=token_service,
             new_refresh_token_path=new_refresh_token_path,
         )
-        total = len(candidates)
-        for index, symbol in enumerate(candidates, start=1):
-            if symbol in checked_before:
-                continue
+        retry_candidates = [symbol for symbol in candidates if symbol not in checked_before]
+        total = len(retry_candidates)
+        for index, symbol in enumerate(retry_candidates, start=1):
             try:
                 is_optionable, reason = scanner.is_optionable(symbol)
             except Exception as exc:  # pragma: no cover - defensive around remote API
@@ -186,7 +192,7 @@ def build_optionable_payload(
                 failures[symbol] = reason or "not_optionable"
             if index % 25 == 0 or index == total:
                 print(
-                    f"[chains] checked {index}/{total} optionable={len(optionable)} failures={len(failures)}",
+                    f"[chains] retried {index}/{total} optionable={len(optionable)} failures={len(failures)}",
                     flush=True,
                 )
                 _write_checkpoint(checkpoint_path, optionable=optionable, failures=failures)

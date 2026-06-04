@@ -8,6 +8,7 @@ import pytest
 
 from app.services.nasdaqtrader_universe_service import NasdaqTraderUniverseService
 from app.services.schwab_token_service import SchwabTokenService
+import app.scripts.build_optionable_symbols as optionable_script
 import app.scripts.build_weekly_reference_bundle as weekly_script
 
 
@@ -47,6 +48,25 @@ class _FakeResponse:
 
     def json(self):
         return {"access_token": "access", "refresh_token": "rotated", "expires_in": 1800}
+
+
+def test_optionable_checkpoint_loader_accepts_published_latest_artifact(tmp_path):
+    checkpoint = tmp_path / "optionable-symbols-latest-us.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "schema_version": "optionable-symbols-v1",
+                "symbols": ["AAPL", "MSFT"],
+                "failures": {"XYZ": "http_401", "ABC": "empty_chain"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = optionable_script._load_checkpoint(checkpoint)
+
+    assert loaded["optionable"] == ["AAPL", "MSFT"]
+    assert loaded["failures"] == {"XYZ": "http_401", "ABC": "empty_chain"}
 
 
 def test_schwab_token_service_refreshes_without_logging_secret(monkeypatch):
