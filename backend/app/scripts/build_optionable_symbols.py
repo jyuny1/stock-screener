@@ -292,6 +292,14 @@ def main() -> int:
     print(f"Wrote {dated_path}")
     errors = int((payload.get("stats") or {}).get("errors") or 0)
     if not args.dry_run and errors > max(0, int(args.max_errors)):
+        api_failures = {
+            symbol: reason
+            for symbol, reason in sorted((payload.get("failures") or {}).items())
+            if _is_retryable_failure(str(reason))
+        }
+        print("Remaining retryable API failures:", flush=True)
+        for symbol, reason in api_failures.items():
+            print(f"  - {symbol}: {reason}", flush=True)
         raise SystemExit(f"Optionable scan had {errors} API errors (max {args.max_errors}); refusing success.")
     return 0
 

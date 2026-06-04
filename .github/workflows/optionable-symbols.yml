@@ -186,6 +186,14 @@ jobs:
             --repo "${{ github.repository }}" \
             --app actions
 
+      - name: Upload failed optionable diagnostics
+        if: ${{ failure() && steps.cadence.outputs.run_scan == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: optionable-symbols-diagnostics
+          path: /tmp/optionable-symbols/*.json
+          if-no-files-found: ignore
+
       - name: Upload optionable assets
         if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
         env:
