@@ -45,21 +45,33 @@ STATIC_DATA_BASE_URL=https://pub-xxxx.r2.dev/static-data
 
 ### R2 CORS
 
-If the R2 data origin differs from the Pages frontend origin, configure CORS for the bucket:
+If the R2 data origin differs from the Pages frontend origin, configure CORS for the bucket.
+
+Wrangler expects the R2 API shape below:
 
 ```json
-[
-  {
-    "AllowedOrigins": [
-      "https://<your-pages-project>.pages.dev",
-      "https://<your-custom-frontend-domain>"
-    ],
-    "AllowedMethods": ["GET", "HEAD"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 86400
-  }
-]
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://<your-pages-project>.pages.dev",
+          "https://<your-custom-frontend-domain>"
+        ],
+        "methods": ["GET", "HEAD"],
+        "headers": ["*"]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 86400
+    }
+  ]
+}
+```
+
+Apply it with:
+
+```bash
+npx wrangler r2 bucket cors set <bucket> --file r2-cors.json
 ```
 
 ### Cloudflare Pages project
