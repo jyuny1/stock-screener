@@ -76,3 +76,6 @@ celerybeat-schedule
 
 # Load harness ephemeral output (committed baselines stay; per-run does not)
 backend/tests/load/baselines/current_run.json
+
+# Wrangler local state
+.wrangler/
