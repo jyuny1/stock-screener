@@ -119,6 +119,51 @@ def test_optionable_scanner_refreshes_token_and_retries_401(monkeypatch, tmp_pat
         {"symbol": "MSFT", "auth": "Bearer expired-access"},
         {"symbol": "MSFT", "auth": "Bearer new-access"},
     ]
+    assert [attempt["http_status"] for attempt in scanner.last_attempts] == [401, 200]
+    assert scanner.token_events == [
+        {
+            "refreshed_at": scanner.token_events[0]["refreshed_at"],
+            "refresh_count": 1,
+            "symbol": "MSFT",
+            "trigger_status": 401,
+        }
+    ]
+    assert "expired-access" not in json.dumps(scanner.last_attempts)
+    assert "new-access" not in json.dumps(scanner.last_attempts)
+    assert "new-refresh" not in json.dumps(scanner.token_events)
+
+
+def test_optionable_retry_diagnostics_files(tmp_path):
+    attempts_path = tmp_path / "scan-attempts.jsonl"
+    token_path = tmp_path / "token-events.jsonl"
+    retryable_path = tmp_path / "retryable-failures.json"
+
+    optionable_script._append_jsonl(
+        attempts_path,
+        {
+            "round": "retry 1/3",
+            "symbol": "BAD",
+            "reason": "http_500",
+            "attempts": [{"http_status": 500}],
+        },
+    )
+    optionable_script._append_jsonl(
+        token_path,
+        {"symbol": "TOK", "trigger_status": 401, "refresh_count": 1},
+    )
+    retryable = optionable_script._write_retryable_failures_snapshot(
+        retryable_path,
+        round_label="retry 1/3",
+        failures={"BAD": "http_500", "TIME": "error:ReadTimeout", "EMPTY": "empty_chain"},
+    )
+
+    assert [json.loads(line) for line in attempts_path.read_text(encoding="utf-8").splitlines()][0]["symbol"] == "BAD"
+    assert [json.loads(line) for line in token_path.read_text(encoding="utf-8").splitlines()][0]["trigger_status"] == 401
+    assert retryable == {"BAD": "http_500", "TIME": "error:ReadTimeout"}
+    snapshot = json.loads(retryable_path.read_text(encoding="utf-8"))
+    assert snapshot["round"] == "retry 1/3"
+    assert snapshot["count"] == 2
+    assert snapshot["failures"] == retryable
 
 
 def test_schwab_token_service_refreshes_without_logging_secret(monkeypatch):
@@ -256,6 +301,8 @@ def test_workflows_default_static_us_to_optionable():
     assert "retry_errors_from_latest" in optionable
     assert "max_retry_rounds" in optionable
     assert "--max-retry-rounds" in optionable
+    assert "Upload failed optionable diagnostics" in optionable
+    assert "/tmp/optionable-symbols/*.jsonl" in optionable
     assert "Seed checkpoint from latest artifact" in optionable
     assert "cp /tmp/optionable-symbols/optionable-symbols-latest-us.json /tmp/optionable-symbols/checkpoint.json" in optionable
     assert "SCHWAB_ACCESS_TOKEN=$(cat /tmp/schwab-access-token.txt)" in optionable

@@ -191,7 +191,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: optionable-symbols-diagnostics
-          path: /tmp/optionable-symbols/*.json
+          path: |
+            /tmp/optionable-symbols/*.json
+            /tmp/optionable-symbols/*.jsonl
           if-no-files-found: ignore
 
       - name: Upload optionable assets

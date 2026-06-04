@@ -43,11 +43,14 @@ class SchwabOptionableScanner:
         self.new_refresh_token_path = new_refresh_token_path
         self.refresh_count = 0
         self._last_call_at = 0.0
+        self.last_attempts: list[dict[str, Any]] = []
+        self.token_events: list[dict[str, Any]] = []
 
     def is_optionable(self, symbol: str) -> tuple[bool, str | None]:
+        self.last_attempts = []
         response = self._chains_request(symbol)
         if response.status_code == 401 and self.token_service is not None:
-            self._refresh_access_token()
+            self._refresh_access_token(symbol=symbol, trigger_status=response.status_code)
             response = self._chains_request(symbol)
         if response.status_code == 404:
             return False, "not_found"
@@ -59,7 +62,8 @@ class SchwabOptionableScanner:
 
     def _chains_request(self, symbol: str) -> requests.Response:
         self._rate_limit()
-        return requests.get(
+        started_at = _utc_now_iso()
+        response = requests.get(
             self.chains_url,
             params={
                 "symbol": symbol,
@@ -71,8 +75,18 @@ class SchwabOptionableScanner:
             headers={"Authorization": f"Bearer {self.access_token}"},
             timeout=self.timeout_seconds,
         )
+        self.last_attempts.append(
+            {
+                "attempt": len(self.last_attempts) + 1,
+                "symbol": symbol,
+                "started_at": started_at,
+                "completed_at": _utc_now_iso(),
+                "http_status": response.status_code,
+            }
+        )
+        return response
 
-    def _refresh_access_token(self) -> None:
+    def _refresh_access_token(self, *, symbol: str, trigger_status: int) -> None:
         if self.token_service is None:
             raise RuntimeError("Schwab access token expired and no token service is configured")
         token_pair = self.token_service.refresh_from_env()
@@ -83,7 +97,18 @@ class SchwabOptionableScanner:
             self.new_refresh_token_path.parent.mkdir(parents=True, exist_ok=True)
             self.new_refresh_token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
         self.refresh_count += 1
-        print(f"[token] refreshed Schwab access token during scan ({self.refresh_count})", flush=True)
+        event = {
+            "refreshed_at": _utc_now_iso(),
+            "refresh_count": self.refresh_count,
+            "symbol": symbol,
+            "trigger_status": trigger_status,
+        }
+        self.token_events.append(event)
+        print(
+            f"[token] refreshed Schwab access token during scan "
+            f"({self.refresh_count}) symbol={symbol} trigger=http_{trigger_status}",
+            flush=True,
+        )
 
     def _rate_limit(self) -> None:
         min_interval = 60.0 / float(self.calls_per_minute)
@@ -128,6 +153,47 @@ def _write_checkpoint(path: Path | None, *, optionable: set[str], failures: dict
     )
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _append_jsonl(path: Path | None, record: dict[str, Any]) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def _write_retryable_failures_snapshot(
+    path: Path | None,
+    *,
+    round_label: str,
+    failures: dict[str, str],
+) -> dict[str, str]:
+    retryable = {
+        symbol: reason
+        for symbol, reason in sorted(failures.items())
+        if _is_retryable_failure(reason)
+    }
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "updated_at": _utc_now_iso(),
+                    "round": round_label,
+                    "count": len(retryable),
+                    "failures": retryable,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+    return retryable
+
+
 def _is_retryable_failure(reason: str | None) -> bool:
     return str(reason or "").startswith(("http_", "error:"))
 
@@ -140,6 +206,7 @@ def build_optionable_payload(
     checkpoint_path: Path | None,
     calls_per_minute: int,
     max_retry_rounds: int = 3,
+    diagnostics_dir: Path | None = None,
 ) -> dict[str, Any]:
     service = NasdaqTraderUniverseService()
     snapshot = service.fetch_clean_snapshot()
@@ -157,6 +224,10 @@ def build_optionable_payload(
         for symbol, reason in failures.items()
         if _is_retryable_failure(reason)
     }
+    attempts_log_path = diagnostics_dir / "scan-attempts.jsonl" if diagnostics_dir else None
+    token_log_path = diagnostics_dir / "token-events.jsonl" if diagnostics_dir else None
+    retryable_snapshot_path = diagnostics_dir / "retryable-failures.json" if diagnostics_dir else None
+    summary_path = diagnostics_dir / "scan-summary.json" if diagnostics_dir else None
     checked_before = optionable | (set(failures) - retryable_failures)
 
     if dry_run:
@@ -177,6 +248,17 @@ def build_optionable_payload(
             if new_refresh_token_path is not None:
                 new_refresh_token_path.parent.mkdir(parents=True, exist_ok=True)
                 new_refresh_token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
+            _append_jsonl(
+                token_log_path,
+                {
+                    "refreshed_at": _utc_now_iso(),
+                    "refresh_count": 0,
+                    "symbol": None,
+                    "trigger_status": None,
+                    "trigger": "missing_initial_access_token",
+                },
+            )
+            print("[token] refreshed Schwab access token before scan (missing initial access token)", flush=True)
         scanner = SchwabOptionableScanner(
             access_token=access_token,
             calls_per_minute=calls_per_minute,
@@ -191,16 +273,42 @@ def build_optionable_payload(
             total = len(retry_candidates)
             round_label = "initial" if round_index == 1 else f"retry {round_index - 1}/{retry_budget}"
             print(f"[chains] starting {round_label} round for {total} symbols", flush=True)
+            round_started_at = _utc_now_iso()
             for index, symbol in enumerate(retry_candidates, start=1):
+                token_refresh_count_before = scanner.refresh_count
                 try:
                     is_optionable, reason = scanner.is_optionable(symbol)
+                    attempts = list(scanner.last_attempts)
+                    token_events = scanner.token_events[token_refresh_count_before:]
                 except Exception as exc:  # pragma: no cover - defensive around remote API
                     is_optionable, reason = False, f"error:{type(exc).__name__}"
+                    attempts = [
+                        {
+                            "attempt": 1,
+                            "symbol": symbol,
+                            "completed_at": _utc_now_iso(),
+                            "exception_type": type(exc).__name__,
+                        }
+                    ]
+                    token_events = []
                 if is_optionable:
                     optionable.add(symbol)
                     failures.pop(symbol, None)
                 else:
                     failures[symbol] = reason or "not_optionable"
+                attempt_record = {
+                    "recorded_at": _utc_now_iso(),
+                    "round": round_label,
+                    "round_index": round_index,
+                    "symbol": symbol,
+                    "optionable": bool(is_optionable),
+                    "reason": reason,
+                    "attempts": attempts,
+                    "token_refreshes_during_symbol": len(token_events),
+                }
+                _append_jsonl(attempts_log_path, attempt_record)
+                for token_event in token_events:
+                    _append_jsonl(token_log_path, token_event)
                 if index % 25 == 0 or index == total:
                     print(
                         f"[chains] {round_label} {index}/{total} "
@@ -209,11 +317,40 @@ def build_optionable_payload(
                     )
                     _write_checkpoint(checkpoint_path, optionable=optionable, failures=failures)
 
-            retryable_after_round = [
-                symbol
-                for symbol in retry_candidates
-                if _is_retryable_failure(failures.get(symbol))
-            ]
+            retryable_after_round_map = _write_retryable_failures_snapshot(
+                retryable_snapshot_path,
+                round_label=round_label,
+                failures={symbol: failures[symbol] for symbol in retry_candidates if symbol in failures},
+            )
+            retryable_after_round = list(retryable_after_round_map)
+            if retryable_after_round_map:
+                reason_counts: dict[str, int] = {}
+                for reason in retryable_after_round_map.values():
+                    reason_counts[reason] = reason_counts.get(reason, 0) + 1
+                print(
+                    f"[chains] {round_label} retryable failure reasons: "
+                    f"{dict(sorted(reason_counts.items()))}",
+                    flush=True,
+                )
+            if summary_path is not None:
+                summary_path.write_text(
+                    json.dumps(
+                        {
+                            "updated_at": _utc_now_iso(),
+                            "round": round_label,
+                            "round_started_at": round_started_at,
+                            "round_completed_at": _utc_now_iso(),
+                            "round_candidates": total,
+                            "optionable": len(optionable),
+                            "failures": len(failures),
+                            "retryable_failures_after_round": len(retryable_after_round),
+                            "token_refresh_count": scanner.refresh_count,
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
             if not retryable_after_round or round_index > retry_budget:
                 break
             print(
@@ -283,6 +420,7 @@ def main() -> int:
         checkpoint_path=checkpoint_path,
         calls_per_minute=args.calls_per_minute,
         max_retry_rounds=max(0, int(args.max_retry_rounds)),
+        diagnostics_dir=output_dir,
     )
     latest_path = output_dir / args.output_name
     latest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
