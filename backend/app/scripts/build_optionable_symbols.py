@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import time
 from dataclasses import asdict
@@ -33,16 +32,34 @@ class SchwabOptionableScanner:
         chains_url: str = SCHWAB_CHAINS_URL,
         calls_per_minute: int = 110,
         timeout_seconds: float = 30.0,
+        token_service: SchwabTokenService | None = None,
+        new_refresh_token_path: Path | None = None,
     ) -> None:
         self.access_token = access_token
         self.chains_url = chains_url
         self.calls_per_minute = max(1, min(int(calls_per_minute), 120))
         self.timeout_seconds = timeout_seconds
+        self.token_service = token_service
+        self.new_refresh_token_path = new_refresh_token_path
+        self.refresh_count = 0
         self._last_call_at = 0.0
 
     def is_optionable(self, symbol: str) -> tuple[bool, str | None]:
+        response = self._chains_request(symbol)
+        if response.status_code == 401 and self.token_service is not None:
+            self._refresh_access_token()
+            response = self._chains_request(symbol)
+        if response.status_code == 404:
+            return False, "not_found"
+        if response.status_code >= 400:
+            return False, f"http_{response.status_code}"
+        payload = response.json()
+        optionable = bool(payload.get("putExpDateMap") or payload.get("callExpDateMap"))
+        return optionable, None if optionable else "empty_chain"
+
+    def _chains_request(self, symbol: str) -> requests.Response:
         self._rate_limit()
-        response = requests.get(
+        return requests.get(
             self.chains_url,
             params={
                 "symbol": symbol,
@@ -54,13 +71,19 @@ class SchwabOptionableScanner:
             headers={"Authorization": f"Bearer {self.access_token}"},
             timeout=self.timeout_seconds,
         )
-        if response.status_code == 404:
-            return False, "not_found"
-        if response.status_code >= 400:
-            return False, f"http_{response.status_code}"
-        payload = response.json()
-        optionable = bool(payload.get("putExpDateMap") or payload.get("callExpDateMap"))
-        return optionable, None if optionable else "empty_chain"
+
+    def _refresh_access_token(self) -> None:
+        if self.token_service is None:
+            raise RuntimeError("Schwab access token expired and no token service is configured")
+        token_pair = self.token_service.refresh_from_env()
+        self.access_token = token_pair.access_token
+        os.environ["SCHWAB_ACCESS_TOKEN"] = token_pair.access_token
+        os.environ["SCHWAB_REFRESH_TOKEN"] = token_pair.new_refresh_token
+        if self.new_refresh_token_path is not None:
+            self.new_refresh_token_path.parent.mkdir(parents=True, exist_ok=True)
+            self.new_refresh_token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
+        self.refresh_count += 1
+        print(f"[token] refreshed Schwab access token during scan ({self.refresh_count})", flush=True)
 
     def _rate_limit(self) -> None:
         min_interval = 60.0 / float(self.calls_per_minute)
@@ -117,23 +140,36 @@ def build_optionable_payload(
     checkpoint = _load_checkpoint(checkpoint_path)
     optionable = {str(symbol).upper() for symbol in checkpoint["optionable"]}
     failures = {str(symbol).upper(): str(reason) for symbol, reason in checkpoint["failures"].items()}
-    checked_before = optionable | set(failures)
+    retryable_failures = {
+        symbol
+        for symbol, reason in failures.items()
+        if reason.startswith(("http_", "error:"))
+    }
+    checked_before = optionable | (set(failures) - retryable_failures)
 
     if dry_run:
         optionable.update(candidates)
     else:
+        token_service = SchwabTokenService.from_env()
+        new_refresh_token_path = (
+            Path(os.environ["SCHWAB_NEW_REFRESH_TOKEN_FILE"])
+            if os.environ.get("SCHWAB_NEW_REFRESH_TOKEN_FILE")
+            else None
+        )
         access_token = os.environ.get("SCHWAB_ACCESS_TOKEN")
         if not access_token:
-            token_pair = SchwabTokenService.from_env().refresh_from_env()
+            token_pair = token_service.refresh_from_env()
             access_token = token_pair.access_token
-            new_refresh_token_path = os.environ.get("SCHWAB_NEW_REFRESH_TOKEN_FILE")
-            if new_refresh_token_path:
-                token_path = Path(new_refresh_token_path)
-                token_path.parent.mkdir(parents=True, exist_ok=True)
-                token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
+            os.environ["SCHWAB_ACCESS_TOKEN"] = token_pair.access_token
+            os.environ["SCHWAB_REFRESH_TOKEN"] = token_pair.new_refresh_token
+            if new_refresh_token_path is not None:
+                new_refresh_token_path.parent.mkdir(parents=True, exist_ok=True)
+                new_refresh_token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
         scanner = SchwabOptionableScanner(
             access_token=access_token,
             calls_per_minute=calls_per_minute,
+            token_service=token_service,
+            new_refresh_token_path=new_refresh_token_path,
         )
         total = len(candidates)
         for index, symbol in enumerate(candidates, start=1):
@@ -190,6 +226,12 @@ def main() -> int:
     parser.add_argument("--max-symbols", type=int, default=None)
     parser.add_argument("--symbols", default="", help="Optional comma-separated subset for smoke tests.")
     parser.add_argument("--dry-run", action="store_true", help="Skip Schwab and emit filtered candidates as optionable.")
+    parser.add_argument(
+        "--max-errors",
+        type=int,
+        default=0,
+        help="Maximum allowed http_/error: scan failures before exiting non-zero (default 0).",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -209,6 +251,9 @@ def main() -> int:
     dated_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(f"Wrote {latest_path} ({len(payload['symbols'])} symbols)")
     print(f"Wrote {dated_path}")
+    errors = int((payload.get("stats") or {}).get("errors") or 0)
+    if not args.dry_run and errors > max(0, int(args.max_errors)):
+        raise SystemExit(f"Optionable scan had {errors} API errors (max {args.max_errors}); refusing success.")
     return 0
 
 
