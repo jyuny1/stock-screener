@@ -64,10 +64,30 @@ jobs:
         if: ${{ steps.cadence.outputs.run_scan == 'true' }}
         run: pip install requests
 
-      - name: Ensure optionable release exists
-        if: ${{ steps.cadence.outputs.run_scan == 'true' }}
+      - name: Validate Schwab secrets
+        if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          SCHWAB_SECRET_WRITE_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
+        run: |
+          missing=0
+          for name in SCHWAB_CLIENT_ID SCHWAB_CLIENT_SECRET SCHWAB_REFRESH_TOKEN SCHWAB_SECRET_WRITE_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required Actions secret: ${name}" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Configure Schwab OAuth secrets before running a real optionable scan." >&2
+            exit 1
+          fi
+
+      - name: Ensure optionable release exists
+        if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
         run: |
           gh release view optionable-symbols \
             --repo "${{ github.repository }}" >/dev/null 2>&1 || \
@@ -99,7 +119,7 @@ jobs:
       - name: Persist rotated Schwab refresh token
         if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
         run: |
           if [ ! -s /tmp/schwab-new-refresh-token.txt ]; then
             echo "Schwab refresh token was not written; refusing to continue." >&2
@@ -111,9 +131,9 @@ jobs:
             --body-file /tmp/schwab-new-refresh-token.txt
 
       - name: Upload optionable assets
-        if: ${{ steps.cadence.outputs.run_scan == 'true' }}
+        if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
         run: |
           gh release upload optionable-symbols \
             /tmp/optionable-symbols/optionable-symbols-latest-us.json \

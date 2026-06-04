@@ -172,5 +172,8 @@ def test_workflows_default_static_us_to_optionable():
     assert "Install optionable-symbols dependencies" in optionable
     assert "pip install requests" in optionable
     assert "pip install -r backend/requirements.txt" not in optionable
+    assert "Validate Schwab secrets" in optionable
+    assert "SCHWAB_SECRET_WRITE_TOKEN" in optionable
     assert "optionable-symbols-latest-us.json" in optionable
     assert "gh secret set SCHWAB_REFRESH_TOKEN" in optionable
+    assert "github.event.inputs.dry_run != 'true'" in optionable
