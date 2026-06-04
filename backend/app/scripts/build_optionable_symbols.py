@@ -122,14 +122,17 @@ def build_optionable_payload(
     if dry_run:
         optionable.update(candidates)
     else:
-        token_pair = SchwabTokenService.from_env().refresh_from_env()
-        new_refresh_token_path = os.environ.get("SCHWAB_NEW_REFRESH_TOKEN_FILE")
-        if new_refresh_token_path:
-            token_path = Path(new_refresh_token_path)
-            token_path.parent.mkdir(parents=True, exist_ok=True)
-            token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
+        access_token = os.environ.get("SCHWAB_ACCESS_TOKEN")
+        if not access_token:
+            token_pair = SchwabTokenService.from_env().refresh_from_env()
+            access_token = token_pair.access_token
+            new_refresh_token_path = os.environ.get("SCHWAB_NEW_REFRESH_TOKEN_FILE")
+            if new_refresh_token_path:
+                token_path = Path(new_refresh_token_path)
+                token_path.parent.mkdir(parents=True, exist_ok=True)
+                token_path.write_text(token_pair.new_refresh_token, encoding="utf-8")
         scanner = SchwabOptionableScanner(
-            access_token=token_pair.access_token,
+            access_token=access_token,
             calls_per_minute=calls_per_minute,
         )
         total = len(candidates)

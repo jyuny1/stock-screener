@@ -96,13 +96,33 @@ jobs:
             --title "US Optionable Symbols" \
             --notes "Automated US optionable universe symbols for static deployments."
 
-      - name: Build optionable symbols artifact
-        if: ${{ steps.cadence.outputs.run_scan == 'true' }}
+      - name: Refresh Schwab token and persist rotation
+        if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
         env:
           SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
           SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
           SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
-          SCHWAB_NEW_REFRESH_TOKEN_FILE: /tmp/schwab-new-refresh-token.txt
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
+        run: |
+          cd backend
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from app.services.schwab_token_service import SchwabTokenService
+
+          pair = SchwabTokenService.from_env().refresh_from_env()
+          Path('/tmp/schwab-access-token.txt').write_text(pair.access_token, encoding='utf-8')
+          Path('/tmp/schwab-new-refresh-token.txt').write_text(pair.new_refresh_token, encoding='utf-8')
+          PY
+          echo "::add-mask::$(cat /tmp/schwab-access-token.txt)"
+          echo "SCHWAB_ACCESS_TOKEN=$(cat /tmp/schwab-access-token.txt)" >> "$GITHUB_ENV"
+          cat /tmp/schwab-new-refresh-token.txt | gh secret set SCHWAB_REFRESH_TOKEN \
+            --repo "${{ github.repository }}" \
+            --app actions
+
+      - name: Build optionable symbols artifact
+        if: ${{ steps.cadence.outputs.run_scan == 'true' }}
+        env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_MAX_SYMBOLS: ${{ github.event.inputs.max_symbols }}
         run: |
@@ -115,20 +135,6 @@ jobs:
             args+=(--max-symbols "$INPUT_MAX_SYMBOLS")
           fi
           python -m app.scripts.build_optionable_symbols "${args[@]}"
-
-      - name: Persist rotated Schwab refresh token
-        if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
-        run: |
-          if [ ! -s /tmp/schwab-new-refresh-token.txt ]; then
-            echo "Schwab refresh token was not written; refusing to continue." >&2
-            exit 1
-          fi
-          gh secret set SCHWAB_REFRESH_TOKEN \
-            --repo "${{ github.repository }}" \
-            --app actions \
-            --body-file /tmp/schwab-new-refresh-token.txt
 
       - name: Upload optionable assets
         if: ${{ steps.cadence.outputs.run_scan == 'true' && github.event.inputs.dry_run != 'true' }}
