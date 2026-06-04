@@ -160,6 +160,12 @@ class NasdaqTraderUniverseService:
             # class-share spellings, so keep the first MVP deterministic and avoid
             # symbols that are likely to fail /chains.
             return False
+        if "$" in row.symbol:
+            # NasdaqTrader uses dollar-delimited symbols for preferred shares
+            # (for example BAC$L). They are valid listed securities, but they are
+            # outside this common/ETF optionable screener universe and Schwab
+            # /chains rejects them as bad requests.
+            return False
         if row.is_etf:
             return row.symbol in self.etf_allowlist
         name = row.name or ""

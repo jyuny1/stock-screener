@@ -52,6 +52,8 @@ class SchwabOptionableScanner:
         if response.status_code == 401 and self.token_service is not None:
             self._refresh_access_token(symbol=symbol, trigger_status=response.status_code)
             response = self._chains_request(symbol)
+        if response.status_code == 400:
+            return False, "bad_request"
         if response.status_code == 404:
             return False, "not_found"
         if response.status_code >= 400:

@@ -21,6 +21,7 @@ AAPL|Apple Inc. Common Stock|Q|N|N|100|N|N
 TQQQ|ProShares UltraPro QQQ|G|N|N|100|Y|N
 ABCW|ABC Warrants|Q|N|N|100|N|N
 FOO.U|Foo Units|Q|N|N|100|N|N
+PREF$A|Example Preferred Share|Q|N|N|100|N|N
 File Creation Time: 2026-06-04
 """
     other_text = """ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
@@ -28,6 +29,7 @@ XNYS1|Example NYSE Common Stock|N|XNYS1|N|100|N|XNYS1
 XASE1|Example NYSE American Common Stock|A|XASE1|N|100|N|XASE1
 SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY
 BRK.B|Berkshire Hathaway Class B|N|BRK.B|N|100|N|BRK.B
+BAC$L|Bank of America Depositary Shares|N|BAC$L|N|100|N|BAC$L
 XYZ|XYZ Debenture|A|XYZ|N|100|N|XYZ
 CBOE|Cboe Listed Co|Z|CBOE|N|100|N|CBOE
 File Creation Time: 2026-06-04
@@ -41,6 +43,8 @@ File Creation Time: 2026-06-04
     kept = [row.symbol for row in rows if service._keep_symbol(row)]
 
     assert kept == ["AAPL", "XNYS1", "XASE1", "SPY"]
+    assert "PREF$A" not in kept
+    assert "BAC$L" not in kept
 
 
 class _FakeResponse:
@@ -53,6 +57,7 @@ class _FakeResponse:
 def test_optionable_retryable_failure_classifier():
     assert optionable_script._is_retryable_failure("http_401") is True
     assert optionable_script._is_retryable_failure("error:Timeout") is True
+    assert optionable_script._is_retryable_failure("bad_request") is False
     assert optionable_script._is_retryable_failure("empty_chain") is False
     assert optionable_script._is_retryable_failure("not_found") is False
 
