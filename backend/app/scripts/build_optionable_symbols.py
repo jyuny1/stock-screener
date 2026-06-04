@@ -14,7 +14,6 @@ from typing import Any
 
 import requests
 
-from app.scripts._runtime import prepare_runtime, repo_root
 from app.services.nasdaqtrader_universe_service import NasdaqTraderUniverseService
 from app.services.schwab_token_service import SchwabTokenService
 
@@ -23,7 +22,7 @@ SCHEMA_VERSION = "optionable-symbols-v1"
 
 
 def _default_output_dir() -> Path:
-    return repo_root() / ".tmp" / "optionable-symbols"
+    return Path.cwd() / ".tmp" / "optionable-symbols"
 
 
 class SchwabOptionableScanner:
@@ -190,7 +189,6 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Skip Schwab and emit filtered candidates as optionable.")
     args = parser.parse_args()
 
-    prepare_runtime()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = Path(args.checkpoint) if args.checkpoint else output_dir / ".optionable-symbols-checkpoint.json"
