@@ -14,14 +14,16 @@ def test_daily_price_workflow_is_us_only_and_publishes_release_assets() -> None:
     assert "schedule:" not in content
     assert "group: daily-price-us" in content
     assert "cancel-in-progress: false" in content
-    assert "postgres:16-alpine" in content
+    assert "postgres" not in content.lower()
+    assert "DATABASE_URL" not in content
+    assert "pip install -r backend/requirements.txt" not in content
     assert "weekly-reference-latest-us.json" in content
     assert "US_OPTIONABLE" in content
-    assert "import_weekly_reference_bundle" in content
-    assert "sync_daily_price_bundle_from_github" in content
-    assert "--allow-stale" in content
-    assert "--refresh-daily" in content
-    assert "build_daily_price_bundle" in content
+    assert "build_daily_price_artifact" in content
+    assert "import_weekly_reference_bundle" not in content
+    assert "sync_daily_price_bundle_from_github" not in content
+    assert "--refresh-daily" not in content
+    assert "build_daily_price_bundle" not in content
     assert "daily-price-latest-us.json" in content
     assert "daily-price-us-*.json.gz" in content
     assert "gh release upload daily-price-data" in content
