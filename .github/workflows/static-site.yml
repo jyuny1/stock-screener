@@ -190,16 +190,33 @@ jobs:
           if missing:
               raise SystemExit(f'missing required scan row fields: {sorted(missing)}')
           priced = 0
+          price_sparklines = 0
+          rs_sparklines = 0
           for chunk in scan['chunks']:
               path = root / chunk['path']
               if not path.exists():
                   raise SystemExit(f'missing scan chunk: {path}')
               payload = json.loads(path.read_text(encoding='utf-8'))
-              priced += sum(1 for row in payload.get('rows', []) if row.get('current_price') is not None)
+              rows = payload.get('rows', [])
+              priced += sum(1 for row in rows if row.get('current_price') is not None)
+              price_sparklines += sum(1 for row in rows if row.get('price_sparkline_data'))
+              rs_sparklines += sum(1 for row in rows if row.get('rs_sparkline_data'))
           price_coverage = priced / scan['rows_total'] if scan['rows_total'] else 0
+          price_sparkline_coverage = price_sparklines / scan['rows_total'] if scan['rows_total'] else 0
+          rs_sparkline_coverage = rs_sparklines / scan['rows_total'] if scan['rows_total'] else 0
           if price_coverage < 0.80:
               raise SystemExit(f'static scan price coverage too low: {price_coverage:.2%}')
-          print({'rows_total': scan['rows_total'], 'chunks': len(scan['chunks']), 'price_coverage': round(price_coverage, 6)})
+          if price_sparkline_coverage < 0.80:
+              raise SystemExit(f'static scan price sparkline coverage too low: {price_sparkline_coverage:.2%}')
+          if rs_sparkline_coverage < 0.80:
+              raise SystemExit(f'static scan RS sparkline coverage too low: {rs_sparkline_coverage:.2%}')
+          print({
+              'rows_total': scan['rows_total'],
+              'chunks': len(scan['chunks']),
+              'price_coverage': round(price_coverage, 6),
+              'price_sparkline_coverage': round(price_sparkline_coverage, 6),
+              'rs_sparkline_coverage': round(rs_sparkline_coverage, 6),
+          })
           PY
 
       - name: Build static frontend

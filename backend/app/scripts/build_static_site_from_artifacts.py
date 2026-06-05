@@ -110,8 +110,51 @@ def _composite_score(payload: dict[str, Any]) -> float | None:
     return round(sum(usable) / len(usable), 2)
 
 
-def _scan_row(payload: dict[str, Any], latest_price: dict[str, Any] | None) -> dict[str, Any]:
+def _sparkline_from_prices(prices: list[dict[str, Any]] | None, *, limit: int = 30) -> list[float]:
+    values: list[float] = []
+    for row in (prices or [])[-limit:]:
+        close = _number(row.get("close"))
+        if close is not None:
+            values.append(float(close))
+    return values
+
+
+def _trend(values: list[float]) -> int:
+    if len(values) < 2 or values[0] == 0:
+        return 0
+    change = (values[-1] - values[0]) / values[0]
+    if change > 0.005:
+        return 1
+    if change < -0.005:
+        return -1
+    return 0
+
+
+def _rs_sparkline(prices: list[dict[str, Any]] | None, benchmark: list[dict[str, Any]] | None, *, limit: int = 30) -> list[float]:
+    benchmark_by_date = {
+        str(row.get("date")): _number(row.get("close"))
+        for row in (benchmark or [])
+        if row.get("date") and _number(row.get("close")) not in (None, 0)
+    }
+    values: list[float] = []
+    for row in (prices or [])[-limit:]:
+        date_key = str(row.get("date"))
+        close = _number(row.get("close"))
+        bench_close = benchmark_by_date.get(date_key)
+        if close is not None and bench_close not in (None, 0):
+            values.append(round(float(close) / float(bench_close), 6))
+    return values
+
+
+def _scan_row(
+    payload: dict[str, Any],
+    latest_price: dict[str, Any] | None,
+    benchmark_prices: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     symbol = payload["symbol"]
+    price_history = (latest_price or {}).get("prices") or []
+    price_sparkline = _sparkline_from_prices(price_history)
+    rs_sparkline = _rs_sparkline(price_history, benchmark_prices)
     volume = (latest_price or {}).get("volume") or _number(payload.get("avg_volume"))
     current_price = (latest_price or {}).get("close")
     change_1d = (latest_price or {}).get("change_1d")
@@ -185,8 +228,12 @@ def _scan_row(payload: dict[str, Any], latest_price: dict[str, Any] | None) -> d
         "pct_day": None,
         "pct_week": None,
         "pct_month": None,
-        "sparkline": [],
-        "rs_sparkline": [],
+        "sparkline": price_sparkline,
+        "price_sparkline_data": price_sparkline,
+        "price_trend": _trend(price_sparkline),
+        "rs_sparkline": rs_sparkline,
+        "rs_sparkline_data": rs_sparkline,
+        "rs_trend": _trend(rs_sparkline),
     }
     return row
 
@@ -306,6 +353,7 @@ def build_static_site_from_artifacts(
     weekly = _read_json(foundation_update)
     daily = _read_json(daily_price) if daily_price else None
     latest_prices = _latest_daily_by_symbol(daily)
+    benchmark_prices = (latest_prices.get("SPY") or {}).get("prices") or []
     as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
     coverage = dict((weekly.get("coverage") or {}))
     coverage["source_revision"] = weekly.get("source_revision")
@@ -315,7 +363,7 @@ def build_static_site_from_artifacts(
         payload = _row_payload(source_row)
         if not payload.get("symbol"):
             continue
-        rows.append(_scan_row(payload, latest_prices.get(payload["symbol"])))
+        rows.append(_scan_row(payload, latest_prices.get(payload["symbol"]), benchmark_prices))
     rows = _sort_rows(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
