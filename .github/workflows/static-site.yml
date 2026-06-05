@@ -189,11 +189,17 @@ jobs:
           missing = required - set(scan['initial_rows'][0])
           if missing:
               raise SystemExit(f'missing required scan row fields: {sorted(missing)}')
+          priced = 0
           for chunk in scan['chunks']:
               path = root / chunk['path']
               if not path.exists():
                   raise SystemExit(f'missing scan chunk: {path}')
-          print({'rows_total': scan['rows_total'], 'chunks': len(scan['chunks'])})
+              payload = json.loads(path.read_text(encoding='utf-8'))
+              priced += sum(1 for row in payload.get('rows', []) if row.get('current_price') is not None)
+          price_coverage = priced / scan['rows_total'] if scan['rows_total'] else 0
+          if price_coverage < 0.80:
+              raise SystemExit(f'static scan price coverage too low: {price_coverage:.2%}')
+          print({'rows_total': scan['rows_total'], 'chunks': len(scan['chunks']), 'price_coverage': round(price_coverage, 6)})
           PY
 
       - name: Build static frontend

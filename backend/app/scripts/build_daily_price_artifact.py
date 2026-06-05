@@ -195,6 +195,7 @@ def build_daily_price_artifact(
     batch_size: int = 100,
     batch_sleep_seconds: float = 1.0,
     min_symbol_coverage: float = 0.8,
+    fetch_mode: str = "missing",
 ) -> dict[str, Any]:
     weekly = _read_json(foundation_update)
     symbols_by_exchange = _weekly_symbols(weekly)
@@ -202,11 +203,17 @@ def build_daily_price_artifact(
     prior = _read_json(prior_daily) if prior_daily else None
     rows_by_symbol = _prior_rows(prior)
 
-    # Re-fetch all symbols for now. This keeps the artifact fresh and avoids DB state,
-    # while still using efficient batched Yahoo downloads.
+    if fetch_mode not in {"missing", "all"}:
+        raise ValueError(f"Unsupported fetch_mode: {fetch_mode!r}")
+    symbols_to_fetch = (
+        target_symbols
+        if fetch_mode == "all"
+        else [symbol for symbol in target_symbols if not rows_by_symbol.get(symbol)]
+    )
+
     failures: dict[str, str] = {}
-    for start in range(0, len(target_symbols), max(1, int(batch_size))):
-        batch = target_symbols[start:start + max(1, int(batch_size))]
+    for start in range(0, len(symbols_to_fetch), max(1, int(batch_size))):
+        batch = symbols_to_fetch[start:start + max(1, int(batch_size))]
         fetched = _download_batch(batch, period=BAR_PERIOD)
         for symbol in batch:
             rows = fetched.get(symbol) or []
@@ -216,11 +223,12 @@ def build_daily_price_artifact(
             else:
                 failures[symbol] = "empty_price_history"
         print(
-            f"[prices] {min(start + len(batch), len(target_symbols))}/{len(target_symbols)} "
-            f"covered={sum(1 for s in target_symbols if rows_by_symbol.get(s))} failures={len(failures)}",
+            f"[prices] fetched={min(start + len(batch), len(symbols_to_fetch))}/{len(symbols_to_fetch)} "
+            f"target={len(target_symbols)} covered={sum(1 for s in target_symbols if rows_by_symbol.get(s))} "
+            f"failures={len(failures)} mode={fetch_mode}",
             flush=True,
         )
-        if batch_sleep_seconds > 0 and start + len(batch) < len(target_symbols):
+        if batch_sleep_seconds > 0 and start + len(batch) < len(symbols_to_fetch):
             time.sleep(batch_sleep_seconds)
 
     bundle_rows = [
@@ -267,6 +275,8 @@ def build_daily_price_artifact(
         "covered_symbol_count": covered,
         "symbol_coverage": round(coverage, 6),
         "min_symbol_coverage": min_symbol_coverage,
+        "fetch_mode": fetch_mode,
+        "fetched_symbol_count": len(symbols_to_fetch),
         "failures": dict(sorted(failures.items())),
         "rows": bundle_rows,
     }
@@ -289,6 +299,8 @@ def build_daily_price_artifact(
         "covered_symbol_count": covered,
         "symbol_coverage": round(coverage, 6),
         "min_symbol_coverage": min_symbol_coverage,
+        "fetch_mode": fetch_mode,
+        "fetched_symbol_count": len(symbols_to_fetch),
     }
     manifest_path = output_dir / "daily-price-latest-us.json"
     _write_json(manifest_path, manifest)
@@ -303,6 +315,8 @@ def build_daily_price_artifact(
         "stale_symbol_count": len(stale_symbols),
         "symbol_coverage": round(coverage, 6),
         "sha256": sha256,
+        "fetch_mode": fetch_mode,
+        "fetched_symbol_count": len(symbols_to_fetch),
     }
 
 
@@ -314,6 +328,12 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--batch-sleep-seconds", type=float, default=1.0)
     parser.add_argument("--min-symbol-coverage", type=float, default=0.8)
+    parser.add_argument(
+        "--fetch-mode",
+        choices=("missing", "all"),
+        default="missing",
+        help="Fetch only symbols absent from the prior artifact, or refetch all symbols.",
+    )
     args = parser.parse_args()
     summary = build_daily_price_artifact(
         foundation_update=args.foundation_update,
@@ -322,6 +342,7 @@ def main() -> int:
         batch_size=args.batch_size,
         batch_sleep_seconds=args.batch_sleep_seconds,
         min_symbol_coverage=args.min_symbol_coverage,
+        fetch_mode=args.fetch_mode,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
