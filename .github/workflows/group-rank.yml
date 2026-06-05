@@ -1,0 +1,90 @@
+name: Group Rank Data
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: group-rank-us
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish-us:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Ensure group rank release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view group-rank-data --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+          gh release create group-rank-data --repo "${{ github.repository }}" --title "Group Rank Data" --notes "Artifact-native US group ranking data."
+
+      - name: Download inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/foundation-update /tmp/scan-metrics
+          gh release download foundation-update-data --repo "${{ github.repository }}" --pattern foundation-update-latest-us.json --dir /tmp/foundation-update --clobber
+          foundation_bundle="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/foundation-update/foundation-update-latest-us.json').read_text())['bundle_asset_name'])
+          PY
+          )"
+          echo "FOUNDATION_UPDATE_BUNDLE=/tmp/foundation-update/${foundation_bundle}" >> "$GITHUB_ENV"
+          gh release download foundation-update-data --repo "${{ github.repository }}" --pattern "${foundation_bundle}" --dir /tmp/foundation-update --clobber
+
+          gh release download scan-metrics-data --repo "${{ github.repository }}" --pattern scan-metrics-latest-us.json --dir /tmp/scan-metrics --clobber
+          scan_bundle="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/scan-metrics/scan-metrics-latest-us.json').read_text())['bundle_asset_name'])
+          PY
+          )"
+          echo "SCAN_METRICS_BUNDLE=/tmp/scan-metrics/${scan_bundle}" >> "$GITHUB_ENV"
+          gh release download scan-metrics-data --repo "${{ github.repository }}" --pattern "${scan_bundle}" --dir /tmp/scan-metrics --clobber
+
+      - name: Build group rank artifact
+        run: |
+          cd backend
+          python -m app.scripts.build_profile_artifact \
+            --mode group-rank \
+            --foundation-update "$FOUNDATION_UPDATE_BUNDLE" \
+            --scan-metrics "$SCAN_METRICS_BUNDLE" \
+            --output-dir /tmp/group-rank
+
+      - name: Validate group rank outputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/group-rank/group-rank-latest-us.json').read_text())
+          if manifest.get('market') != 'US':
+              raise SystemExit('group rank market must be US')
+          if int(manifest.get('symbol_count') or 0) < 3000:
+              raise SystemExit(f"group rank symbol count too low: {manifest.get('symbol_count')}")
+          if float(manifest.get('field_coverage', {}).get('ibd_group_rank') or 0) < 0.95:
+              raise SystemExit(f"group rank coverage too low: {manifest.get('field_coverage')}")
+          print(manifest)
+          PY
+
+      - name: Upload group rank assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bundle="$(find /tmp/group-rank -maxdepth 1 -name 'group-rank-us-*.json.gz' | head -n 1)"
+          gh release upload group-rank-data "$bundle" --repo "${{ github.repository }}" --clobber
+          gh release upload group-rank-data /tmp/group-rank/group-rank-latest-us.json --repo "${{ github.repository }}" --clobber

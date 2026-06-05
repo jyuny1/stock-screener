@@ -174,7 +174,7 @@ jobs:
               raise SystemExit(f"scan metrics manifest market must be US, got {manifest.get('market')!r}")
           if float(manifest.get('symbol_coverage') or 0) < 0.80:
               raise SystemExit(f"scan metrics coverage too low: {manifest.get('symbol_coverage')}")
-          required = ['rs_rating', 'rs_rating_1m', 'rs_rating_3m', 'rs_rating_12m', 'minervini_score', 'canslim_score', 'se_setup_score']
+          required = ['rs_rating', 'rs_rating_1m', 'rs_rating_3m', 'rs_rating_12m', 'adr_percent', 'rating_score', 'minervini_score', 'canslim_score', 'se_setup_score']
           low = {k: manifest.get('field_coverage', {}).get(k) for k in required if float(manifest.get('field_coverage', {}).get(k) or 0) < 0.80}
           if low:
               raise SystemExit(f"scan metrics field coverage too low: {low}")

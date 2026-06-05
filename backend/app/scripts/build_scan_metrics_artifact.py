@@ -161,6 +161,17 @@ def _beta(stock_returns: list[float], benchmark_returns: list[float]) -> float |
     return cov / var_b
 
 
+def _adr_percent(rows: list[dict[str, Any]], window: int = 20) -> float | None:
+    usable = []
+    for row in rows[-window:]:
+        high = _num(row.get("high"))
+        low = _num(row.get("low"))
+        close = _num(row.get("close"))
+        if high is not None and low is not None and close not in (None, 0):
+            usable.append(((high - low) / close) * 100.0)
+    return mean(usable) if usable else None
+
+
 def _atr_percent(rows: list[dict[str, Any]], window: int = 14) -> float | None:
     if len(rows) < window + 1:
         return None
@@ -238,6 +249,22 @@ def _rs_line_new_high(rows: list[dict[str, Any]], benchmark_rows: list[dict[str,
     if len(ratios) < 20:
         return None
     return ratios[-1] >= max(ratios)
+
+
+def _rating_label(score: float | None, *, metrics_available: bool) -> str:
+    if not metrics_available or score is None:
+        return "Insufficient Data"
+    if score >= 90:
+        return "A+"
+    if score >= 80:
+        return "A"
+    if score >= 70:
+        return "B"
+    if score >= 55:
+        return "C"
+    if score >= 40:
+        return "D"
+    return "E"
 
 
 def _setup_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -369,11 +396,16 @@ def build_scan_metrics_artifact(
         composite_parts = [canslim_score, min_score, setup.get("se_setup_score"), rs_rating.get(symbol), custom_score]
         composite_usable = [float(value) for value in composite_parts if value is not None]
         composite = mean(composite_usable) if composite_usable else None
+        adr_percent = _adr_percent(price_rows) if price_rows else None
+        rating_score = composite
+        rating = _rating_label(rating_score, metrics_available=bool(price_rows))
         rows.append(
             {
                 "symbol": symbol,
                 "metrics_available": bool(price_rows),
                 "composite_score": _round(composite, 1),
+                "rating_score": _round(rating_score, 1),
+                "rating": rating,
                 "minervini_score": _round(min_score, 1),
                 "canslim_score": _round(canslim_score, 1),
                 "ipo_score": _round(ipo_score, 1),
@@ -383,6 +415,7 @@ def build_scan_metrics_artifact(
                 "rs_rating_1m": rs_1m.get(symbol),
                 "rs_rating_3m": rs_3m.get(symbol),
                 "rs_rating_12m": rs_12m.get(symbol),
+                "adr_percent": _round(adr_percent, 2),
                 "beta": _round(beta, 2),
                 "beta_adj_rs": _round(beta_adj_rs, 1),
                 "eps_rating": _round(eps_rating, 0),
@@ -418,8 +451,8 @@ def build_scan_metrics_artifact(
         for key in [
             "composite_score", "minervini_score", "canslim_score", "custom_score",
             "volume_breakthrough_score", "rs_rating", "rs_rating_1m", "rs_rating_3m",
-            "rs_rating_12m", "beta_adj_rs", "eps_rating", "stage", "se_setup_score",
-            "se_distance_to_pivot_pct", "se_bb_width_pctile_252", "se_volume_vs_50d", "se_pivot_price",
+            "rs_rating_12m", "adr_percent", "rating_score", "beta_adj_rs", "eps_rating", "stage", "se_setup_score",
+            "se_distance_to_pivot_pct", "se_bb_width_pctile_252", "se_volume_vs_50d", "se_pivot_price", "se_rs_line_new_high",
         ]
     }
     payload = {

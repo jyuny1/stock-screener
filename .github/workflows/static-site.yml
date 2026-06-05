@@ -209,6 +209,61 @@ jobs:
             exit 1
           fi
 
+      - name: Download optional supplemental profile artifacts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          download_profile() {
+            local release="$1" manifest="$2" dir="$3" env_prefix="$4"
+            mkdir -p "$dir"
+            gh release download "$release" --repo "${{ github.repository }}" --pattern "$manifest" --dir "$dir" --clobber
+            local bundle sha
+            bundle="$(python - <<PY
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('$dir/$manifest').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"profile manifest market must be US, got {manifest.get('market')!r}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+            sha="$(python - <<PY
+          import json
+          from pathlib import Path
+          print(json.loads(Path('$dir/$manifest').read_text(encoding='utf-8'))['sha256'])
+          PY
+          )"
+            gh release download "$release" --repo "${{ github.repository }}" --pattern "$bundle" --dir "$dir" --clobber
+            echo "${env_prefix}_BUNDLE=${dir}/${bundle}" >> "$GITHUB_ENV"
+            echo "${env_prefix}_SHA256=${sha}" >> "$GITHUB_ENV"
+          }
+          download_profile group-rank-data group-rank-latest-us.json /tmp/group-rank GROUP_RANK
+          download_profile listing-profile-data listing-profile-latest-us.json /tmp/listing-profile LISTING_PROFILE
+          download_profile etf-profile-data etf-profile-latest-us.json /tmp/etf-profile ETF_PROFILE
+
+      - name: Verify optional supplemental profile checksums
+        run: |
+          set -euo pipefail
+          verify_optional() {
+            local path="$1" expected="$2" label="$3"
+            if [ -z "$path" ]; then return 0; fi
+            digest="$(python - <<PY
+          import hashlib
+          from pathlib import Path
+          print(hashlib.sha256(Path('$path').read_bytes()).hexdigest())
+          PY
+          )"
+            if [ "$digest" != "$expected" ]; then
+              echo "$label checksum mismatch: $digest != $expected" >&2
+              exit 1
+            fi
+          }
+          verify_optional "${GROUP_RANK_BUNDLE:-}" "${GROUP_RANK_SHA256:-}" group-rank
+          verify_optional "${LISTING_PROFILE_BUNDLE:-}" "${LISTING_PROFILE_SHA256:-}" listing-profile
+          verify_optional "${ETF_PROFILE_BUNDLE:-}" "${ETF_PROFILE_SHA256:-}" etf-profile
+
       - name: Build static data from artifacts
         run: |
           set -euo pipefail
@@ -222,6 +277,15 @@ jobs:
           fi
           if [ -n "${SCAN_METRICS_BUNDLE:-}" ]; then
             args+=(--scan-metrics "$SCAN_METRICS_BUNDLE")
+          fi
+          if [ -n "${GROUP_RANK_BUNDLE:-}" ]; then
+            args+=(--group-rank "$GROUP_RANK_BUNDLE")
+          fi
+          if [ -n "${LISTING_PROFILE_BUNDLE:-}" ]; then
+            args+=(--listing-profile "$LISTING_PROFILE_BUNDLE")
+          fi
+          if [ -n "${ETF_PROFILE_BUNDLE:-}" ]; then
+            args+=(--etf-profile "$ETF_PROFILE_BUNDLE")
           fi
           cd backend
           python -m app.scripts.build_static_site_from_artifacts "${args[@]}"

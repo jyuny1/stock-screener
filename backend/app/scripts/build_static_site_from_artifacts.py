@@ -55,15 +55,19 @@ def _number(value: Any) -> float | int | None:
     return number
 
 
-def _metrics_by_symbol(scan_metrics_bundle: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    if not scan_metrics_bundle:
+def _rows_by_symbol(bundle: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not bundle:
         return {}
     result: dict[str, dict[str, Any]] = {}
-    for row in scan_metrics_bundle.get("rows") or []:
+    for row in bundle.get("rows") or []:
         symbol = str(row.get("symbol") or "").upper().strip()
         if symbol:
             result[symbol] = row
     return result
+
+
+def _metrics_by_symbol(scan_metrics_bundle: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    return _rows_by_symbol(scan_metrics_bundle)
 
 
 def _latest_daily_by_symbol(daily_bundle: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -162,6 +166,9 @@ def _scan_row(
     latest_price: dict[str, Any] | None,
     benchmark_prices: list[dict[str, Any]] | None = None,
     scan_metrics: dict[str, Any] | None = None,
+    group_rank: dict[str, Any] | None = None,
+    listing_profile: dict[str, Any] | None = None,
+    etf_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     symbol = payload["symbol"]
     price_history = (latest_price or {}).get("prices") or []
@@ -178,6 +185,10 @@ def _scan_row(
     composite = _composite_score(payload)
     eps_rating = _number(payload.get("eps_rating"))
     metrics = scan_metrics or {}
+    group = group_rank or {}
+    listing = listing_profile or {}
+    etf = etf_profile or {}
+    market_cap = market_cap or _number(etf.get("net_assets")) or _number(etf.get("aum"))
     row = {
         "symbol": symbol,
         "company_name": payload.get("company_name") or payload.get("name") or symbol,
@@ -194,9 +205,10 @@ def _scan_row(
         "gics_sector": payload.get("sector"),
         "sector": payload.get("sector"),
         "industry": payload.get("industry"),
-        "ibd_industry_group": payload.get("ibd_industry_group") or payload.get("industry"),
-        "ipo_date": payload.get("ipo_date") or payload.get("first_trade_date"),
-        "rating": payload.get("recommendation") or "Insufficient Data",
+        "ibd_industry_group": group.get("ibd_industry_group") or group.get("group_name") or payload.get("ibd_industry_group") or payload.get("industry"),
+        "ibd_group_rank": group.get("ibd_group_rank") or group.get("group_rank"),
+        "ipo_date": listing.get("ipo_date") or listing.get("listing_date") or payload.get("ipo_date") or payload.get("first_trade_date"),
+        "rating": metrics.get("rating") or payload.get("recommendation") or "Insufficient Data",
         "scan_mode": "artifact_reference",
         "composite_score": metrics.get("composite_score", composite),
         "minervini_score": metrics.get("minervini_score"),
@@ -212,7 +224,7 @@ def _scan_row(
         "eps_rating": metrics.get("eps_rating", eps_rating),
         "eps_growth_qq": _number(payload.get("eps_growth_qq")),
         "sales_growth_qq": _number(payload.get("sales_growth_qq")),
-        "adr_percent": None,
+        "adr_percent": metrics.get("adr_percent"),
         "beta": metrics.get("beta", _number(payload.get("beta"))),
         "beta_adj_rs": metrics.get("beta_adj_rs"),
         "vcp_score": metrics.get("vcp_score"),
@@ -367,13 +379,22 @@ def build_static_site_from_artifacts(
     output_dir: Path,
     daily_price: Path | None = None,
     scan_metrics: Path | None = None,
+    group_rank: Path | None = None,
+    listing_profile: Path | None = None,
+    etf_profile: Path | None = None,
 ) -> dict[str, Any]:
     generated_at = _utc_now()
     weekly = _read_json(foundation_update)
     daily = _read_json(daily_price) if daily_price else None
     metrics_bundle = _read_json(scan_metrics) if scan_metrics else None
+    group_bundle = _read_json(group_rank) if group_rank else None
+    listing_bundle = _read_json(listing_profile) if listing_profile else None
+    etf_bundle = _read_json(etf_profile) if etf_profile else None
     latest_prices = _latest_daily_by_symbol(daily)
     metrics_by_symbol = _metrics_by_symbol(metrics_bundle)
+    group_by_symbol = _rows_by_symbol(group_bundle)
+    listing_by_symbol = _rows_by_symbol(listing_bundle)
+    etf_by_symbol = _rows_by_symbol(etf_bundle)
     benchmark_prices = (latest_prices.get("SPY") or {}).get("prices") or []
     as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
     coverage = dict((weekly.get("coverage") or {}))
@@ -385,7 +406,15 @@ def build_static_site_from_artifacts(
         if not payload.get("symbol"):
             continue
         symbol = payload["symbol"]
-        rows.append(_scan_row(payload, latest_prices.get(symbol), benchmark_prices, metrics_by_symbol.get(symbol)))
+        rows.append(_scan_row(
+            payload,
+            latest_prices.get(symbol),
+            benchmark_prices,
+            metrics_by_symbol.get(symbol),
+            group_by_symbol.get(symbol),
+            listing_by_symbol.get(symbol),
+            etf_by_symbol.get(symbol),
+        ))
     rows = _sort_rows(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -452,12 +481,18 @@ def main() -> int:
     parser.add_argument("--foundation-update", required=True, type=Path)
     parser.add_argument("--daily-price", type=Path, default=None)
     parser.add_argument("--scan-metrics", type=Path, default=None)
+    parser.add_argument("--group-rank", type=Path, default=None)
+    parser.add_argument("--listing-profile", type=Path, default=None)
+    parser.add_argument("--etf-profile", type=Path, default=None)
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     summary = build_static_site_from_artifacts(
         foundation_update=args.foundation_update,
         daily_price=args.daily_price,
         scan_metrics=args.scan_metrics,
+        group_rank=args.group_rank,
+        listing_profile=args.listing_profile,
+        etf_profile=args.etf_profile,
         output_dir=args.output_dir,
     )
     print(json.dumps({"rows_total": summary["rows_total"], "output_dir": str(args.output_dir)}, indent=2))
