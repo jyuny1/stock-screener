@@ -1,233 +1,126 @@
 from __future__ import annotations
 
+import gzip
 import json
-import os
 from pathlib import Path
-import shutil
-import stat
-import subprocess
-import textwrap
+
+from app.scripts.build_static_site_from_artifacts import build_static_site_from_artifacts
 
 
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _build_market_job() -> str:
-    content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
-    return content.split("  build-market:\n", 1)[1].split(
-        "\n  combine-and-build:",
-        1,
-    )[0]
-
-
-def _combine_and_build_job() -> str:
-    content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
-    return content.split("  combine-and-build:\n", 1)[1]
-
-
-def _fallback_download_script() -> str:
-    step = _combine_and_build_job().split("      - name: Download per-market fallback artifacts\n", 1)[1].split(
-        "\n      - name: Validate market artifacts",
-        1,
-    )[0]
-    run = step.split("          python - <<'PY'\n", 1)[1].rsplit("\n          PY", 1)[0]
-    return textwrap.dedent(run)
-
-
-def test_static_site_market_build_failures_are_not_marked_continue_on_error() -> None:
-    build_market_job = _build_market_job()
-    job_header = build_market_job.split("    services:", 1)[0]
-    export_step = build_market_job.split("      - name: Export market static data bundle\n", 1)[1].split(
-        "\n      - name: Build daily price bundle",
-        1,
-    )[0]
-
-    assert "continue-on-error: true" not in job_header
-    assert "continue-on-error: true" not in export_step
-
-
-def test_static_site_daily_price_seed_allows_stale_bootstrap() -> None:
-    build_market_job = _build_market_job()
-    seed_step = build_market_job.split("      - name: Seed daily price bundle from GitHub\n", 1)[1].split(
-        "\n      - name: Export market static data bundle",
-        1,
-    )[0]
-
-    assert "--allow-stale" in seed_step
-
-
-def test_static_site_market_export_skips_artifact_steps_for_closed_market() -> None:
-    build_market_job = _build_market_job()
-    export_step = build_market_job.split("      - name: Export market static data bundle\n", 1)[1].split(
-        "\n      - name: Build daily price bundle",
-        1,
-    )[0]
-    build_price_step = build_market_job.split("      - name: Build daily price bundle\n", 1)[1].split(
-        "\n      - name: Upload daily price assets",
-        1,
-    )[0]
-    upload_price_step = build_market_job.split("      - name: Upload daily price assets\n", 1)[1].split(
-        "\n      - name: Upload market artifact",
-        1,
-    )[0]
-    upload_market_step = build_market_job.split("      - name: Upload market artifact\n", 1)[1].split(
-        "\n\n  combine-and-build:",
-        1,
-    )[0]
-
-    assert "id: export-market" in export_step
-    assert "status=$?" in export_step
-    assert 'if [ "$status" -eq 78 ]; then' in export_step
-    assert "has_artifact=false" in export_step
-    assert "has_artifact=true" in export_step
-    assert "steps.export-market.outputs.has_artifact == 'true'" in build_price_step
-    assert "steps.export-market.outputs.has_artifact == 'true'" in upload_price_step
-    assert "steps.export-market.outputs.has_artifact == 'true'" in upload_market_step
-
-
-def test_static_site_schedule_uses_eastern_gate_for_taiwan_observed_market_open() -> None:
+def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> None:
     content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
 
-    assert "cron: '0 * * * *'" in content
-    assert "Monday-Saturday 08:00 America/New_York" in content
-    assert "Taiwan 20:00 during EDT / 21:00 during EST" in content
-    assert "TZ=Asia/Taipei" in content
-    assert "needs.schedule_gate.outputs.run_workflow == 'true'" in content
+    assert "workflow_dispatch" in content
+    assert "schedule:" not in content
+    assert "services:" not in content
+    assert "postgres" not in content.lower()
+    assert "pip install -r backend/requirements.txt" not in content
+    assert "build_static_site_from_artifacts" in content
+    assert "weekly-reference-latest-us.json" in content
+    assert "US_OPTIONABLE" in content
+    assert "rclone sync frontend/public/static-data/" in content
+    assert "aws s3 sync" not in content
+    assert "pip install awscli" not in content
+    assert "cloudflare/pages-action@v1" in content
+    assert "group: static-site-us" in content
 
 
-def test_static_site_cloudflare_pages_and_r2_deployment_configuration() -> None:
-    content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
-    combine_job = _combine_and_build_job()
+def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path) -> None:
+    weekly_bundle = {
+        "schema_version": "weekly-reference-bundle-v1",
+        "market": "US",
+        "as_of_date": "2026-06-05",
+        "generated_at": "2026-06-05T03:52:57Z",
+        "source_revision": "fundamentals_v1_us:optionable:test",
+        "coverage": {
+            "active_symbols": 2,
+            "covered_active_symbols": 2,
+            "missing_active_symbols": 0,
+            "universe_mode": "US_OPTIONABLE",
+        },
+        "snapshot": {
+            "rows": [
+                {
+                    "symbol": "AAPL",
+                    "exchange": "XNAS",
+                    "normalized_payload": {
+                        "symbol": "AAPL",
+                        "company_name": "Apple Inc.",
+                        "market": "US",
+                        "exchange": "XNAS",
+                        "currency": "USD",
+                        "sector": "Technology",
+                        "industry": "Consumer Electronics",
+                        "market_cap": 3000000000000,
+                        "avg_volume": 50000000,
+                        "eps_rating": 95,
+                        "eps_growth_qq": 25,
+                        "sales_growth_qq": 12,
+                        "perf_week": 2,
+                        "perf_month": 5,
+                        "perf_quarter": 10,
+                        "perf_half_year": 20,
+                        "relative_volume": 1.2,
+                    },
+                },
+                {
+                    "symbol": "SPY",
+                    "exchange": "ARCX",
+                    "normalized_payload": {
+                        "symbol": "SPY",
+                        "company_name": "SPDR S&P 500 ETF Trust",
+                        "market": "US",
+                        "exchange": "ARCX",
+                        "currency": "USD",
+                        "sector": "ETF",
+                        "industry": "ETF",
+                        "avg_volume": 70000000,
+                    },
+                },
+            ]
+        },
+    }
+    weekly_path = tmp_path / "weekly.json.gz"
+    with gzip.open(weekly_path, "wt", encoding="utf-8") as handle:
+        json.dump(weekly_bundle, handle)
 
-    assert "pages: write" not in content
-    assert "id-token: write" not in content
-    assert "actions/configure-pages" not in content
-    assert "actions/upload-pages-artifact" not in content
-    assert "actions/deploy-pages" not in content
-    assert "cloudflare/pages-action@v1" in combine_job
-    assert "Upload static data to Cloudflare R2" in combine_job
-    assert "r2.cloudflarestorage.com" in combine_job
-    assert "VITE_BASE_PATH: /" in combine_job
-    assert "VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}" in combine_job
-    assert "Strip static-data from Pages bundle" in combine_job
-    assert "CLOUDFLARE_PAGES_PROJECT" in combine_job
-    assert "R2_BUCKET" in combine_job
-    assert "STATIC_DATA_BASE_URL" in combine_job
-
-
-def test_static_site_combine_downloads_current_and_per_market_fallback_artifacts() -> None:
-    combine_job = _combine_and_build_job()
-
-    assert "Download per-market fallback artifacts" in combine_job
-    assert "Download current market artifacts" in combine_job
-    assert "/tmp/static-market-artifacts-current" in combine_job
-    assert "/tmp/static-market-artifacts-fallback" in combine_job
-    assert "--fallback-artifacts-dir /tmp/static-market-artifacts-fallback" in combine_job
-    assert "FALLBACK_MARKETS" not in combine_job
-    assert "github.ref_name" in combine_job
-    assert "--paginate" in combine_job
-    assert "runs = extract_runs(pages)" in combine_job
-    assert "market_from_artifact_name" in combine_job
-    assert '"gh",' in combine_job
-    assert '"run",' in combine_job
-    assert '"download",' in combine_job
-    assert "actions/runs/{run_id}/artifacts" in combine_job
-    assert "artifact.get(\"expired\")" in combine_job
-    assert "current_markets" in combine_job
-    assert "command_error_detail" in combine_job
-    assert "exc.stderr" in combine_job
-    assert "run.get(\"conclusion\") == \"success\"" not in combine_job
-    assert "subprocess.CalledProcessError" in combine_job
-    assert "::warning::Unable to download fallback market artifact" in combine_job
-    assert "isinstance(payload, dict)" in combine_job
-    assert "isinstance(page, dict)" in combine_job
-    assert "Unexpected GitHub API response shape" in combine_job
-
-
-def test_static_site_fallback_downloader_only_fetches_missing_current_markets(tmp_path) -> None:
-    current_dir = Path("/tmp/static-market-artifacts-current")
-    fallback_dir = Path("/tmp/static-market-artifacts-fallback")
-    shutil.rmtree(current_dir, ignore_errors=True)
-    shutil.rmtree(fallback_dir, ignore_errors=True)
-    current_us_dir = current_dir / "static-market-US" / "markets" / "us"
-    current_us_dir.mkdir(parents=True)
-    (current_us_dir / "manifest.market.json").write_text(
-        json.dumps({"market": "US"}),
-        encoding="utf-8",
+    output_dir = tmp_path / "static-data"
+    summary = build_static_site_from_artifacts(
+        weekly_reference=weekly_path,
+        output_dir=output_dir,
     )
 
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_gh = fake_bin / "gh"
-    downloads_log = tmp_path / "downloads.jsonl"
-    fake_gh.write_text(
-        textwrap.dedent(
-            f"""\
-            #!/usr/bin/env python3
-            import json
-            import pathlib
-            import sys
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "static-site-v2"
+    assert manifest["default_market"] == "US"
+    assert manifest["supported_markets"] == ["US"]
+    assert manifest["markets"]["US"]["pages"]["scan"]["path"] == "markets/us/scan/manifest.json"
 
-            downloads_log = pathlib.Path({str(downloads_log)!r})
-            args = sys.argv[1:]
-            if args[:3] == ["api", "--paginate", "--slurp"] and "actions/workflows/static-site.yml/runs" in args[3]:
-                print(json.dumps([{{"workflow_runs": [
-                    {{"id": 999, "conclusion": "failure"}},
-                    {{"id": 222, "conclusion": "failure"}}
-                ]}}]))
-            elif args[:3] == ["api", "--paginate", "--slurp"] and "actions/runs/222/artifacts" in args[3]:
-                print(json.dumps([{{"artifacts": [
-                    {{"name": "static-market-HK", "expired": False}},
-                    {{"name": "static-market-US", "expired": False}},
-                    {{"name": "static-market-TW", "expired": False}}
-                ]}}]))
-            elif args[:2] == ["run", "download"]:
-                artifact_name = args[args.index("--name") + 1]
-                if artifact_name == "static-market-HK":
-                    print("download denied for HK", file=sys.stderr)
-                    sys.exit(7)
-                target_dir = pathlib.Path(args[args.index("--dir") + 1])
-                target_dir.mkdir(parents=True, exist_ok=True)
-                (target_dir / "manifest.market.json").write_text(json.dumps({{"market": artifact_name.rsplit("-", 1)[1]}}))
-                with downloads_log.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps({{"artifact": artifact_name}}) + "\\n")
-            else:
-                print(f"unexpected gh args: {{args}}", file=sys.stderr)
-                sys.exit(2)
-            """
-        ),
-        encoding="utf-8",
-    )
-    fake_gh.chmod(fake_gh.stat().st_mode | stat.S_IXUSR)
+    scan = json.loads((output_dir / "markets/us/scan/manifest.json").read_text(encoding="utf-8"))
+    assert scan["schema_version"] == "static-scan-v1"
+    assert scan["rows_total"] == 2
+    assert scan["chunks"] == [{"count": 2, "path": "markets/us/scan/chunks/chunk-0001.json"}]
+    assert scan["initial_rows"]
+    first_row = scan["initial_rows"][0]
+    for field in [
+        "symbol",
+        "company_name",
+        "market",
+        "composite_score",
+        "volume",
+        "market_cap",
+        "gics_sector",
+        "ibd_industry_group",
+    ]:
+        assert field in first_row
 
-    env = os.environ.copy()
-    env.update(
-        {
-            "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
-            "REPOSITORY": "xang1234/stock-screener",
-            "CURRENT_RUN_ID": "999",
-            "BRANCH_NAME": "main",
-        }
-    )
-
-    try:
-        result = subprocess.run(
-            ["python", "-c", _fallback_download_script()],
-            check=True,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
-        downloads = [
-            json.loads(line)
-            for line in downloads_log.read_text(encoding="utf-8").splitlines()
-        ]
-        assert downloads == [{"artifact": "static-market-TW"}]
-        assert not (fallback_dir / "static-market-US").exists()
-        assert not (fallback_dir / "static-market-HK").exists()
-        assert (fallback_dir / "static-market-TW" / "manifest.market.json").exists()
-        assert "exit 7. Details: stderr: download denied for HK" in result.stdout
-    finally:
-        shutil.rmtree(current_dir, ignore_errors=True)
-        shutil.rmtree(fallback_dir, ignore_errors=True)
+    chunk = json.loads((output_dir / scan["chunks"][0]["path"]).read_text(encoding="utf-8"))
+    assert len(chunk["rows"]) == 2
+    assert (output_dir / "markets/us/home.json").exists()
+    assert (output_dir / "markets/us/breadth.json").exists()
+    assert (output_dir / "markets/us/groups.json").exists()
+    assert (output_dir / "markets/us/charts/manifest.json").exists()
+    assert summary["rows_total"] == 2

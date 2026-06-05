@@ -1,118 +1,21 @@
 name: Static Site
 
 on:
-  # schedule: temporarily disabled during pipeline maintenance.
-  # schedule:
-  #   # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
-  #   # the real cadence is Monday-Saturday 08:00 America/New_York
-  #   # (Taiwan 20:00 during EDT / 21:00 during EST), before the US market opens.
-  #   - cron: '0 * * * *'
   workflow_dispatch:
-    inputs:
-      market:
-        description: "Run only this market, or 'all' for the full matrix."
-        required: false
-        type: choice
-        default: US
-        options:
-          - all
-          - US
-          - HK
-          - IN
-          - JP
-          - KR
-          - TW
-          - CN
-          - CA
-          - DE
-          - SG
-          - AU
-          - MY
 
 concurrency:
-  group: static-site-${{ github.ref }}
+  group: static-site-us
   cancel-in-progress: true
 
 permissions:
-  actions: write
   contents: write
 
 jobs:
-  schedule_gate:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+  publish-us:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    outputs:
-      run_workflow: ${{ steps.gate.outputs.run_workflow }}
-    steps:
-      - name: Decide whether to run
-        id: gate
-        run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          et_dow="$(TZ=America/New_York date +%u)"
-          et_hour="$(TZ=America/New_York date +%H)"
-          taiwan_now="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')"
-          eastern_now="$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "Taiwan now: ${taiwan_now}"
-          echo "Eastern now: ${eastern_now}"
-          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 6 ] && [ "$et_hour" = "08" ]; then
-            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Skipping; target is Monday-Saturday 08:00 America/New_York."
-            echo "run_workflow=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  ensure_daily_price_release:
-    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
-    needs: schedule_gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Ensure daily price release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view daily-price-data \
-            --repo "${{ github.repository }}" >/dev/null 2>&1 || \
-          gh release create daily-price-data \
-            --repo "${{ github.repository }}" \
-            --title "Daily Price Data" \
-            --notes "Automated daily market-scoped OHLCV bundles for runtime bootstrap and refresh."
-
-  build-market:
-    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
-    needs:
-      - schedule_gate
-      - ensure_daily_price_release
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        market: ${{ fromJSON((github.event.inputs.market || 'US') != 'all' && format('["{0}"]', github.event.inputs.market || 'US') || '["US","HK","IN","JP","KR","TW","CN","CA","DE","SG","AU","MY"]') }}
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: stockscanner
-          POSTGRES_USER: stockscanner
-          POSTGRES_PASSWORD: stockscanner
-        options: >-
-          --health-cmd "pg_isready -U stockscanner -d stockscanner"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     env:
-      REDIS_ENABLED: "false"
-      DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
-      US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}
-      # IN-specific yfinance throttle: smaller batches + 10s between batches to
-      # stay under Yahoo's 429 window for the ~4.4k IN universe. Other markets
-      # ignore these (the policy looks up settings.<provider>_<key>_<market>).
-      YFINANCE_BATCH_SIZE_IN: "25"
-      YFINANCE_BATCH_RATE_LIMIT_IN: "0.1"
+      STATIC_DATA_DIR: frontend/public/static-data
 
     steps:
       - uses: actions/checkout@v4
@@ -120,237 +23,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Select weekly reference manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p /tmp/weekly-reference
-          MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
-          echo "MARKET_LOWER=${MARKET_LOWER}" >> "$GITHUB_ENV"
-          MARKET_MANIFEST="weekly-reference-latest-${MARKET_LOWER}.json"
-          LEGACY_MANIFEST="weekly-reference-latest.json"
-
-          retry_download() {
-            asset_name="$1"
-            for attempt in 1 2 3; do
-              rm -f "/tmp/weekly-reference/${asset_name}"
-              if gh release download weekly-reference-data \
-                --pattern "${asset_name}" \
-                --dir /tmp/weekly-reference >/dev/null 2>&1; then
-                return 0
-              fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 5))
-              fi
-            done
-            return 1
-          }
-
-          retry_list_assets() {
-            for attempt in 1 2 3; do
-              if gh release view weekly-reference-data --json assets --jq '.assets[].name'; then
-                return 0
-              fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 5))
-              fi
-            done
-            return 1
-          }
-
-          if ! ASSET_NAMES="$(retry_list_assets)"; then
-            echo "Failed to list weekly-reference release assets for ${MARKET_LOWER}." >&2
-            exit 1
-          fi
-
-          if printf '%s\n' "${ASSET_NAMES}" | grep -Fxq "${MARKET_MANIFEST}"; then
-            retry_download "${MARKET_MANIFEST}"
-            echo "WEEKLY_REFERENCE_MODE=market_scoped" >> "$GITHUB_ENV"
-            echo "WEEKLY_REFERENCE_MANIFEST=/tmp/weekly-reference/${MARKET_MANIFEST}" >> "$GITHUB_ENV"
-          elif [ "${{ matrix.market }}" = "US" ] && printf '%s\n' "${ASSET_NAMES}" | grep -Fxq "${LEGACY_MANIFEST}"; then
-            retry_download "${LEGACY_MANIFEST}"
-            echo "WEEKLY_REFERENCE_MODE=legacy" >> "$GITHUB_ENV"
-            echo "WEEKLY_REFERENCE_MANIFEST=/tmp/weekly-reference/${LEGACY_MANIFEST}" >> "$GITHUB_ENV"
-          else
-            echo "No market-scoped weekly reference manifest found for ${MARKET_LOWER}." >&2
-            exit 1
-          fi
-
-      - name: Download weekly reference bundle
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          retry_download() {
-            asset_name="$1"
-            for attempt in 1 2 3; do
-              rm -f "/tmp/weekly-reference/${asset_name}"
-              if gh release download weekly-reference-data \
-                --pattern "${asset_name}" \
-                --dir /tmp/weekly-reference >/dev/null 2>&1; then
-                return 0
-              fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 5))
-              fi
-            done
-            return 1
-          }
-
-          export BUNDLE_ASSET_NAME="$(python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          manifest = json.loads(Path(os.environ["WEEKLY_REFERENCE_MANIFEST"]).read_text(encoding="utf-8"))
-          print(manifest["bundle_asset_name"])
-          PY
-          )"
-          export BUNDLE_SHA256="$(python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          manifest = json.loads(Path(os.environ["WEEKLY_REFERENCE_MANIFEST"]).read_text(encoding="utf-8"))
-          print(manifest["sha256"])
-          PY
-          )"
-
-          retry_download "$BUNDLE_ASSET_NAME"
-
-          python - <<'PY'
-          import hashlib
-          import os
-          from pathlib import Path
-
-          bundle_path = Path("/tmp/weekly-reference") / os.environ["BUNDLE_ASSET_NAME"]
-          digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
-          expected = os.environ["BUNDLE_SHA256"]
-          if digest != expected:
-              raise SystemExit(
-                  f"Weekly reference bundle checksum mismatch for {bundle_path.name}: "
-                  f"{digest} != {expected}"
-              )
-          print(bundle_path)
-          PY
-
-          echo "WEEKLY_REFERENCE_BUNDLE=/tmp/weekly-reference/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
-
-      - name: Import weekly reference bundle
-        run: |
-          cd backend
-          python -m app.scripts.import_weekly_reference_bundle \
-            --input "${WEEKLY_REFERENCE_BUNDLE}"
-
-      - name: Load tracked IBD industry seed
-        run: |
-          cd backend
-          python -m app.scripts.load_ibd_industry_groups \
-            --csv ../data/IBD_industry_group.csv
-
-      # Fills IBD groups for symbols/markets the curated CSV doesn't cover (new
-      # listings, non-US markets) without overwriting CSV/manual rows. Additive
-      # and non-fatal: if the classification release isn't published yet, the
-      # build proceeds with CSV-only coverage.
-      - name: Apply IBD classification (fills gaps beyond the CSV seed)
-        continue-on-error: true
-        env:
-          GITHUB_DATA_TOKEN: ${{ github.token }}
-        run: |
-          cd backend
-          python -m app.scripts.sync_ibd_classification_from_github \
-            --market "${{ matrix.market }}" \
-            --allow-stale
-
-      - name: Seed daily price bundle from GitHub
-        env:
-          GITHUB_DATA_TOKEN: ${{ github.token }}
-        run: |
-          cd backend
-          python -m app.scripts.sync_daily_price_bundle_from_github \
-            --market "${{ matrix.market }}" \
-            --allow-stale
-
-      - name: Export market static data bundle
-        id: export-market
-        run: |
-          cd backend
-          set +e
-          python -m app.scripts.export_static_site \
-            --output-dir /tmp/static-data \
-            --refresh-daily \
-            --build-mode price_delta \
-            --skip-universe-refresh \
-            --skip-fundamentals-refresh \
-            --market "${{ matrix.market }}"
-          status=$?
-          set -e
-          if [ "$status" -eq 78 ]; then
-            echo "Market ${{ matrix.market }} is not a trading day; no current static artifact will be uploaded."
-            echo "has_artifact=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$status" -ne 0 ]; then
-            exit "$status"
-          fi
-          echo "has_artifact=true" >> "$GITHUB_OUTPUT"
-
-      - name: Build daily price bundle
-        if: ${{ steps.export-market.outputs.has_artifact == 'true' }}
-        run: |
-          cd backend
-          python -m app.scripts.build_daily_price_bundle \
-            --market "${{ matrix.market }}" \
-            --output-dir /tmp/daily-price
-
-      - name: Upload daily price assets
-        if: ${{ steps.export-market.outputs.has_artifact == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
-          BUNDLE_PATH="$(find /tmp/daily-price -maxdepth 1 -name "daily-price-${MARKET_LOWER}-*.json.gz" | head -n 1)"
-          MANIFEST_PATH="/tmp/daily-price/daily-price-latest-${MARKET_LOWER}.json"
-
-          if [ -z "$BUNDLE_PATH" ] || [ ! -f "$MANIFEST_PATH" ]; then
-            echo "Missing daily price bundle outputs" >&2
-            exit 1
-          fi
-
-          gh release upload daily-price-data "$BUNDLE_PATH" --clobber
-          gh release upload daily-price-data "$MANIFEST_PATH" --clobber
-
-      - name: Upload market artifact
-        if: ${{ steps.export-market.outputs.has_artifact == 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: static-market-${{ matrix.market }}
-          path: /tmp/static-data/markets/${{ env.MARKET_LOWER }}
-          if-no-files-found: error
-
-  combine-and-build:
-    if: ${{ always() && needs.schedule_gate.outputs.run_workflow == 'true' }}
-    needs:
-      - schedule_gate
-      - build-market
-    runs-on: ubuntu-latest
-    env:
-      REDIS_ENABLED: "false"
-      DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -358,294 +30,164 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
-
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
-      - name: Download current market artifacts
-        id: download-market-artifacts
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          pattern: static-market-*
-          path: /tmp/static-market-artifacts-current
-          merge-multiple: false
-
-      - name: Download per-market fallback artifacts
-        continue-on-error: true
+      - name: Download weekly reference artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          CURRENT_RUN_ID: ${{ github.run_id }}
-          BRANCH_NAME: ${{ github.ref_name }}
         run: |
-          python - <<'PY'
+          set -euo pipefail
+          mkdir -p /tmp/weekly-reference
+          gh release download weekly-reference-data \
+            --repo "${{ github.repository }}" \
+            --pattern weekly-reference-latest-us.json \
+            --dir /tmp/weekly-reference \
+            --clobber
+
+          BUNDLE_ASSET_NAME="$(python - <<'PY'
           import json
-          import os
-          import shutil
-          import subprocess
           from pathlib import Path
-          from urllib.parse import urlencode
-
-          repo = os.environ["REPOSITORY"]
-          current_run_id = int(os.environ["CURRENT_RUN_ID"])
-          branch_name = os.environ["BRANCH_NAME"]
-          current_dir = Path("/tmp/static-market-artifacts-current")
-          fallback_dir = Path("/tmp/static-market-artifacts-fallback")
-          fallback_dir.mkdir(parents=True, exist_ok=True)
-          query = urlencode(
-              {
-                  "branch": branch_name,
-                  "status": "completed",
-                  "per_page": "100",
-              }
-          )
-
-          def warn(message):
-              print(
-                  f"::warning::Unable to download fallback market artifact: {message}",
-                  flush=True,
-              )
-
-          def command_error_detail(exc, limit=800):
-              details = []
-              for stream_name, stream_value in (("stderr", exc.stderr), ("stdout", exc.stdout)):
-                  text = (stream_value or "").strip()
-                  if not text:
-                      continue
-                  text = " | ".join(text.splitlines())
-                  if len(text) > limit:
-                      text = f"{text[:limit]}..."
-                  details.append(f"{stream_name}: {text}")
-              return f" Details: {'; '.join(details)}" if details else ""
-
-          def market_from_artifact_name(artifact_name):
-              prefix = "static-market-"
-              if not artifact_name.startswith(prefix):
-                  return ""
-              return artifact_name[len(prefix):].upper()
-
-          def extract_runs(payload):
-              if isinstance(payload, dict):
-                  workflow_runs = payload.get("workflow_runs")
-                  if not isinstance(workflow_runs, list):
-                      raise ValueError(
-                          "Unexpected GitHub API response shape: workflow_runs is not a list."
-                      )
-                  return [run for run in workflow_runs if isinstance(run, dict)]
-
-              if isinstance(payload, list):
-                  runs = []
-                  for page in payload:
-                      if not isinstance(page, dict):
-                          raise ValueError(
-                              "Unexpected GitHub API response shape: page is not an object."
-                          )
-                      workflow_runs = page.get("workflow_runs", [])
-                      if not isinstance(workflow_runs, list):
-                          raise ValueError(
-                              "Unexpected GitHub API response shape: workflow_runs is not a list."
-                          )
-                      runs.extend(run for run in workflow_runs if isinstance(run, dict))
-                  return runs
-
-              raise ValueError(
-                  "Unexpected GitHub API response shape: response is not an object or list."
-              )
-
-          def collect_current_markets():
-              current_markets = set()
-              metadata_paths = (
-                  sorted(current_dir.rglob("manifest.market.json"))
-                  if current_dir.exists()
-                  else []
-              )
-              for metadata_path in metadata_paths:
-                  try:
-                      payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-                      market = str(payload.get("market", "")).upper()
-                  except (OSError, json.JSONDecodeError, TypeError) as exc:
-                      warn(f"Current artifact metadata at {metadata_path} could not be read ({exc}).")
-                      continue
-                  if market:
-                      current_markets.add(market)
-              return current_markets
-
-          def extract_artifacts(payload):
-              if isinstance(payload, dict):
-                  artifacts = payload.get("artifacts")
-                  if not isinstance(artifacts, list):
-                      raise ValueError(
-                          "Unexpected GitHub API response shape: artifacts is not a list."
-                      )
-                  return [artifact for artifact in artifacts if isinstance(artifact, dict)]
-
-              if isinstance(payload, list):
-                  artifacts = []
-                  for page in payload:
-                      if not isinstance(page, dict):
-                          raise ValueError(
-                              "Unexpected GitHub API response shape: page is not an object."
-                          )
-                      page_artifacts = page.get("artifacts", [])
-                      if not isinstance(page_artifacts, list):
-                          raise ValueError(
-                              "Unexpected GitHub API response shape: artifacts is not a list."
-                          )
-                      artifacts.extend(
-                          artifact for artifact in page_artifacts if isinstance(artifact, dict)
-                      )
-                  return artifacts
-
-              raise ValueError(
-                  "Unexpected GitHub API response shape: response is not an object or list."
-              )
-
-          def gh_json(args):
-              result = subprocess.run(
-                  ["gh", *args],
-                  check=True,
-                  capture_output=True,
-                  text=True,
-              )
-              return json.loads(result.stdout)
-
-          try:
-              pages = gh_json(
-                  [
-                      "api",
-                      "--paginate",
-                      "--slurp",
-                      f"repos/{repo}/actions/workflows/static-site.yml/runs?{query}",
-                  ]
-              )
-              runs = extract_runs(pages)
-          except subprocess.CalledProcessError as exc:
-              warn(
-                  "GitHub workflow runs API request failed "
-                  f"with exit {exc.returncode}.{command_error_detail(exc)}"
-              )
-              runs = []
-          except json.JSONDecodeError as exc:
-              warn(f"GitHub workflow runs API response was not valid JSON ({exc}).")
-              runs = []
-          except (AttributeError, KeyError, TypeError, ValueError) as exc:
-              warn(str(exc))
-              runs = []
-
-          current_markets = collect_current_markets()
-          fallback_markets = set()
-          if current_markets:
-              print(
-                  f"Current run already has market artifacts: {', '.join(sorted(current_markets))}.",
-                  flush=True,
-              )
-
-          for run in runs:
-              run_id = run.get("id")
-              if run_id == current_run_id:
-                  continue
-              try:
-                  artifact_pages = gh_json(
-                      [
-                          "api",
-                          "--paginate",
-                          "--slurp",
-                          f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
-                      ]
-                  )
-                  artifacts = extract_artifacts(artifact_pages)
-              except subprocess.CalledProcessError as exc:
-                  warn(
-                      f"Artifact list API request for run {run_id} failed "
-                      f"with exit {exc.returncode}.{command_error_detail(exc)}"
-                  )
-                  continue
-              except json.JSONDecodeError as exc:
-                  warn(f"Artifact list API response for run {run_id} was not valid JSON ({exc}).")
-                  continue
-              except (AttributeError, KeyError, TypeError, ValueError) as exc:
-                  warn(f"Artifact list API response for run {run_id} was invalid: {exc}")
-                  continue
-
-              artifacts_by_name = {
-                  str(artifact.get("name")): artifact
-                  for artifact in artifacts
-                  if not artifact.get("expired")
-              }
-
-              for artifact_name in sorted(artifacts_by_name):
-                  market = market_from_artifact_name(artifact_name)
-                  if not market:
-                      continue
-                  if market in current_markets or market in fallback_markets:
-                      continue
-
-                  target_dir = fallback_dir / artifact_name
-                  if target_dir.exists():
-                      shutil.rmtree(target_dir)
-
-                  try:
-                      subprocess.run(
-                          [
-                              "gh",
-                              "run",
-                              "download",
-                              str(run_id),
-                              "--repo",
-                              repo,
-                              "--name",
-                              artifact_name,
-                              "--dir",
-                              str(target_dir),
-                          ],
-                          check=True,
-                          capture_output=True,
-                          text=True,
-                      )
-                  except subprocess.CalledProcessError as exc:
-                      warn(
-                          f"{artifact_name} from run {run_id} failed to download "
-                          f"with exit {exc.returncode}.{command_error_detail(exc)}"
-                      )
-                      continue
-
-                  fallback_markets.add(market)
-                  print(
-                      f"Using fallback artifact {artifact_name} from Static Site run {run_id} on {branch_name}.",
-                      flush=True,
-                  )
-
-          if fallback_markets:
-              print(
-                  f"Downloaded fallback market artifacts: {', '.join(sorted(fallback_markets))}.",
-                  flush=True,
-              )
-          else:
-              print(f"No fallback market artifacts found on {branch_name}.")
+          manifest = json.loads(Path('/tmp/weekly-reference/weekly-reference-latest-us.json').read_text(encoding='utf-8'))
+          coverage = manifest.get('coverage') or {}
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"weekly manifest market must be US, got {manifest.get('market')!r}")
+          if coverage.get('universe_mode') != 'US_OPTIONABLE':
+              raise SystemExit(f"weekly manifest must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
+          if int(coverage.get('active_symbols') or 0) < 3000:
+              raise SystemExit(f"weekly manifest active_symbols too low: {coverage.get('active_symbols')}")
+          if int(coverage.get('missing_active_symbols') or 0) != 0:
+              raise SystemExit(f"weekly manifest has missing active symbols: {coverage.get('missing_active_symbols')}")
+          print(manifest['bundle_asset_name'])
           PY
+          )"
+          echo "WEEKLY_REFERENCE_BUNDLE=/tmp/weekly-reference/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "WEEKLY_REFERENCE_SHA256=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/weekly-reference/weekly-reference-latest-us.json').read_text(encoding='utf-8'))['sha256'])
+          PY
+          )" >> "$GITHUB_ENV"
 
-      - name: Validate market artifacts
+          gh release download weekly-reference-data \
+            --repo "${{ github.repository }}" \
+            --pattern "${BUNDLE_ASSET_NAME}" \
+            --dir /tmp/weekly-reference \
+            --clobber
+
+      - name: Verify weekly reference checksum
         run: |
-          mkdir -p /tmp/static-market-artifacts-current /tmp/static-market-artifacts-fallback
-          find /tmp/static-market-artifacts-current /tmp/static-market-artifacts-fallback -type f -name 'manifest.market.json'
-          if ! find /tmp/static-market-artifacts-current /tmp/static-market-artifacts-fallback -type f -name 'manifest.market.json' | grep -q .; then
-            echo "No current or fallback market artifacts are available." >&2
+          set -euo pipefail
+          digest="$(python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          print(hashlib.sha256(Path(os.environ['WEEKLY_REFERENCE_BUNDLE']).read_bytes()).hexdigest())
+          PY
+          )"
+          if [ "$digest" != "$WEEKLY_REFERENCE_SHA256" ]; then
+            echo "Weekly reference checksum mismatch: $digest != $WEEKLY_REFERENCE_SHA256" >&2
             exit 1
           fi
 
-      - name: Combine static data bundle
+      - name: Download optional daily price artifact
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          mkdir -p /tmp/daily-price
+          gh release download daily-price-data \
+            --repo "${{ github.repository }}" \
+            --pattern daily-price-latest-us.json \
+            --dir /tmp/daily-price \
+            --clobber
+
+          BUNDLE_ASSET_NAME="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"daily manifest market must be US, got {manifest.get('market')!r}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+          echo "DAILY_PRICE_BUNDLE=/tmp/daily-price/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "DAILY_PRICE_SHA256=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))['sha256'])
+          PY
+          )" >> "$GITHUB_ENV"
+
+          gh release download daily-price-data \
+            --repo "${{ github.repository }}" \
+            --pattern "${BUNDLE_ASSET_NAME}" \
+            --dir /tmp/daily-price \
+            --clobber
+
+      - name: Verify optional daily price checksum
+        if: ${{ env.DAILY_PRICE_BUNDLE != '' }}
+        run: |
+          set -euo pipefail
+          digest="$(python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          print(hashlib.sha256(Path(os.environ['DAILY_PRICE_BUNDLE']).read_bytes()).hexdigest())
+          PY
+          )"
+          if [ "$digest" != "$DAILY_PRICE_SHA256" ]; then
+            echo "Daily price checksum mismatch: $digest != $DAILY_PRICE_SHA256" >&2
+            exit 1
+          fi
+
+      - name: Build static data from artifacts
+        run: |
+          set -euo pipefail
+          rm -rf "$STATIC_DATA_DIR"
+          args=(
+            --weekly-reference "$WEEKLY_REFERENCE_BUNDLE"
+            --output-dir "../$STATIC_DATA_DIR"
+          )
+          if [ -n "${DAILY_PRICE_BUNDLE:-}" ]; then
+            args+=(--daily-price "$DAILY_PRICE_BUNDLE")
+          fi
           cd backend
-          python -m app.scripts.export_static_site \
-            --output-dir ../frontend/public/static-data \
-            --combine-artifacts-dir /tmp/static-market-artifacts-current \
-            --fallback-artifacts-dir /tmp/static-market-artifacts-fallback
+          python -m app.scripts.build_static_site_from_artifacts "${args[@]}"
+
+      - name: Validate static data contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('frontend/public/static-data')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          assert manifest['schema_version'] == 'static-site-v2'
+          assert manifest['default_market'] == 'US'
+          scan_path = root / manifest['markets']['US']['pages']['scan']['path']
+          scan = json.loads(scan_path.read_text(encoding='utf-8'))
+          assert scan['schema_version'] == 'static-scan-v1'
+          assert scan['rows_total'] >= 3000
+          assert scan['initial_rows']
+          required = {'symbol', 'company_name', 'market', 'composite_score', 'volume', 'market_cap', 'gics_sector'}
+          missing = required - set(scan['initial_rows'][0])
+          if missing:
+              raise SystemExit(f'missing required scan row fields: {sorted(missing)}')
+          for chunk in scan['chunks']:
+              path = root / chunk['path']
+              if not path.exists():
+                  raise SystemExit(f'missing scan chunk: {path}')
+          print({'rows_total': scan['rows_total'], 'chunks': len(scan['chunks'])})
+          PY
+
+      - name: Build static frontend
+        env:
+          VITE_STATIC_SITE: "true"
+          VITE_BASE_PATH: /
+          VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
+        run: cd frontend && npm run build
 
       - name: Validate Cloudflare deployment configuration
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -671,34 +213,42 @@ jobs:
           done
           exit "$missing"
 
-      - name: Build static frontend
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone for Cloudflare R2
         env:
-          VITE_STATIC_SITE: "true"
-          VITE_BASE_PATH: /
-          VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
-        run: cd frontend && npm run build
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com
+          acl = private
+          EOF
 
       - name: Upload static data to Cloudflare R2
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
         run: |
-          pip install awscli --quiet
-          aws s3 sync frontend/public/static-data/ \
-            "s3://${R2_BUCKET}/static-data" \
-            --endpoint-url "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-            --cache-control "public, max-age=300" \
-            --delete
+          rclone sync frontend/public/static-data/ "r2:${R2_BUCKET}/static-data" \
+            --s3-no-check-bucket \
+            --checksum \
+            --delete-during \
+            --transfers 8 \
+            --checkers 16
 
       - name: Strip static-data from Pages bundle
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         run: rm -rf frontend/dist/static-data
 
       - name: Deploy to Cloudflare Pages
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
