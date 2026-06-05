@@ -384,9 +384,9 @@ export default {
 
     const { pathname } = new URL(request.url);
     try {
-      if (pathname === '/api/screener/health') return await handleHealth(env);
-      if (pathname === '/api/screener/manifest') return await handleManifest(env);
-      if (pathname === '/api/screener/rows') return await handleRows(request, env);
+      if (pathname === '/api/v1/health') return await handleHealth(env);
+      if (pathname === '/api/v1/manifest') return await handleManifest(env);
+      if (pathname === '/api/v1/rows') return await handleRows(request, env);
       return errorResponse(404, 'not_found', 'Not found');
     } catch (error) {
       if (error instanceof Response) return error;

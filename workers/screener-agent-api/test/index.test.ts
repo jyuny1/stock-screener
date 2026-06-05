@@ -90,13 +90,13 @@ const json = async (response: Response) => response.json() as Promise<any>;
 
 describe('screener agent api worker', () => {
   it('rejects missing bearer token', async () => {
-    const response = await worker.fetch(new Request('https://api.test/api/screener/rows'), makeEnv());
+    const response = await worker.fetch(new Request('https://api.test/api/v1/rows'), makeEnv());
     expect(response.status).toBe(401);
     expect(await json(response)).toEqual({ error: { code: 'unauthorized', message: 'Unauthorized' } });
   });
 
   it('returns manifest with update timestamps', async () => {
-    const response = await worker.fetch(request('/api/screener/manifest'), makeEnv());
+    const response = await worker.fetch(request('/api/v1/manifest'), makeEnv());
     expect(response.status).toBe(200);
     const payload = await json(response);
     expect(payload.data.default_query).toMatchObject({ sort: 'volume', order: 'desc', limit: 100 });
@@ -105,7 +105,7 @@ describe('screener agent api worker', () => {
   });
 
   it('defaults to volume desc with nulls last', async () => {
-    const response = await worker.fetch(request('/api/screener/rows'), makeEnv());
+    const response = await worker.fetch(request('/api/v1/rows'), makeEnv());
     expect(response.status).toBe(200);
     const payload = await json(response);
     expect(payload.data.rows.map((row: any) => row.symbol)).toEqual(['HIGH', 'LOW', 'EMPTY']);
@@ -115,7 +115,7 @@ describe('screener agent api worker', () => {
 
   it('filters, limits, and projects table fields', async () => {
     const response = await worker.fetch(
-      request('/api/screener/rows?min_volume=1000000&gics_sector=Technology&limit=1&fields=symbol,volume'),
+      request('/api/v1/rows?min_volume=1000000&gics_sector=Technology&limit=1&fields=symbol,volume'),
       makeEnv(),
     );
     expect(response.status).toBe(200);
@@ -125,20 +125,20 @@ describe('screener agent api worker', () => {
   });
 
   it('keeps nulls last for ascending sorts too', async () => {
-    const response = await worker.fetch(request('/api/screener/rows?sort=volume&order=asc'), makeEnv());
+    const response = await worker.fetch(request('/api/v1/rows?sort=volume&order=asc'), makeEnv());
     expect(response.status).toBe(200);
     const payload = await json(response);
     expect(payload.data.rows.map((row: any) => row.symbol)).toEqual(['LOW', 'HIGH', 'EMPTY']);
   });
 
   it('rejects unsupported filters', async () => {
-    const response = await worker.fetch(request('/api/screener/rows?foo=bar'), makeEnv());
+    const response = await worker.fetch(request('/api/v1/rows?foo=bar'), makeEnv());
     expect(response.status).toBe(400);
     expect((await json(response)).error.code).toBe('invalid_request');
   });
 
   it('rejects exact numeric filters in favor of min/max filters', async () => {
-    const response = await worker.fetch(request('/api/screener/rows?volume=100'), makeEnv());
+    const response = await worker.fetch(request('/api/v1/rows?volume=100'), makeEnv());
     expect(response.status).toBe(400);
     expect((await json(response)).error.details.field).toBe('volume');
   });

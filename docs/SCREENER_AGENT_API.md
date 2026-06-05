@@ -5,7 +5,7 @@
 Screener Agent API 是一個 **agent-only、artifact-native、read-only JSON API**。第一版只提供「目前 Scan result table」的 JSON 讀取能力：
 
 ```text
-GET /api/screener/rows
+GET /api/v1/rows
 ```
 
 預設行為：
@@ -114,7 +114,7 @@ Auth error：
 ## Base URL
 
 ```text
-https://screener-api.<domain>/api/screener
+https://ss.ljy.app/api/v1
 ```
 
 ---
@@ -124,7 +124,7 @@ https://screener-api.<domain>/api/screener
 ## 1. Health
 
 ```http
-GET /api/screener/health
+GET /api/v1/health
 ```
 
 用途：確認 Worker 可讀取 R2 manifest。
@@ -149,7 +149,7 @@ Response：
 ## 2. Manifest
 
 ```http
-GET /api/screener/manifest
+GET /api/v1/manifest
 ```
 
 用途：讓 agent 知道目前 scan table 的資料版本、總筆數、可用欄位、預設排序與資料更新時間。
@@ -230,7 +230,7 @@ Response：
 ## 3. Rows
 
 ```http
-GET /api/screener/rows
+GET /api/v1/rows
 ```
 
 這是第一版唯一主要資料 endpoint。
@@ -240,7 +240,7 @@ GET /api/screener/rows
 不帶任何 query 時等同：
 
 ```http
-GET /api/screener/rows?sort=volume&order=desc&limit=100&offset=0
+GET /api/v1/rows?sort=volume&order=desc&limit=100&offset=0
 ```
 
 也就是：
@@ -338,35 +338,35 @@ null / missing values always sort last
 Default top 100 by VOL：
 
 ```bash
-curl "https://screener-api.example.com/api/screener/rows" \
+curl "https://ss.ljy.app/api/v1/rows" \
   -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
 ```
 
 Top 200 by VOL：
 
 ```bash
-curl "https://screener-api.example.com/api/screener/rows?limit=200" \
+curl "https://ss.ljy.app/api/v1/rows?limit=200" \
   -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
 ```
 
 Filter by liquidity and price：
 
 ```bash
-curl "https://screener-api.example.com/api/screener/rows?min_current_price=5&min_volume=1000000&min_adv_usd=50000000&limit=100" \
+curl "https://ss.ljy.app/api/v1/rows?min_current_price=5&min_volume=1000000&min_adv_usd=50000000&limit=100" \
   -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
 ```
 
 Filter by sector and RS：
 
 ```bash
-curl "https://screener-api.example.com/api/screener/rows?gics_sector=Technology&min_rs_rating=70&sort=rs_rating&order=desc" \
+curl "https://ss.ljy.app/api/v1/rows?gics_sector=Technology&min_rs_rating=70&sort=rs_rating&order=desc" \
   -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
 ```
 
 Only selected fields：
 
 ```bash
-curl "https://screener-api.example.com/api/screener/rows?fields=symbol,current_price,volume,adv_usd,rs_rating,gics_sector,ibd_industry_group" \
+curl "https://ss.ljy.app/api/v1/rows?fields=symbol,current_price,volume,adv_usd,rs_rating,gics_sector,ibd_industry_group" \
   -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
 ```
 
@@ -578,9 +578,9 @@ Worker must reject：
 不要在第一版加入：
 
 ```text
-/api/screener/symbol/{symbol}
-/api/screener/top-candidates
-/api/screener/pipeline/latest
+/api/v1/symbol/{symbol}
+/api/v1/top-candidates
+/api/v1/pipeline/latest
 /api/options/*
 ```
 

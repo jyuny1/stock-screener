@@ -4,6 +4,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-06-05",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "ss.ljy.app/api/v1/*",
+      "zone_name": "ljy.app"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
