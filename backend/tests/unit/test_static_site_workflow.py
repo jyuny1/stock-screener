@@ -19,7 +19,7 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
     assert "postgres" not in content.lower()
     assert "pip install -r backend/requirements.txt" not in content
     assert "build_static_site_from_artifacts" in content
-    assert "weekly-reference-latest-us.json" in content
+    assert "foundation-update-latest-us.json" in content
     assert "US_OPTIONABLE" in content
     assert "rclone sync frontend/public/static-data/" in content
     assert "aws s3 sync" not in content
@@ -31,7 +31,7 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
 
 def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path) -> None:
     weekly_bundle = {
-        "schema_version": "weekly-reference-bundle-v1",
+        "schema_version": "foundation-update-bundle-v1",
         "market": "US",
         "as_of_date": "2026-06-05",
         "generated_at": "2026-06-05T03:52:57Z",
@@ -90,7 +90,7 @@ def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path)
 
     output_dir = tmp_path / "static-data"
     summary = build_static_site_from_artifacts(
-        weekly_reference=weekly_path,
+        foundation_update=weekly_path,
         output_dir=output_dir,
     )
 

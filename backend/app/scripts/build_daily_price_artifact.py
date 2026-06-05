@@ -1,7 +1,7 @@
-"""Build a US daily-price artifact directly from weekly-reference symbols.
+"""Build a US daily-price artifact directly from foundation-update symbols.
 
 Artifact-native daily price publisher:
-- reads the weekly reference bundle for the target US universe;
+- reads the foundation update bundle for the target US universe;
 - optionally reuses a prior daily-price artifact;
 - fetches missing/stale Yahoo daily bars in batches;
 - writes daily-price-latest-us.json and daily-price-us-YYYYMMDD.json.gz.
@@ -71,14 +71,14 @@ def _finite(value: Any) -> float | int | None:
 
 def _weekly_symbols(weekly_bundle: dict[str, Any]) -> dict[str, str | None]:
     if weekly_bundle.get("market") != MARKET:
-        raise ValueError(f"weekly reference market must be {MARKET}, got {weekly_bundle.get('market')!r}")
+        raise ValueError(f"foundation update market must be {MARKET}, got {weekly_bundle.get('market')!r}")
     coverage = weekly_bundle.get("coverage") or {}
     if coverage.get("universe_mode") != "US_OPTIONABLE":
-        raise ValueError(f"weekly reference must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
+        raise ValueError(f"foundation update must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
     snapshot = weekly_bundle.get("snapshot") or {}
     rows = snapshot.get("rows") if isinstance(snapshot, dict) else None
     if not isinstance(rows, list):
-        raise ValueError("weekly reference snapshot.rows must be a list")
+        raise ValueError("foundation update snapshot.rows must be a list")
     symbols: dict[str, str | None] = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -189,14 +189,14 @@ def _download_batch(symbols: list[str], *, period: str) -> dict[str, list[dict[s
 
 def build_daily_price_artifact(
     *,
-    weekly_reference: Path,
+    foundation_update: Path,
     output_dir: Path,
     prior_daily: Path | None = None,
     batch_size: int = 100,
     batch_sleep_seconds: float = 1.0,
     min_symbol_coverage: float = 0.8,
 ) -> dict[str, Any]:
-    weekly = _read_json(weekly_reference)
+    weekly = _read_json(foundation_update)
     symbols_by_exchange = _weekly_symbols(weekly)
     target_symbols = sorted(symbols_by_exchange)
     prior = _read_json(prior_daily) if prior_daily else None
@@ -308,7 +308,7 @@ def build_daily_price_artifact(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--weekly-reference", required=True, type=Path)
+    parser.add_argument("--foundation-update", required=True, type=Path)
     parser.add_argument("--prior-daily", type=Path, default=None)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--batch-size", type=int, default=100)
@@ -316,7 +316,7 @@ def main() -> int:
     parser.add_argument("--min-symbol-coverage", type=float, default=0.8)
     args = parser.parse_args()
     summary = build_daily_price_artifact(
-        weekly_reference=args.weekly_reference,
+        foundation_update=args.foundation_update,
         prior_daily=args.prior_daily if args.prior_daily and args.prior_daily.exists() else None,
         output_dir=args.output_dir,
         batch_size=args.batch_size,

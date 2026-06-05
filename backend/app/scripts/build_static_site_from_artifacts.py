@@ -85,7 +85,7 @@ def _weekly_rows(weekly_bundle: dict[str, Any]) -> list[dict[str, Any]]:
     snapshot = weekly_bundle.get("snapshot") or {}
     rows = snapshot.get("rows") if isinstance(snapshot, dict) else None
     if not isinstance(rows, list):
-        raise ValueError("Weekly reference bundle snapshot.rows must be a list")
+        raise ValueError("Foundation update bundle snapshot.rows must be a list")
     return rows
 
 
@@ -288,7 +288,7 @@ def _build_home(*, generated_at: str, as_of_date: str, rows: list[dict[str, Any]
             "scan_as_of_date": as_of_date,
             "breadth_latest_date": None,
             "groups_latest_date": as_of_date,
-            "weekly_reference_source_revision": coverage.get("source_revision"),
+            "foundation_update_source_revision": coverage.get("source_revision"),
         },
         "coverage": coverage,
         "key_markets": [],
@@ -298,12 +298,12 @@ def _build_home(*, generated_at: str, as_of_date: str, rows: list[dict[str, Any]
 
 def build_static_site_from_artifacts(
     *,
-    weekly_reference: Path,
+    foundation_update: Path,
     output_dir: Path,
     daily_price: Path | None = None,
 ) -> dict[str, Any]:
     generated_at = _utc_now()
-    weekly = _read_json(weekly_reference)
+    weekly = _read_json(foundation_update)
     daily = _read_json(daily_price) if daily_price else None
     latest_prices = _latest_daily_by_symbol(daily)
     as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
@@ -379,12 +379,12 @@ def build_static_site_from_artifacts(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--weekly-reference", required=True, type=Path)
+    parser.add_argument("--foundation-update", required=True, type=Path)
     parser.add_argument("--daily-price", type=Path, default=None)
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     summary = build_static_site_from_artifacts(
-        weekly_reference=args.weekly_reference,
+        foundation_update=args.foundation_update,
         daily_price=args.daily_price,
         output_dir=args.output_dir,
     )

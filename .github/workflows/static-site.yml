@@ -34,59 +34,74 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
-      - name: Download weekly reference artifact
+      - name: Download foundation update artifact
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/weekly-reference
-          gh release download weekly-reference-data \
+          mkdir -p /tmp/foundation-update
+          FOUNDATION_UPDATE_RELEASE="foundation-update-data"
+          FOUNDATION_UPDATE_MANIFEST="foundation-update-latest-us.json"
+          if ! gh release download "$FOUNDATION_UPDATE_RELEASE" \
             --repo "${{ github.repository }}" \
-            --pattern weekly-reference-latest-us.json \
-            --dir /tmp/weekly-reference \
-            --clobber
+            --pattern "$FOUNDATION_UPDATE_MANIFEST" \
+            --dir /tmp/foundation-update \
+            --clobber; then
+            echo "No foundation-update-data release yet; falling back to legacy weekly-reference-data." >&2
+            FOUNDATION_UPDATE_RELEASE="weekly-reference-data"
+            FOUNDATION_UPDATE_MANIFEST="weekly-reference-latest-us.json"
+            gh release download "$FOUNDATION_UPDATE_RELEASE" \
+              --repo "${{ github.repository }}" \
+              --pattern "$FOUNDATION_UPDATE_MANIFEST" \
+              --dir /tmp/foundation-update \
+              --clobber
+          fi
+          FOUNDATION_UPDATE_MANIFEST_PATH="/tmp/foundation-update/${FOUNDATION_UPDATE_MANIFEST}"
+          export FOUNDATION_UPDATE_MANIFEST_PATH
+          echo "FOUNDATION_UPDATE_RELEASE=${FOUNDATION_UPDATE_RELEASE}" >> "$GITHUB_ENV"
+          echo "FOUNDATION_UPDATE_MANIFEST=${FOUNDATION_UPDATE_MANIFEST_PATH}" >> "$GITHUB_ENV"
 
           BUNDLE_ASSET_NAME="$(python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
-          manifest = json.loads(Path('/tmp/weekly-reference/weekly-reference-latest-us.json').read_text(encoding='utf-8'))
+          manifest = json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST_PATH']).read_text(encoding='utf-8'))
           coverage = manifest.get('coverage') or {}
           if manifest.get('market') != 'US':
-              raise SystemExit(f"weekly manifest market must be US, got {manifest.get('market')!r}")
+              raise SystemExit(f"foundation update manifest market must be US, got {manifest.get('market')!r}")
           if coverage.get('universe_mode') != 'US_OPTIONABLE':
-              raise SystemExit(f"weekly manifest must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
+              raise SystemExit(f"foundation update manifest must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
           if int(coverage.get('active_symbols') or 0) < 3000:
-              raise SystemExit(f"weekly manifest active_symbols too low: {coverage.get('active_symbols')}")
+              raise SystemExit(f"foundation update manifest active_symbols too low: {coverage.get('active_symbols')}")
           if int(coverage.get('missing_active_symbols') or 0) != 0:
-              raise SystemExit(f"weekly manifest has missing active symbols: {coverage.get('missing_active_symbols')}")
+              raise SystemExit(f"foundation update manifest has missing active symbols: {coverage.get('missing_active_symbols')}")
           print(manifest['bundle_asset_name'])
           PY
           )"
-          echo "WEEKLY_REFERENCE_BUNDLE=/tmp/weekly-reference/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
-          echo "WEEKLY_REFERENCE_SHA256=$(python - <<'PY'
-          import json
+          echo "FOUNDATION_UPDATE_BUNDLE=/tmp/foundation-update/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "FOUNDATION_UPDATE_SHA256=$(python - <<'PY'
+          import json, os
           from pathlib import Path
-          print(json.loads(Path('/tmp/weekly-reference/weekly-reference-latest-us.json').read_text(encoding='utf-8'))['sha256'])
+          print(json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST_PATH']).read_text(encoding='utf-8'))['sha256'])
           PY
           )" >> "$GITHUB_ENV"
 
-          gh release download weekly-reference-data \
+          gh release download "$FOUNDATION_UPDATE_RELEASE" \
             --repo "${{ github.repository }}" \
             --pattern "${BUNDLE_ASSET_NAME}" \
-            --dir /tmp/weekly-reference \
+            --dir /tmp/foundation-update \
             --clobber
 
-      - name: Verify weekly reference checksum
+      - name: Verify foundation update checksum
         run: |
           set -euo pipefail
           digest="$(python - <<'PY'
           import hashlib, os
           from pathlib import Path
-          print(hashlib.sha256(Path(os.environ['WEEKLY_REFERENCE_BUNDLE']).read_bytes()).hexdigest())
+          print(hashlib.sha256(Path(os.environ['FOUNDATION_UPDATE_BUNDLE']).read_bytes()).hexdigest())
           PY
           )"
-          if [ "$digest" != "$WEEKLY_REFERENCE_SHA256" ]; then
-            echo "Weekly reference checksum mismatch: $digest != $WEEKLY_REFERENCE_SHA256" >&2
+          if [ "$digest" != "$FOUNDATION_UPDATE_SHA256" ]; then
+            echo "Foundation update checksum mismatch: $digest != $FOUNDATION_UPDATE_SHA256" >&2
             exit 1
           fi
 
@@ -146,7 +161,7 @@ jobs:
           set -euo pipefail
           rm -rf "$STATIC_DATA_DIR"
           args=(
-            --weekly-reference "$WEEKLY_REFERENCE_BUNDLE"
+            --foundation-update "$FOUNDATION_UPDATE_BUNDLE"
             --output-dir "../$STATIC_DATA_DIR"
           )
           if [ -n "${DAILY_PRICE_BUNDLE:-}" ]; then

@@ -9,7 +9,7 @@ import pytest
 from app.services.nasdaqtrader_universe_service import NasdaqTraderUniverseService
 from app.services.schwab_token_service import SchwabTokenService
 import app.scripts.build_optionable_symbols as optionable_script
-import app.scripts.build_weekly_reference_bundle as weekly_script
+import app.scripts.build_foundation_update_bundle as weekly_script
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -265,7 +265,7 @@ def test_weekly_us_optionable_mode_publishes_from_artifact(monkeypatch, tmp_path
             created_at=weekly_script.datetime(2026, 6, 4),
             source_revision="fundamentals_v1_us:optionable:20260604",
         ),
-        export_weekly_reference_bundle=lambda db, **kwargs: {"bundle_path": str(kwargs["output_path"])},
+        export_weekly_reference_bundle=lambda db, **kwargs: {"bundle_path": str(kwargs["output_path"])}, 
     )
 
     summary = weekly_script._build_us_bundle(
@@ -275,7 +275,7 @@ def test_weekly_us_optionable_mode_publishes_from_artifact(monkeypatch, tmp_path
         market="US",
         output_dir=tmp_path,
         bundle_name=None,
-        latest_manifest_name="weekly-reference-latest-us.json",
+        latest_manifest_name="foundation-update-latest-us.json",
         universe_mode="optionable",
         optionable_symbols_path=str(artifact),
     )
@@ -286,14 +286,15 @@ def test_weekly_us_optionable_mode_publishes_from_artifact(monkeypatch, tmp_path
 
 
 def test_workflows_default_static_us_to_optionable():
-    weekly = (ROOT / ".github" / "workflows" / "weekly-reference-data.yml").read_text()
+    weekly = (ROOT / ".github" / "workflows" / "foundation-update.yml").read_text()
     static = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
     optionable = (ROOT / ".github" / "workflows" / "optionable-symbols.yml").read_text()
 
     assert "US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}" in weekly
     assert "Download US optionable symbols" in weekly
     assert "--us-universe-mode \"${US_UNIVERSE_MODE}\"" in weekly
-    assert "US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}" in static
+    assert "build_static_site_from_artifacts" in static
+    assert "--foundation-update \"$FOUNDATION_UPDATE_BUNDLE\"" in static
     assert "cron: '0 * * * *'" in optionable
     assert "target is every other Sunday 20:00 America/New_York" in optionable
     assert "TZ=Asia/Taipei" in optionable

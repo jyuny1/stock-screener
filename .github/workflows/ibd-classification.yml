@@ -5,12 +5,12 @@ name: IBD Classification
 # cascade (crosswalk → local embedding → optional LLM tiebreaker). Publishes an
 # `ibd-classification-data` release artifact the daily static-site build consumes.
 #
-# Runs after "Weekly Reference Data" publishes (so the universe is fresh), and is
+# Runs after "Foundation Update" publishes (so the universe is fresh), and is
 # also manually dispatchable / scheduled as a fallback.
 
 on:
   workflow_run:
-    workflows: ["Weekly Reference Data"]
+    workflows: ["Foundation Update"]
     types:
       - completed
   workflow_dispatch:
@@ -45,7 +45,7 @@ on:
           - off
   # schedule: temporarily disabled during pipeline maintenance.
   # schedule:
-  #   # Fallback ~3h after the Saturday weekly-reference cron (08:10 ET) in case
+  #   # Fallback ~3h after the Saturday foundation-update cron (08:10 ET) in case
   #   # the workflow_run trigger is missed.
   #   - cron: '10 11 * * 6'
   #     timezone: 'America/New_York'
@@ -76,7 +76,7 @@ jobs:
 
   # The deterministic crosswalk is US-derived (curated CSV ∩ US universe), so it
   # is built once here and shared with every per-market classify job as an
-  # artifact rather than rebuilt per job. Best-effort: if the US weekly-reference
+  # artifact rather than rebuilt per job. Best-effort: if the US foundation-update
   # bundle is unavailable, no artifact is produced and classify degrades to
   # embedding+LLM.
   build_crosswalk:
@@ -111,37 +111,37 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
 
-      - name: Seed US weekly reference bundle
+      - name: Seed US foundation update bundle
         id: seed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p /tmp/weekly-reference-seed
+          mkdir -p /tmp/foundation-update-seed
           BUNDLE_ASSET_NAME=""
-          if gh release download weekly-reference-data \
-            --pattern "weekly-reference-latest-us.json" \
-            --dir /tmp/weekly-reference-seed >/dev/null 2>&1; then
-            MANIFEST=/tmp/weekly-reference-seed/weekly-reference-latest-us.json
-          elif gh release download weekly-reference-data \
-            --pattern "weekly-reference-latest.json" \
-            --dir /tmp/weekly-reference-seed >/dev/null 2>&1; then
-            MANIFEST=/tmp/weekly-reference-seed/weekly-reference-latest.json
+          if gh release download foundation-update-data \
+            --pattern "foundation-update-latest-us.json" \
+            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
+            MANIFEST=/tmp/foundation-update-seed/foundation-update-latest-us.json
+          elif gh release download foundation-update-data \
+            --pattern "foundation-update-latest.json" \
+            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
+            MANIFEST=/tmp/foundation-update-seed/foundation-update-latest.json
           else
             MANIFEST=""
           fi
           if [ -n "$MANIFEST" ]; then
             BUNDLE_ASSET_NAME="$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['bundle_asset_name'])" "$MANIFEST")"
           fi
-          if [ -n "$BUNDLE_ASSET_NAME" ] && gh release download weekly-reference-data \
+          if [ -n "$BUNDLE_ASSET_NAME" ] && gh release download foundation-update-data \
             --pattern "$BUNDLE_ASSET_NAME" \
-            --dir /tmp/weekly-reference-seed >/dev/null 2>&1; then
+            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
             cd backend
-            python -m app.scripts.import_weekly_reference_bundle \
-              --input "/tmp/weekly-reference-seed/${BUNDLE_ASSET_NAME}" \
+            python -m app.scripts.import_foundation_update_bundle \
+              --input "/tmp/foundation-update-seed/${BUNDLE_ASSET_NAME}" \
               --hydrate-mode full
             echo "seeded=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No US weekly reference bundle available; skipping crosswalk build."
+            echo "No US foundation update bundle available; skipping crosswalk build."
             echo "seeded=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -224,48 +224,48 @@ jobs:
           name: ibd-crosswalk
           path: data
 
-      - name: Seed weekly reference bundle (universe to classify)
+      - name: Seed foundation update bundle (universe to classify)
         id: seed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p /tmp/weekly-reference-seed
+          mkdir -p /tmp/foundation-update-seed
           export MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
           BUNDLE_ASSET_NAME=""
 
-          if gh release download weekly-reference-data \
-            --pattern "weekly-reference-latest-${MARKET_LOWER}.json" \
-            --dir /tmp/weekly-reference-seed >/dev/null 2>&1; then
+          if gh release download foundation-update-data \
+            --pattern "foundation-update-latest-${MARKET_LOWER}.json" \
+            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
             BUNDLE_ASSET_NAME="$(python - <<'PY'
           import json, os
           from pathlib import Path
           market = os.environ["MARKET_LOWER"]
-          manifest = json.loads(Path(f"/tmp/weekly-reference-seed/weekly-reference-latest-{market}.json").read_text(encoding="utf-8"))
+          manifest = json.loads(Path(f"/tmp/foundation-update-seed/foundation-update-latest-{market}.json").read_text(encoding="utf-8"))
           print(manifest["bundle_asset_name"])
           PY
             )"
-          elif [ "${{ matrix.market }}" = "US" ] && gh release download weekly-reference-data \
-            --pattern "weekly-reference-latest.json" \
-            --dir /tmp/weekly-reference-seed >/dev/null 2>&1; then
+          elif [ "${{ matrix.market }}" = "US" ] && gh release download foundation-update-data \
+            --pattern "foundation-update-latest.json" \
+            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
             BUNDLE_ASSET_NAME="$(python - <<'PY'
           import json
           from pathlib import Path
-          manifest = json.loads(Path("/tmp/weekly-reference-seed/weekly-reference-latest.json").read_text(encoding="utf-8"))
+          manifest = json.loads(Path("/tmp/foundation-update-seed/foundation-update-latest.json").read_text(encoding="utf-8"))
           print(manifest["bundle_asset_name"])
           PY
             )"
           fi
 
-          if [ -n "$BUNDLE_ASSET_NAME" ] && gh release download weekly-reference-data \
+          if [ -n "$BUNDLE_ASSET_NAME" ] && gh release download foundation-update-data \
             --pattern "$BUNDLE_ASSET_NAME" \
-            --dir /tmp/weekly-reference-seed >/dev/null 2>&1; then
+            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
             cd backend
-            python -m app.scripts.import_weekly_reference_bundle \
-              --input "/tmp/weekly-reference-seed/${BUNDLE_ASSET_NAME}" \
+            python -m app.scripts.import_foundation_update_bundle \
+              --input "/tmp/foundation-update-seed/${BUNDLE_ASSET_NAME}" \
               --hydrate-mode full
             echo "seeded=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No weekly reference bundle available for ${{ matrix.market }}; skipping classification."
+            echo "No foundation update bundle available for ${{ matrix.market }}; skipping classification."
             echo "seeded=false" >> "$GITHUB_OUTPUT"
           fi
 

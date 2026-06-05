@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import app.scripts.build_weekly_reference_bundle as build_script
-import app.scripts.import_weekly_reference_bundle as import_script
+import app.scripts.build_foundation_update_bundle as build_script
+import app.scripts.import_foundation_update_bundle as import_script
 import app.scripts.load_ibd_industry_groups as load_ibd_script
 
 
@@ -22,8 +22,8 @@ def _fake_session(db="db-session"):
     yield db
 
 
-def test_weekly_reference_schedule_runs_after_optionable_refresh() -> None:
-    content = (ROOT / ".github" / "workflows" / "weekly-reference-data.yml").read_text()
+def test_foundation_update_schedule_runs_after_optionable_refresh() -> None:
+    content = (ROOT / ".github" / "workflows" / "foundation-update.yml").read_text()
 
     assert "cron: '0 * * * *'" in content
     assert "Monday 01:00 America/New_York" in content
@@ -32,18 +32,18 @@ def test_weekly_reference_schedule_runs_after_optionable_refresh() -> None:
     assert "needs.schedule_gate.outputs.run_workflow == 'true'" in content
 
 
-def test_build_weekly_reference_bundle_requires_market(monkeypatch, tmp_path):
+def test_build_foundation_update_bundle_requires_market(monkeypatch, tmp_path):
     monkeypatch.setattr(build_script, "prepare_runtime", lambda: None)
     monkeypatch.setattr(
         "sys.argv",
-        ["build_weekly_reference_bundle", "--output-dir", str(tmp_path)],
+        ["build_foundation_update_bundle", "--output-dir", str(tmp_path)],
     )
 
     with pytest.raises(SystemExit):
         build_script.main()
 
 
-def test_build_weekly_reference_bundle_runs_us_publish_and_export(monkeypatch, tmp_path, capsys):
+def test_build_foundation_update_bundle_runs_us_publish_and_export(monkeypatch, tmp_path, capsys):
     published_at = datetime(2026, 4, 4, 12, 10, 0)
     monkeypatch.setattr(build_script, "prepare_runtime", lambda: None)
     monkeypatch.setattr(build_script, "SessionLocal", _fake_session)
@@ -116,7 +116,7 @@ def test_build_weekly_reference_bundle_runs_us_publish_and_export(monkeypatch, t
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "US",
             "--output-dir",
@@ -126,12 +126,12 @@ def test_build_weekly_reference_bundle_runs_us_publish_and_export(monkeypatch, t
 
     assert build_script.main() == 0
     assert export_calls[0]["output_path"] == (
-        tmp_path / "weekly-reference-us-20260404-fundamentals_v1_us-20260404121000.json.gz"
+        tmp_path / "foundation-update-us-20260404-fundamentals_v1_us-20260404121000.json.gz"
     )
     assert export_calls[0]["bundle_asset_name"] == (
-        "weekly-reference-us-20260404-fundamentals_v1_us-20260404121000.json.gz"
+        "foundation-update-us-20260404-fundamentals_v1_us-20260404121000.json.gz"
     )
-    assert export_calls[0]["latest_manifest_path"] == tmp_path / "weekly-reference-latest-us.json"
+    assert export_calls[0]["latest_manifest_path"] == tmp_path / "foundation-update-latest-us.json"
     assert export_calls[0]["snapshot_key"] == build_script.ProviderSnapshotService.snapshot_key_for_market("US")
     assert export_calls[0]["market"] == "US"
     stdout = capsys.readouterr().out
@@ -143,12 +143,12 @@ def test_build_weekly_reference_bundle_runs_us_publish_and_export(monkeypatch, t
     # Hydration must run before export so market_cap from stock_fundamentals
     # is available at merge-time in export_weekly_reference_bundle.
     hydrate_idx = stdout.index("Starting Yahoo hydration for US published snapshot...")
-    export_idx = stdout.index("Weekly reference bundle complete for US:")
+    export_idx = stdout.index("Foundation update bundle complete for US:")
     assert hydrate_idx < export_idx
-    assert "Weekly reference bundle complete for US:" in stdout
+    assert "Foundation update bundle complete for US:" in stdout
 
 
-def test_build_weekly_reference_bundle_writes_summary_when_us_publish_is_blocked(
+def test_build_foundation_update_bundle_writes_summary_when_us_publish_is_blocked(
     monkeypatch,
     tmp_path,
 ):
@@ -184,7 +184,7 @@ def test_build_weekly_reference_bundle_writes_summary_when_us_publish_is_blocked
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "US",
             "--output-dir",
@@ -196,13 +196,13 @@ def test_build_weekly_reference_bundle_writes_summary_when_us_publish_is_blocked
         build_script.main()
 
     summary_text = summary_path.read_text(encoding="utf-8")
-    assert "## Weekly Reference Bundle: US" in summary_text
+    assert "## Foundation Update Bundle: US" in summary_text
     assert "| Active coverage | 80.00% |" in summary_text
     assert "| Minimum coverage | 98.00% |" in summary_text
     assert "| Bundle rows exported | 0 |" in summary_text
 
 
-def test_build_weekly_reference_bundle_runs_hk_official_path(monkeypatch, tmp_path, capsys):
+def test_build_foundation_update_bundle_runs_hk_official_path(monkeypatch, tmp_path, capsys):
     published_at = datetime(2026, 4, 4, 12, 10, 0)
     active_rows = [
         SimpleNamespace(
@@ -322,7 +322,7 @@ def test_build_weekly_reference_bundle_runs_hk_official_path(monkeypatch, tmp_pa
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "HK",
             "--output-dir",
@@ -339,9 +339,9 @@ def test_build_weekly_reference_bundle_runs_hk_official_path(monkeypatch, tmp_pa
     assert published_rows[0]["snapshot_key"] == build_script.ProviderSnapshotService.snapshot_key_for_market("HK")
     assert published_rows[0]["market"] == "HK"
     assert export_calls[0]["output_path"] == (
-        tmp_path / "weekly-reference-hk-20260404-fundamentals_v1_hk-20260404121000.json.gz"
+        tmp_path / "foundation-update-hk-20260404-fundamentals_v1_hk-20260404121000.json.gz"
     )
-    assert export_calls[0]["latest_manifest_path"] == tmp_path / "weekly-reference-latest-hk.json"
+    assert export_calls[0]["latest_manifest_path"] == tmp_path / "foundation-update-latest-hk.json"
     assert export_calls[0]["market"] == "HK"
     stdout = capsys.readouterr().out
     assert "Starting official universe refresh for HK..." in stdout
@@ -353,21 +353,21 @@ def test_build_weekly_reference_bundle_runs_hk_official_path(monkeypatch, tmp_pa
     assert "[fundamentals] HK 1/1 (100.0%)" in stdout
     assert "Fundamentals refresh complete:" in stdout
     assert "[publish] market=HK coverage=100.00% (min=70.00%) missing_ratio=0.00% (max=30.00%)" in stdout
-    assert "Weekly reference bundle complete for HK:" in stdout
+    assert "Foundation update bundle complete for HK:" in stdout
     summary_text = summary_path.read_text(encoding="utf-8")
-    assert "## Weekly Reference Bundle: HK" in summary_text
+    assert "## Foundation Update Bundle: HK" in summary_text
     assert "| Coverage gate market | HK |" in summary_text
     assert "| Minimum coverage | 70.00% |" in summary_text
     assert "| Failed persistence symbols | 0 |" in summary_text
     assert "| `yahoo_quote_not_found` | 2 |" in summary_text
 
 
-def test_build_weekly_reference_bundle_runs_de_official_path(monkeypatch, tmp_path, capsys):
+def test_build_foundation_update_bundle_runs_de_official_path(monkeypatch, tmp_path, capsys):
     """Mirror of the HK official-path test for the new DE fetcher.
 
     Verifies the build script (1) fetches the DE snapshot via the official
     source service, (2) routes the snapshot to ``ingest_de_snapshot_rows``
-    rather than raising on ``Unsupported official weekly reference market``,
+    rather than raising on ``Unsupported official foundation update market``,
     and (3) publishes/exports the resulting bundle.
     """
     published_at = datetime(2026, 5, 9, 12, 10, 0)
@@ -484,7 +484,7 @@ def test_build_weekly_reference_bundle_runs_de_official_path(monkeypatch, tmp_pa
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "DE",
             "--output-dir",
@@ -498,21 +498,21 @@ def test_build_weekly_reference_bundle_runs_de_official_path(monkeypatch, tmp_pa
     assert ingest_calls[0]["source_name"] == "dbg_official"
     assert ingest_calls[0]["snapshot_id"] == "dbg-equity-2026-05-09"
     assert export_calls[0]["output_path"] == (
-        tmp_path / "weekly-reference-de-20260509-fundamentals_v1_de-20260509121000.json.gz"
+        tmp_path / "foundation-update-de-20260509-fundamentals_v1_de-20260509121000.json.gz"
     )
-    assert export_calls[0]["latest_manifest_path"] == tmp_path / "weekly-reference-latest-de.json"
+    assert export_calls[0]["latest_manifest_path"] == tmp_path / "foundation-update-latest-de.json"
     assert export_calls[0]["market"] == "DE"
     stdout = capsys.readouterr().out
     assert "Starting official universe refresh for DE..." in stdout
-    assert "Weekly reference bundle complete for DE:" in stdout
+    assert "Foundation update bundle complete for DE:" in stdout
 
 
-def test_build_weekly_reference_bundle_runs_sg_official_path(monkeypatch, tmp_path, capsys):
+def test_build_foundation_update_bundle_runs_sg_official_path(monkeypatch, tmp_path, capsys):
     """Mirror of the DE official-path test for the SG fetcher.
 
     Verifies the build script (1) fetches the SG snapshot via the official
     source service, (2) routes the snapshot to ``ingest_sg_snapshot_rows``
-    rather than raising on ``Unsupported official weekly reference market``,
+    rather than raising on ``Unsupported official foundation update market``,
     and (3) publishes/exports the resulting bundle.
     """
     published_at = datetime(2026, 5, 17, 12, 10, 0)
@@ -628,7 +628,7 @@ def test_build_weekly_reference_bundle_runs_sg_official_path(monkeypatch, tmp_pa
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "SG",
             "--output-dir",
@@ -642,17 +642,17 @@ def test_build_weekly_reference_bundle_runs_sg_official_path(monkeypatch, tmp_pa
     assert ingest_calls[0]["source_name"] == "sg_manual_csv"
     assert ingest_calls[0]["snapshot_id"] == "sg-csv-fallback-2026-05-17"
     assert export_calls[0]["output_path"] == (
-        tmp_path / "weekly-reference-sg-20260517-fundamentals_v1_sg-20260517121000.json.gz"
+        tmp_path / "foundation-update-sg-20260517-fundamentals_v1_sg-20260517121000.json.gz"
     )
-    assert export_calls[0]["latest_manifest_path"] == tmp_path / "weekly-reference-latest-sg.json"
+    assert export_calls[0]["latest_manifest_path"] == tmp_path / "foundation-update-latest-sg.json"
     assert export_calls[0]["market"] == "SG"
     stdout = capsys.readouterr().out
     assert "Starting official universe refresh for SG..." in stdout
-    assert "Weekly reference bundle complete for SG:" in stdout
+    assert "Foundation update bundle complete for SG:" in stdout
 
 
-def test_build_weekly_reference_bundle_runs_au_official_path(monkeypatch, tmp_path, capsys):
-    """AU weekly reference builds must route ASX snapshots into AU ingestion."""
+def test_build_foundation_update_bundle_runs_au_official_path(monkeypatch, tmp_path, capsys):
+    """AU foundation update builds must route ASX snapshots into AU ingestion."""
     published_at = datetime(2026, 5, 30, 12, 10, 0)
     active_rows = [
         SimpleNamespace(
@@ -769,7 +769,7 @@ def test_build_weekly_reference_bundle_runs_au_official_path(monkeypatch, tmp_pa
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "AU",
             "--output-dir",
@@ -783,13 +783,13 @@ def test_build_weekly_reference_bundle_runs_au_official_path(monkeypatch, tmp_pa
     assert ingest_calls[0]["source_name"] == "asx_official_public_csv"
     assert ingest_calls[0]["snapshot_id"] == "asx-listed-companies-2026-05-30"
     assert export_calls[0]["output_path"] == (
-        tmp_path / "weekly-reference-au-20260530-fundamentals_v1_au-20260530121000.json.gz"
+        tmp_path / "foundation-update-au-20260530-fundamentals_v1_au-20260530121000.json.gz"
     )
-    assert export_calls[0]["latest_manifest_path"] == tmp_path / "weekly-reference-latest-au.json"
+    assert export_calls[0]["latest_manifest_path"] == tmp_path / "foundation-update-latest-au.json"
     assert export_calls[0]["market"] == "AU"
     stdout = capsys.readouterr().out
     assert "Starting official universe refresh for AU..." in stdout
-    assert "Weekly reference bundle complete for AU:" in stdout
+    assert "Foundation update bundle complete for AU:" in stdout
 
 
 def _make_universe_row(symbol: str, market: str = "CN") -> SimpleNamespace:
@@ -804,7 +804,7 @@ def _make_universe_row(symbol: str, market: str = "CN") -> SimpleNamespace:
     )
 
 
-def test_build_weekly_reference_bundle_chunked_deadline_force_publishes(
+def test_build_foundation_update_bundle_chunked_deadline_force_publishes(
     monkeypatch, tmp_path, capsys
 ):
     """Asia path stops between chunks once the wall-clock budget is exhausted.
@@ -945,7 +945,7 @@ def test_build_weekly_reference_bundle_chunked_deadline_force_publishes(
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -982,7 +982,7 @@ def test_build_weekly_reference_bundle_chunked_deadline_force_publishes(
     assert export_calls, "Bundle export should still run after a partial publish"
 
 
-def test_build_weekly_reference_bundle_deadline_blocks_when_partial_disabled(
+def test_build_foundation_update_bundle_deadline_blocks_when_partial_disabled(
     monkeypatch, tmp_path
 ):
     """Disabling partial publish blocks deadline-hit runs even when cache coverage passes."""
@@ -1094,7 +1094,7 @@ def test_build_weekly_reference_bundle_deadline_blocks_when_partial_disabled(
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -1248,7 +1248,7 @@ def test_build_asia_bundle_falls_back_to_seeded_universe_when_official_fetch_fai
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -1302,7 +1302,7 @@ def test_build_asia_bundle_reraises_when_no_seeded_universe_rows(monkeypatch, tm
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -1342,7 +1342,7 @@ def test_build_asia_bundle_reraises_when_partial_publish_disabled(monkeypatch, t
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -1354,7 +1354,7 @@ def test_build_asia_bundle_reraises_when_partial_publish_disabled(monkeypatch, t
         build_script.main()
 
 
-def test_build_weekly_reference_bundle_resumes_partial_seed_by_skipping_cached_symbols(
+def test_build_foundation_update_bundle_resumes_partial_seed_by_skipping_cached_symbols(
     monkeypatch, tmp_path
 ):
     active_rows = [
@@ -1453,7 +1453,7 @@ def test_build_weekly_reference_bundle_resumes_partial_seed_by_skipping_cached_s
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -1476,7 +1476,7 @@ def test_build_weekly_reference_bundle_resumes_partial_seed_by_skipping_cached_s
     assert export_calls, "Bundle export should run after completing a resumed seed"
 
 
-def test_build_weekly_reference_bundle_does_not_resume_full_coverage_partial_seed(
+def test_build_foundation_update_bundle_does_not_resume_full_coverage_partial_seed(
     monkeypatch, tmp_path
 ):
     active_rows = [
@@ -1574,7 +1574,7 @@ def test_build_weekly_reference_bundle_does_not_resume_full_coverage_partial_see
     monkeypatch.setattr(
         "sys.argv",
         [
-            "build_weekly_reference_bundle",
+            "build_foundation_update_bundle",
             "--market",
             "CN",
             "--output-dir",
@@ -1594,8 +1594,8 @@ def test_build_weekly_reference_bundle_does_not_resume_full_coverage_partial_see
     assert publish_kwargs["coverage_stats"]["attempted_symbols"] == 3
 
 
-def test_import_weekly_reference_bundle_script_calls_service(monkeypatch, tmp_path, capsys):
-    bundle_path = tmp_path / "weekly-reference.json.gz"
+def test_import_foundation_update_bundle_script_calls_service(monkeypatch, tmp_path, capsys):
+    bundle_path = tmp_path / "foundation-update.json.gz"
     bundle_path.write_bytes(b"bundle")
     monkeypatch.setattr(import_script, "prepare_runtime", lambda: None)
     monkeypatch.setattr(import_script, "SessionLocal", _fake_session)
@@ -1608,12 +1608,12 @@ def test_import_weekly_reference_bundle_script_calls_service(monkeypatch, tmp_pa
     monkeypatch.setattr(import_script, "get_provider_snapshot_service", lambda: provider_snapshot_service)
     monkeypatch.setattr(
         "sys.argv",
-        ["import_weekly_reference_bundle", "--input", str(bundle_path)],
+        ["import_foundation_update_bundle", "--input", str(bundle_path)],
     )
 
     assert import_script.main() == 0
     assert import_calls == [(bundle_path, True, "static")]
-    assert "Weekly reference import complete:" in capsys.readouterr().out
+    assert "Foundation update import complete:" in capsys.readouterr().out
 
 
 def test_load_ibd_industry_groups_script_uses_csv_path(monkeypatch, tmp_path, capsys):

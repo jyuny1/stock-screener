@@ -1,51 +1,6 @@
-"""Import a weekly fundamentals reference bundle into the local database."""
-
-from __future__ import annotations
-
-import argparse
-from pathlib import Path
-
-from app.database import SessionLocal
-from app.scripts._runtime import prepare_runtime
-from app.wiring.bootstrap import get_provider_snapshot_service
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--input",
-        required=True,
-        help="Path to a weekly-reference bundle (.json or .json.gz).",
-    )
-    parser.add_argument(
-        "--no-hydrate-cache",
-        action="store_true",
-        help="Import snapshot/universe rows without hydrating stock_fundamentals or Redis.",
-    )
-    parser.add_argument(
-        "--hydrate-mode",
-        choices=("static", "full"),
-        default="static",
-        help="How to hydrate imported fundamentals into local cache/database.",
-    )
-    args = parser.parse_args()
-
-    prepare_runtime()
-    provider_snapshot_service = get_provider_snapshot_service()
-
-    with SessionLocal() as db:
-        stats = provider_snapshot_service.import_weekly_reference_bundle(
-            db,
-            input_path=Path(args.input),
-            hydrate_cache=not args.no_hydrate_cache,
-            hydrate_mode=args.hydrate_mode,
-        )
-
-    print("Weekly reference import complete:")
-    for key, value in stats.items():
-        print(f"  - {key}: {value}")
-    return 0
-
+"""Compatibility wrapper for the renamed foundation update importer."""
+from .import_foundation_update_bundle import *  # noqa: F401,F403
+from .import_foundation_update_bundle import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

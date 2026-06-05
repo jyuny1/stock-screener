@@ -1,4 +1,4 @@
-"""Static-site workflow market matrix coverage."""
+"""Static-site and foundation-update workflow coverage."""
 
 from __future__ import annotations
 
@@ -23,25 +23,29 @@ def _workflow_matrix_markets(path: str) -> list[str]:
     return list(json.loads(dispatch_matrix_match.group(1)))
 
 
-def test_static_and_weekly_reference_workflows_cover_supported_markets():
-    expected = list(market_registry.supported_market_codes())
-
-    assert _workflow_matrix_markets(".github/workflows/static-site.yml") == expected
-    assert _workflow_matrix_markets(".github/workflows/weekly-reference-data.yml") == expected
-
-
-def test_static_workflow_legacy_weekly_reference_manifest_is_us_only():
-    content = (_PROJECT_ROOT / ".github/workflows/static-site.yml").read_text(encoding="utf-8")
-
-    assert '[ "${{ matrix.market }}" = "US" ] &&' in content
-    assert "No market-scoped weekly reference manifest found" in content
+def test_foundation_update_workflow_covers_supported_markets():
+    assert _workflow_matrix_markets(".github/workflows/foundation-update.yml") == list(
+        market_registry.supported_market_codes()
+    )
 
 
-def test_static_workflow_fails_fast_when_weekly_reference_assets_cannot_be_listed():
-    content = (_PROJECT_ROOT / ".github/workflows/static-site.yml").read_text(encoding="utf-8")
+def test_static_workflow_is_us_only_artifact_native():
+    content = (_PROJECT_ROOT / ".github" / "workflows" / "static-site.yml").read_text(encoding="utf-8")
 
-    assert 'if ! ASSET_NAMES="$(retry_list_assets)"; then' in content
-    assert "Failed to list weekly-reference release assets" in content
+    assert "build_static_site_from_artifacts" in content
+    assert "foundation-update-latest-us.json" in content
+    assert "foundation-update-data" in content
+    assert "weekly-reference-data" in content  # compatibility fallback until first foundation-update publish
+    assert "postgres" not in content.lower()
+    assert "DATABASE_URL" not in content
+
+
+def test_static_workflow_falls_back_to_legacy_reference_until_foundation_update_exists():
+    content = (_PROJECT_ROOT / ".github" / "workflows" / "static-site.yml").read_text(encoding="utf-8")
+
+    assert "No foundation-update-data release yet; falling back to legacy weekly-reference-data." in content
+    assert "FOUNDATION_UPDATE_RELEASE=\"weekly-reference-data\"" in content
+    assert "FOUNDATION_UPDATE_MANIFEST=\"weekly-reference-latest-us.json\"" in content
 
 
 def test_local_celery_startup_derives_market_workers_from_backend_topology():

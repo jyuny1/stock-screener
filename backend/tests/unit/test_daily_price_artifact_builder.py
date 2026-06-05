@@ -41,7 +41,7 @@ def test_build_daily_price_artifact_from_weekly_symbols(monkeypatch, tmp_path: P
     monkeypatch.setattr(script, "_download_batch", fake_download)
 
     summary = script.build_daily_price_artifact(
-        weekly_reference=weekly_path,
+        foundation_update=weekly_path,
         output_dir=tmp_path / "out",
         batch_size=2,
         batch_sleep_seconds=0,

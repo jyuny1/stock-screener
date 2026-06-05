@@ -17,10 +17,10 @@ def test_daily_price_workflow_is_us_only_and_publishes_release_assets() -> None:
     assert "postgres" not in content.lower()
     assert "DATABASE_URL" not in content
     assert "pip install -r backend/requirements.txt" not in content
-    assert "weekly-reference-latest-us.json" in content
+    assert "foundation-update-latest-us.json" in content
     assert "US_OPTIONABLE" in content
     assert "build_daily_price_artifact" in content
-    assert "import_weekly_reference_bundle" not in content
+    assert "import_foundation_update_bundle" not in content
     assert "sync_daily_price_bundle_from_github" not in content
     assert "--refresh-daily" not in content
     assert "build_daily_price_bundle" not in content
