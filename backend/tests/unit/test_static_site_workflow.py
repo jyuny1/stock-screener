@@ -25,6 +25,7 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
     assert "aws s3 sync" not in content
     assert "pip install awscli" not in content
     assert "cloudflare/pages-action@v1" in content
+    assert "deployments: write" in content
     assert "group: static-site-us" in content
 
 

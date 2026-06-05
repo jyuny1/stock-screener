@@ -9,6 +9,7 @@ concurrency:
 
 permissions:
   contents: write
+  deployments: write
 
 jobs:
   publish-us:
