@@ -24,19 +24,9 @@ import RSSparkline from './RSSparkline';
 import PriceSparkline from './PriceSparkline';
 import FieldAvailabilityChip from './FieldAvailabilityChip';
 import MarketBadge from './MarketBadge';
-import MarketThemesList from '../Stock/MarketThemesList';
 import AddToWatchlistMenu from '../common/AddToWatchlistMenu';
 import {
-  getStageColor,
-  getRatingColor,
-  getGrowthColor,
-  getEpsRatingColor,
-  getGroupRankColor,
-} from '../../utils/colorUtils';
-import {
   formatLargeNumber,
-  formatIpoAge,
-  getIpoAgeColor,
   getCurrencyPrefix,
   formatLocalCurrency,
 } from '../../utils/formatUtils';
@@ -126,68 +116,47 @@ const columns = [
   // Width fits "0700.HK" + MarketBadge + FieldAvailabilityChip on a single
   // line without overflow (nowrap guards the rest).
   { id: 'symbol', label: 'Sym', sortable: true, width: SYMBOL_COLUMN_WIDTH },
-  { id: 'rs_trend', label: 'RS Trend', sortable: true, width: 110 },
-  { id: 'price_change_1d', label: 'Price', sortable: true, width: 110 },
-  { id: 'gics_sector', label: 'Sector', sortable: true, width: 80 },
-  { id: 'ibd_industry_group', label: 'IBD Industry', sortable: true, width: 140 },
-  { id: 'market_themes', label: 'Themes', sortable: false, width: 180 },
-  { id: 'ibd_group_rank', label: 'Grp', sortable: true, width: 45 },
-  { id: 'composite_score', label: 'Comp', sortable: true, width: 50 },
-  { id: 'minervini_score', label: 'Min', sortable: true, width: 45 },
-  { id: 'canslim_score', label: 'CAN', sortable: true, width: 45 },
-  { id: 'ipo_score', label: 'IPO', sortable: true, width: 45 },
-  { id: 'custom_score', label: 'Cust', sortable: true, width: 45 },
-  { id: 'volume_breakthrough_score', label: 'VolB', sortable: true, width: 50 },
-  { id: 'se_setup_score', label: 'SE', sortable: true, width: 45 },
-  { id: 'se_pattern_primary', label: 'Pat', sortable: true, width: 55 },
-  { id: 'se_distance_to_pivot_pct', label: 'Pvt%', sortable: true, width: 50 },
-  { id: 'se_bb_width_pctile_252', label: 'Sqz', sortable: true, width: 45 },
-  { id: 'se_volume_vs_50d', label: 'V50', sortable: true, width: 45 },
-  { id: 'se_rs_line_new_high', label: 'RSH', sortable: false, width: 35 },
-  { id: 'se_pivot_price', label: 'Pvt$', sortable: true, width: 55 },
-  { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
-  { id: 'rs_rating_1m', label: '1M', sortable: true, width: 40 },
-  { id: 'rs_rating_3m', label: '3M', sortable: true, width: 40 },
-  { id: 'rs_rating_12m', label: '12M', sortable: true, width: 45 },
-  { id: 'beta', label: 'β', sortable: true, width: 45 },
-  { id: 'beta_adj_rs', label: 'βRS', sortable: true, width: 45 },
-  { id: 'eps_rating', label: 'EPS Rtg', sortable: true, width: 55 },
-  { id: 'stage', label: 'Stg', sortable: true, width: 40 },
   { id: 'current_price', label: 'Price', sortable: true, width: 65 },
   { id: 'volume', label: 'Vol', sortable: true, width: 60 },
+  { id: 'adv_usd', label: 'ADV ($)', sortable: true, width: 70 },
+  { id: 'price_change_1d', label: 'Price Trend', sortable: true, width: 110 },
+  { id: 'rs_trend', label: 'RS Trend', sortable: true, width: 110 },
+  { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
+  { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
+  { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
   // MCap column header label is overridden per-render based on the USD/Local
   // toggle; keep the underlying sort key stable at 'market_cap' so the
   // sort-by dropdown / URL state doesn't shift when the user flips modes.
   { id: 'market_cap', label: 'MCap', sortable: true, width: 75 },
-  { id: 'adv_usd', label: 'ADV ($)', sortable: true, width: 70 },
-  { id: 'ipo_date', label: 'IPO', sortable: true, width: 50 },
-  { id: 'eps_growth_qq', label: 'EPS', sortable: true, width: 50 },
-  { id: 'sales_growth_qq', label: 'Sales', sortable: true, width: 50 },
-  { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
-  { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
-  { id: 'vcp_detected', label: 'VCP', sortable: false, width: 40 },
-  { id: 'vcp_score', label: 'VScr', sortable: true, width: 50 },
-  { id: 'vcp_pivot', label: 'Pvt', sortable: true, width: 55 },
-  { id: 'vcp_ready_for_breakout', label: 'Rdy', sortable: false, width: 35 },
-  { id: 'passes_template', label: 'Pass', sortable: false, width: 40 },
-  { id: 'rating', label: 'Rate', sortable: false, width: 80 },
+  { id: 'gics_sector', label: 'Sector', sortable: true, width: 80 },
+  { id: 'ibd_industry_group', label: 'IBD Industry', sortable: true, width: 140 },
 ];
 
 const HIDDEN_SCAN_COLUMN_IDS = new Set([
   'market_themes',
+  'ibd_group_rank',
   'composite_score',
   'minervini_score',
   'canslim_score',
   'ipo_score',
   'custom_score',
+  'volume_breakthrough_score',
   'se_setup_score',
   'se_pattern_primary',
+  'se_distance_to_pivot_pct',
   'se_bb_width_pctile_252',
+  'se_volume_vs_50d',
+  'se_rs_line_new_high',
   'se_pivot_price',
+  'rs_rating_1m',
+  'rs_rating_3m',
+  'rs_rating_12m',
+  'beta',
   'beta_adj_rs',
   'eps_rating',
   'stage',
   'ipo_date',
+  'eps_growth_qq',
   'sales_growth_qq',
   'vcp_detected',
   'vcp_score',
@@ -253,10 +222,6 @@ const VirtualTableRow = memo(function VirtualTableRow({
     }
     onOpenChart?.(row.symbol);
   }, [chartEnabled, onOpenChart, row.symbol]);
-
-  const renderCell = (columnId, cell) => (
-    HIDDEN_SCAN_COLUMN_IDS.has(columnId) ? null : cell
-  );
 
   return (
     <TableRow
@@ -346,13 +311,16 @@ const VirtualTableRow = memo(function VirtualTableRow({
         </Box>
       </TableCell>
 
-      <TableCell align="center" sx={{ p: '4px', width: 110, minWidth: 110 }}>
-        <RSSparkline
-          data={row.rs_sparkline_data}
-          trend={row.rs_trend}
-          width={100}
-          height={28}
-        />
+      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 65, minWidth: 65 }}>
+        {formatLocalCurrency(row.current_price, row.currency)}
+      </TableCell>
+
+      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 60, minWidth: 60 }}>
+        {formatLargeNumber(row.volume)}
+      </TableCell>
+
+      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 70, minWidth: 70 }}>
+        {formatLargeNumber(row.adv_usd, '$')}
       </TableCell>
 
       <TableCell align="center" sx={{ p: '4px', width: 110, minWidth: 110 }}>
@@ -366,190 +334,18 @@ const VirtualTableRow = memo(function VirtualTableRow({
         />
       </TableCell>
 
-      <TableCell align="center" sx={{ color: 'text.secondary', width: 80, minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {row.gics_sector || '-'}
+      <TableCell align="center" sx={{ p: '4px', width: 110, minWidth: 110 }}>
+        <RSSparkline
+          data={row.rs_sparkline_data}
+          trend={row.rs_trend}
+          width={100}
+          height={28}
+        />
       </TableCell>
-
-      <TableCell align="left" sx={{ color: 'text.secondary', width: 140, minWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {row.ibd_industry_group || '-'}
-      </TableCell>
-
-      {renderCell('market_themes', (
-        <TableCell align="left" sx={{ color: 'text.secondary', width: 180, minWidth: 180, py: 0.5 }}>
-          <MarketThemesList themes={row.market_themes} variant="compact" />
-        </TableCell>
-      ))}
-
-      <TableCell align="center" sx={{
-        fontFamily: 'monospace',
-        color: getGroupRankColor(row.ibd_group_rank),
-        fontWeight: row.ibd_group_rank && row.ibd_group_rank <= 20 ? 600 : 400,
-        width: 45, minWidth: 45
-      }}>
-        {row.ibd_group_rank ?? '-'}
-      </TableCell>
-
-      {renderCell('composite_score', (
-        <TableCell align="center" sx={{ fontWeight: 600, color: 'primary.main', fontFamily: 'monospace', width: 50, minWidth: 50 }}>
-          {row.composite_score?.toFixed(1) || '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('minervini_score', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.minervini_score != null ? row.minervini_score.toFixed(1) : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('canslim_score', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.canslim_score != null ? row.canslim_score.toFixed(1) : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('ipo_score', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.ipo_score != null ? row.ipo_score.toFixed(1) : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('custom_score', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.custom_score != null ? row.custom_score.toFixed(1) : '-'}
-        </TableCell>
-      ))}
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 50, minWidth: 50 }}>
-        {row.volume_breakthrough_score != null ? row.volume_breakthrough_score.toFixed(1) : '-'}
-      </TableCell>
-
-      {renderCell('se_setup_score', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.se_setup_score != null ? row.se_setup_score.toFixed(1) : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('se_pattern_primary', (
-        <TableCell align="center" sx={{ color: 'text.secondary', width: 55, minWidth: 55, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {row.se_pattern_primary || '-'}
-        </TableCell>
-      ))}
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 50, minWidth: 50 }}>
-        {row.se_distance_to_pivot_pct != null ? `${row.se_distance_to_pivot_pct.toFixed(1)}%` : '-'}
-      </TableCell>
-
-      {renderCell('se_bb_width_pctile_252', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.se_bb_width_pctile_252 != null ? row.se_bb_width_pctile_252.toFixed(0) : '-'}
-        </TableCell>
-      ))}
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-        {row.se_volume_vs_50d != null ? `${row.se_volume_vs_50d.toFixed(1)}x` : '-'}
-      </TableCell>
-
-      <TableCell align="center" sx={{ width: 35, minWidth: 35 }}>
-        {row.se_rs_line_new_high == null ? '-' : row.se_rs_line_new_high ? (
-          <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-        ) : (
-          <CloseIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-        )}
-      </TableCell>
-
-      {renderCell('se_pivot_price', (
-        <TableCell align="right" sx={{ fontFamily: 'monospace', width: 55, minWidth: 55 }}>
-          {row.se_pivot_price != null ? `$${row.se_pivot_price.toFixed(2)}` : '-'}
-        </TableCell>
-      ))}
 
       <TableCell align="center" sx={{ fontFamily: 'monospace', width: 40, minWidth: 40 }}>
         {row.rs_rating?.toFixed(0) || '-'}
       </TableCell>
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 40, minWidth: 40 }}>
-        {row.rs_rating_1m?.toFixed(0) || '-'}
-      </TableCell>
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 40, minWidth: 40 }}>
-        {row.rs_rating_3m?.toFixed(0) || '-'}
-      </TableCell>
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-        {row.rs_rating_12m?.toFixed(0) || '-'}
-      </TableCell>
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-        {row.beta != null ? row.beta.toFixed(2) : '-'}
-      </TableCell>
-
-      {renderCell('beta_adj_rs', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 45, minWidth: 45 }}>
-          {row.beta_adj_rs != null ? row.beta_adj_rs.toFixed(0) : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('eps_rating', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', color: getEpsRatingColor(row.eps_rating), width: 55, minWidth: 55 }}>
-          {row.eps_rating != null ? row.eps_rating : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('stage', (
-        <TableCell align="center" sx={{ width: 40, minWidth: 40 }}>
-          {row.stage != null ? (
-            <Box
-              component="span"
-              sx={{
-                backgroundColor: getStageColor(row.stage),
-                color: 'white',
-                padding: '1px 4px',
-                borderRadius: '2px',
-                fontSize: '10px',
-                fontWeight: 500,
-              }}
-            >
-              S{row.stage}
-            </Box>
-          ) : (
-            '-'
-          )}
-        </TableCell>
-      ))}
-
-      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 65, minWidth: 65 }}>
-        {formatLocalCurrency(row.current_price, row.currency)}
-      </TableCell>
-
-      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 60, minWidth: 60 }}>
-        {formatLargeNumber(row.volume)}
-      </TableCell>
-
-      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 75, minWidth: 75 }}>
-        {mcapDisplay === MCAP_DISPLAY.USD
-          ? formatLargeNumber(row.market_cap_usd, '$')
-          : formatLargeNumber(row.market_cap, getCurrencyPrefix(row.currency))}
-      </TableCell>
-
-      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 70, minWidth: 70 }}>
-        {formatLargeNumber(row.adv_usd, '$')}
-      </TableCell>
-
-      {renderCell('ipo_date', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', color: getIpoAgeColor(row.ipo_date), width: 50, minWidth: 50 }}>
-          {formatIpoAge(row.ipo_date)}
-        </TableCell>
-      ))}
-
-      <TableCell align="center" sx={{ fontFamily: 'monospace', color: getGrowthColor(row.eps_growth_qq), width: 50, minWidth: 50 }}>
-        {row.eps_growth_qq != null ? `${row.eps_growth_qq.toFixed(0)}%` : '-'}
-      </TableCell>
-
-      {renderCell('sales_growth_qq', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', color: getGrowthColor(row.sales_growth_qq), width: 50, minWidth: 50 }}>
-          {row.sales_growth_qq != null ? `${row.sales_growth_qq.toFixed(0)}%` : '-'}
-        </TableCell>
-      ))}
 
       <TableCell align="center" sx={{ fontFamily: 'monospace', width: 50, minWidth: 50 }}>
         {row.adr_percent != null ? `${row.adr_percent.toFixed(1)}%` : '-'}
@@ -563,57 +359,19 @@ const VirtualTableRow = memo(function VirtualTableRow({
         )}
       </TableCell>
 
-      {renderCell('vcp_detected', (
-        <TableCell align="center" sx={{ width: 40, minWidth: 40 }}>
-          {row.vcp_detected ? (
-            <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-          ) : (
-            <CloseIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-          )}
-        </TableCell>
-      ))}
+      <TableCell align="right" sx={{ fontFamily: 'monospace', width: 75, minWidth: 75 }}>
+        {mcapDisplay === MCAP_DISPLAY.USD
+          ? formatLargeNumber(row.market_cap_usd, '$')
+          : formatLargeNumber(row.market_cap, getCurrencyPrefix(row.currency))}
+      </TableCell>
 
-      {renderCell('vcp_score', (
-        <TableCell align="center" sx={{ fontFamily: 'monospace', width: 50, minWidth: 50 }}>
-          {row.vcp_score != null ? row.vcp_score.toFixed(1) : '-'}
-        </TableCell>
-      ))}
+      <TableCell align="center" sx={{ color: 'text.secondary', width: 80, minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {row.gics_sector || '-'}
+      </TableCell>
 
-      {renderCell('vcp_pivot', (
-        <TableCell align="right" sx={{ fontFamily: 'monospace', width: 55, minWidth: 55 }}>
-          {row.vcp_pivot != null ? row.vcp_pivot.toFixed(2) : '-'}
-        </TableCell>
-      ))}
-
-      {renderCell('vcp_ready_for_breakout', (
-        <TableCell align="center" sx={{ width: 35, minWidth: 35 }}>
-          {row.vcp_ready_for_breakout ? (
-            <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-          ) : (
-            <CloseIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-          )}
-        </TableCell>
-      ))}
-
-      {renderCell('passes_template', (
-        <TableCell align="center" sx={{ width: 40, minWidth: 40 }}>
-          {row.passes_template ? (
-            <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-          ) : (
-            <CloseIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-          )}
-        </TableCell>
-      ))}
-
-      {renderCell('rating', (
-        <TableCell align="center" sx={{ width: 80, minWidth: 80 }}>
-          <Chip
-            label={row.rating}
-            color={getRatingColor(row.rating)}
-            size="small"
-          />
-        </TableCell>
-      ))}
+      <TableCell align="left" sx={{ color: 'text.secondary', width: 140, minWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {row.ibd_industry_group || '-'}
+      </TableCell>
     </TableRow>
   );
 }, (prevProps, nextProps) => {

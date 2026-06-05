@@ -1,7 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
-import { fullSeRow, nullSeRow, mixedSeRow } from '../../test/fixtures/setupEngineFixtures';
+import { fullSeRow, nullSeRow } from '../../test/fixtures/setupEngineFixtures';
 import ResultsTable from './ResultsTable';
 
 /*
@@ -52,62 +52,39 @@ const defaultProps = {
 };
 
 describe('ResultsTable', () => {
-  // ── retained setup column rendering — full data ─────────────────────
-  describe('retained setup column rendering — full data', () => {
+  // ── 12-column screening table rendering ─────────────────────────────
+  describe('12-column screening table rendering', () => {
+    const screeningRow = {
+      ...fullSeRow,
+      rs_sparkline_data: Array.from({ length: 30 }, (_, index) => 1 + index / 100),
+      rs_trend: 1,
+      price_sparkline_data: Array.from({ length: 30 }, (_, index) => 1 + index / 200),
+      price_trend: 1,
+      price_change_1d: 1.23,
+      adr_percent: 3.4,
+    };
+
     beforeEach(() => {
-      renderWithProviders(<ResultsTable {...defaultProps} results={[fullSeRow]} />);
+      renderWithProviders(<ResultsTable {...defaultProps} results={[screeningRow]} />);
     });
 
-    it('renders se_distance_to_pivot_pct as -3.2%', () => {
-      expect(screen.getByText('-3.2%')).toBeInTheDocument();
+    it('renders price and trend sparkline columns', () => {
+      expect(screen.getByText('RS:30:1')).toBeInTheDocument();
+      expect(screen.getByText('Price:30:1:1.23')).toBeInTheDocument();
     });
 
-    it('renders se_volume_vs_50d as 1.8x', () => {
-      expect(screen.getByText('1.8x')).toBeInTheDocument();
+    it('renders core retained numeric fields', () => {
+      expect(screen.getByText('92')).toBeInTheDocument();
+      expect(screen.getByText('3.4%')).toBeInTheDocument();
     });
 
-    it('renders CheckIcon for retained boolean columns', () => {
-      // Retained boolean columns: ma_alignment and se_rs_line_new_high.
-      const checkIcons = screen.getAllByTestId('CheckIcon');
-      expect(checkIcons.length).toBe(2);
-    });
-
-    it('hides X-marked setup body values', () => {
-      expect(screen.queryByText('78.3')).not.toBeInTheDocument();
-      expect(screen.queryByText('cup_with_handle')).not.toBeInTheDocument();
-      expect(screen.queryByText('15')).not.toBeInTheDocument();
-      expect(screen.queryByText('$198.50')).not.toBeInTheDocument();
-    });
-  });
-
-  // ── retained setup column rendering — null data ─────────────────────
-  describe('retained setup column rendering — null data', () => {
-    it('renders dash for all 7 SE columns when null', () => {
-      renderWithProviders(<ResultsTable {...defaultProps} results={[nullSeRow]} />);
-      // The table has many '-' dashes (other null columns too). We verify
-      // by checking that none of the SE-specific formatted values appear.
+    it('renders MA boolean and hides setup-specific values', () => {
+      expect(screen.getAllByTestId('CheckIcon').length).toBe(1);
       expect(screen.queryByText('-3.2%')).not.toBeInTheDocument();
       expect(screen.queryByText('1.8x')).not.toBeInTheDocument();
-      // No CheckIcon should appear for se_rs_line_new_high=null
-      // (other booleans like ma_alignment still render icons)
-    });
-  });
-
-  // ── retained setup column rendering — mixed data ────────────────────
-  describe('retained setup column rendering — mixed data', () => {
-    beforeEach(() => {
-      renderWithProviders(<ResultsTable {...defaultProps} results={[mixedSeRow]} />);
-    });
-
-    it('renders CloseIcon for retained se_rs_line_new_high=false', () => {
-      const closeIcons = screen.getAllByTestId('CloseIcon');
-      expect(closeIcons.length).toBe(1);
-    });
-
-    it('renders retained populated values and hides X-marked values', () => {
-      expect(screen.queryByText('62.1')).not.toBeInTheDocument();
-      expect(screen.getByText('4.7%')).toBeInTheDocument();
-      expect(screen.getByText('2.3x')).toBeInTheDocument();
+      expect(screen.queryByText('78.3')).not.toBeInTheDocument();
+      expect(screen.queryByText('cup_with_handle')).not.toBeInTheDocument();
+      expect(screen.queryByText('$198.50')).not.toBeInTheDocument();
     });
   });
 
@@ -142,7 +119,7 @@ describe('ResultsTable', () => {
       expect(screen.getByText('New IPO')).toBeInTheDocument();
       expect(screen.getByText('RS:30:1')).toBeInTheDocument();
       expect(screen.getByText('Price:30:1:2.5')).toBeInTheDocument();
-      expect(screen.getByText('50')).toBeInTheDocument();
+      expect(screen.queryByText('50')).not.toBeInTheDocument();
       expect(screen.getByText('10.0%')).toBeInTheDocument();
       expect(screen.queryByText('S2')).not.toBeInTheDocument();
     });
@@ -150,12 +127,12 @@ describe('ResultsTable', () => {
 
   // ── curated scan columns ────────────────────────────────────────────
   describe('curated scan columns', () => {
-    it('renders kept setup header labels and hides X-marked labels', () => {
+    it('renders the 12 selected header labels and hides removed labels', () => {
       renderWithProviders(<ResultsTable {...defaultProps} />);
-      ['Pvt%', 'V50', 'RSH'].forEach((label) => {
+      ['Sym', 'Price', 'Vol', 'ADV ($)', 'Price Trend', 'RS Trend', 'RS', 'ADR', 'MA', 'MCap ($)', 'Sector', 'IBD Industry'].forEach((label) => {
         expect(screen.getByText(label)).toBeInTheDocument();
       });
-      ['SE', 'Pat', 'Sqz', 'Pvt$', 'Themes'].forEach((label) => {
+      ['Pvt%', 'V50', 'RSH', 'SE', 'Pat', 'Sqz', 'Pvt$', 'Themes', '1M', '3M', '12M', 'β', 'EPS'].forEach((label) => {
         expect(screen.queryByText(label)).not.toBeInTheDocument();
       });
     });
@@ -307,27 +284,26 @@ describe('ResultsTable', () => {
       );
 
       const user = userEvent.setup();
-      // Click a retained sortable setup header.
-      await user.click(screen.getByText('V50'));
-      expect(onSortChange).toHaveBeenCalledWith('se_volume_vs_50d', 'asc');
+      await user.click(screen.getByText('Vol'));
+      expect(onSortChange).toHaveBeenCalledWith('volume', 'asc');
     });
 
     it('toggles sort direction when same header is clicked twice', async () => {
       const onSortChange = vi.fn();
-      // Start sorted by a retained setup column asc
+      // Start sorted by a retained column asc
       renderWithProviders(
         <ResultsTable
           {...defaultProps}
-          sortBy="se_volume_vs_50d"
+          sortBy="volume"
           sortOrder="asc"
           onSortChange={onSortChange}
         />
       );
 
       const user = userEvent.setup();
-      await user.click(screen.getByText('V50'));
+      await user.click(screen.getByText('Vol'));
       // Since current is asc, clicking again should flip to desc
-      expect(onSortChange).toHaveBeenCalledWith('se_volume_vs_50d', 'desc');
+      expect(onSortChange).toHaveBeenCalledWith('volume', 'desc');
     });
   });
 });
