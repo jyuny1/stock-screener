@@ -439,10 +439,44 @@ Static Site manifest 應記錄完整 input set：
 
 ---
 
-## 待確認決策
+## 已確認決策
 
-1. Full refresh cadence：每兩週、每週，或只 manual？
-2. Daily refresh cadence：美股收盤後 ET 18:00/20:00/22:00？
-3. Static Site production 是否允許 optional artifact 缺失？建議：不允許。
-4. `ibd-classification.yml` 是否保留為非 core experimental workflow？
-5. 是否建立 `pipeline-run-manifest` release，用來保存每次 orchestrator 使用的完整 artifact set？
+1. **Full refresh cadence：每二週。**
+   - 用於刷新 optionable universe、foundation、daily price、scan metrics、profiles、group rank、static site。
+   - 排程只放在 full orchestrator，不放在 component workflows。
+
+2. **Daily refresh cadence：美股收盤後。**
+   - 用於日常刷新 daily price、scan metrics、group rank、static site。
+   - 不重建 optionable universe / foundation / listing profile / ETF profile，除非人工修復或 full refresh。
+
+3. **Static Site production 不允許 optional artifact 缺失。**
+   - Production deploy 必須具備：
+     - `foundation-update-data`
+     - `daily-price-data`
+     - `scan-metrics-data`
+     - `group-rank-data`
+     - `listing-profile-data`
+     - `etf-profile-data`
+   - 若要允許缺失，只能透過明確的 emergency / preview mode，不作為 canonical production deploy。
+
+4. **`ibd-classification.yml` 保留為非 core experimental workflow。**
+   - 不納入 US optionable static production DAG。
+   - 保留 manual / experimental 用途。
+   - 後續若要升級成 production supplemental，需先 artifact-native 化並移除 DB/Postgres 依賴。
+
+5. **建立 `pipeline-run-manifest` release。**
+   - 每次 orchestrator run 都保存完整 input/output artifact set。
+   - 用於追蹤同一批 deployment 使用的 manifests、bundle asset names、sha256、workflow run ids。
+   - Static Site production deploy 應以 pipeline run manifest pin 住 artifact set，避免 latest release race condition。
+
+---
+
+## 後續落地項目
+
+1. 新增 `pipeline-run-manifest` release contract。
+2. 新增 `static-pipeline-full.yml`：每二週 full refresh。
+3. 新增 `static-pipeline-daily.yml`：美股收盤後 daily refresh。
+4. 視需要新增 `static-pipeline-repair.yml`：指定 layer 修復。
+5. 調整 `static-site.yml`：production mode 不允許 required artifact 缺失；preview/emergency mode 才能 optional。
+6. 更新 downstream manifests，記錄 upstream bundle sha。
+7. 更新 release cleanup policy，納入所有新 artifact releases 與 `pipeline-run-manifest`。
