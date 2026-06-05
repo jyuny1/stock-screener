@@ -85,7 +85,7 @@ const columnHelp = {
   eps_rating: { zh: 'EPS評級', description: '由 EPS growth 派生的評級；目前受 foundation coverage 限制。' },
   stage: { zh: '階段', description: '技術趨勢階段；Stage 2 通常代表較健康上升趨勢，Stage 4 偏弱。' },
   current_price: { zh: '現價', description: '最新可用收盤價或價格。' },
-  volume: { zh: '成交額', description: '美元成交額，約等於成交股數乘以現價。' },
+  volume: { zh: '成交量', description: '最新交易日成交股數，用於判斷標的交易活躍度。' },
   market_cap: { zh: '市值/AUM', description: '股票為市值；ETF 使用 AUM / net assets fallback。' },
   adv_usd: { zh: '日均成交額', description: '美元日成交額，用於判斷標的流動性。' },
   ipo_date: { zh: '上市日期', description: 'IPO 或 first trade date。' },
@@ -154,7 +154,7 @@ const columns = [
   { id: 'eps_rating', label: 'EPS Rtg', sortable: true, width: 55 },
   { id: 'stage', label: 'Stg', sortable: true, width: 40 },
   { id: 'current_price', label: 'Price', sortable: true, width: 65 },
-  { id: 'volume', label: '$Vol', sortable: true, width: 60 },
+  { id: 'volume', label: 'Vol', sortable: true, width: 60 },
   // MCap column header label is overridden per-render based on the USD/Local
   // toggle; keep the underlying sort key stable at 'market_cap' so the
   // sort-by dropdown / URL state doesn't shift when the user flips modes.
@@ -522,7 +522,7 @@ const VirtualTableRow = memo(function VirtualTableRow({
       </TableCell>
 
       <TableCell align="right" sx={{ fontFamily: 'monospace', width: 60, minWidth: 60 }}>
-        {formatLargeNumber(row.volume, getCurrencyPrefix(row.currency))}
+        {formatLargeNumber(row.volume)}
       </TableCell>
 
       <TableCell align="right" sx={{ fontFamily: 'monospace', width: 75, minWidth: 75 }}>

@@ -36,7 +36,7 @@
 | `eps_rating` | EPS Rtg | EPS評級 | EPS growth 派生評級 | X
 | `stage` | Stg | 階段 | 技術趨勢階段 | X
 | `current_price` | Price | 現價 | 最新收盤/價格 |
-| `volume` | $Vol | 成交額 | 目前 static 以成交股數 × 價格換算美U元成交額 |
+| `volume` | Vol | 成交量 | 最新交易日成交股數 |
 | `market_cap` | MCap | 市值/AUM | 股票為市值；ETF fallback 為 AUM/淨資產 | 
 | `adv_usd` | ADV ($) | 日均成交額 | 美元日成交額/近似 ADV |
 | `ipo_date` | IPO | 上市日期 | IPO 或 first trade date |X
@@ -85,7 +85,7 @@
 | βRS | βRS |
 | EPS Rtg | EPS評 |
 | Stg | 階段 |
-| $Vol | 成交額 |
+| Vol | 成交量 |
 | MCap | 市值/AUM |
 | ADV ($) | 均額 |
 | EPS | EPS增 |
