@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "stock-screener-agent-api",
+  "name": "stock-option-screener-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-05",
   "compatibility_flags": ["nodejs_compat"],

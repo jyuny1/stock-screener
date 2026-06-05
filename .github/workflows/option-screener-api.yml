@@ -1,10 +1,10 @@
-name: Screener Agent API
+name: Option Screener API
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: screener-agent-api
+  group: option-screener-api
   cancel-in-progress: true
 
 permissions:
@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: workers/screener-agent-api
+        working-directory: workers/option-screener-api
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SCREENER_AGENT_API_TOKEN: ${{ secrets.SCREENER_AGENT_API_TOKEN }}
+      OPTION_SCREENER_API_TOKEN: ${{ secrets.OPTION_SCREENER_API_TOKEN }}
       R2_BUCKET: ${{ vars.R2_BUCKET }}
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: workers/screener-agent-api/package-lock.json
+          cache-dependency-path: workers/option-screener-api/package-lock.json
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -43,7 +43,7 @@ jobs:
       - name: Validate deployment settings
         run: |
           missing=0
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_BUCKET SCREENER_AGENT_API_TOKEN; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_BUCKET OPTION_SCREENER_API_TOKEN; do
             if [ -z "${!name}" ]; then
               echo "Missing required deployment setting: ${name}" >&2
               missing=1
@@ -61,8 +61,8 @@ jobs:
           raw = path.read_text(encoding='utf-8')
           raw = raw.replace('replace-with-r2-bucket', os.environ['R2_BUCKET'])
           raw = raw.replace(
-              '  "name": "stock-screener-agent-api",',
-              '  "name": "stock-screener-agent-api",\n  "account_id": "' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '",',
+              '  "name": "stock-option-screener-api",',
+              '  "name": "stock-option-screener-api",\n  "account_id": "' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '",',
           )
           path.write_text(raw, encoding='utf-8')
           PY
@@ -71,4 +71,4 @@ jobs:
         run: npx wrangler deploy
 
       - name: Configure agent bearer token secret
-        run: printf '%s' "$SCREENER_AGENT_API_TOKEN" | npx wrangler secret put SCREENER_AGENT_API_TOKEN
+        run: printf '%s' "$OPTION_SCREENER_API_TOKEN" | npx wrangler secret put OPTION_SCREENER_API_TOKEN

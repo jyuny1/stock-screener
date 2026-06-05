@@ -1,4 +1,4 @@
-const API_SCHEMA_VERSION = 'screener-agent-api-v1';
+const API_SCHEMA_VERSION = 'option-screener-api-v1';
 const DEFAULT_PREFIX = 'static-data';
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -8,7 +8,7 @@ const CACHE_TTL_MS = 60_000;
 
 export interface Env {
   STATIC_DATA_BUCKET: R2Bucket;
-  SCREENER_AGENT_API_TOKEN: string;
+  OPTION_SCREENER_API_TOKEN: string;
   STATIC_DATA_PREFIX?: string;
   DEFAULT_ROWS_LIMIT?: string;
   MAX_ROWS_LIMIT?: string;
@@ -103,7 +103,7 @@ const authenticate = (request: Request, env: Env): boolean => {
   const header = request.headers.get('authorization') || '';
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   const supplied = match?.[1] || '';
-  const expected = env.SCREENER_AGENT_API_TOKEN || '';
+  const expected = env.OPTION_SCREENER_API_TOKEN || '';
   if (!expected || !supplied) return false;
   return constantTimeEqual(supplied, expected);
 };
@@ -390,7 +390,7 @@ export default {
       return errorResponse(404, 'not_found', 'Not found');
     } catch (error) {
       if (error instanceof Response) return error;
-      console.error(JSON.stringify({ event: 'screener_agent_api_error', message: error instanceof Error ? error.message : String(error) }));
+      console.error(JSON.stringify({ event: 'option_screener_api_error', message: error instanceof Error ? error.message : String(error) }));
       return errorResponse(503, 'artifact_unavailable', 'Required artifact is unavailable');
     }
   },

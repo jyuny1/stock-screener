@@ -1,5 +1,5 @@
 {
-  "name": "screener-agent-api-worker",
+  "name": "option-screener-api-worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",

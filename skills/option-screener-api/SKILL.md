@@ -1,9 +1,9 @@
 ---
-name: screener-agent-api
-description: Call the protected Stock Screener Agent JSON API to retrieve the current US Scan table rows. Use when an agent needs machine-readable screener data instead of reading the frontend UI. The API is read-only, artifact-native, token-protected, and defaults to the top 100 rows sorted by volume descending.
+name: option-screener-api
+description: Call the protected Stock Option Screener JSON API to retrieve the current US Scan table rows. Use when an agent needs machine-readable screener data instead of reading the frontend UI. The API is read-only, artifact-native, token-protected, and defaults to the top 100 rows sorted by volume descending.
 ---
 
-# Screener Agent API Skill
+# Option Screener API Skill
 
 ## Purpose
 
@@ -28,7 +28,7 @@ https://ss.ljy.app/api/v1
 Required auth header:
 
 ```http
-Authorization: Bearer <SCREENER_AGENT_API_TOKEN>
+Authorization: Bearer <OPTION_SCREENER_API_TOKEN>
 ```
 
 Never hardcode the token. Read it from an environment variable or a local secret store.
@@ -49,7 +49,7 @@ Example:
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/health" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### Manifest
@@ -81,7 +81,7 @@ Example:
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/manifest" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### Rows
@@ -105,7 +105,7 @@ Example:
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/rows" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ---
@@ -169,35 +169,35 @@ Convenience aliases:
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/rows" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### Top 200 by volume
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/rows?limit=200" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### High-liquidity screen
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/rows?min_current_price=5&min_volume=1000000&min_adv_usd=50000000&limit=100" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### Technology names sorted by RS
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/rows?gics_sector=Technology&min_rs_rating=70&sort=rs_rating&order=desc" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### Request only compact fields
 
 ```bash
 curl -sS "https://ss.ljy.app/api/v1/rows?fields=symbol,current_price,volume,adv_usd,rs_rating,gics_sector,ibd_industry_group" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ---
@@ -208,7 +208,7 @@ Successful responses use:
 
 ```json
 {
-  "schema_version": "screener-agent-api-v1",
+  "schema_version": "option-screener-api-v1",
   "data": {
     "rows": [],
     "pagination": {

@@ -63,7 +63,7 @@ const rows = [
 ];
 
 const makeEnv = (): Env => ({
-  SCREENER_AGENT_API_TOKEN: 'secret-token',
+  OPTION_SCREENER_API_TOKEN: 'secret-token',
   STATIC_DATA_PREFIX: 'static-data',
   STATIC_DATA_BUCKET: new FakeR2Bucket({
     'static-data/manifest.json': {

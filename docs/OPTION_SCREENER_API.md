@@ -1,8 +1,8 @@
-# Screener Agent JSON API Contract
+# Option Screener JSON API Contract
 
 ## 結論
 
-Screener Agent API 是一個 **agent-only、artifact-native、read-only JSON API**。第一版只提供「目前 Scan result table」的 JSON 讀取能力：
+Option Screener API 是一個 **agent-only、artifact-native、read-only JSON API**。第一版只提供「目前 Scan result table」的 JSON 讀取能力：
 
 ```text
 GET /api/v1/rows
@@ -52,7 +52,7 @@ API 不連 Postgres、不呼叫 provider、不啟動 scanner，只讀 R2 static-
 ```text
 Agent
   → HTTPS JSON API
-  → Authorization: Bearer <SCREENER_AGENT_API_TOKEN>
+  → Authorization: Bearer <OPTION_SCREENER_API_TOKEN>
   → Cloudflare Worker
   → R2 static-data/markets/us/scan/*
   → JSON response
@@ -82,13 +82,13 @@ Current expected row count：
 所有 endpoint 都必須帶：
 
 ```http
-Authorization: Bearer <SCREENER_AGENT_API_TOKEN>
+Authorization: Bearer <OPTION_SCREENER_API_TOKEN>
 ```
 
 Token 以 Cloudflare Worker secret 保存：
 
 ```bash
-wrangler secret put SCREENER_AGENT_API_TOKEN
+wrangler secret put OPTION_SCREENER_API_TOKEN
 ```
 
 Implementation requirements：
@@ -133,7 +133,7 @@ Response：
 
 ```json
 {
-  "schema_version": "screener-agent-api-v1",
+  "schema_version": "option-screener-api-v1",
   "data": {
     "status": "ok",
     "source": "r2-static-data"
@@ -158,7 +158,7 @@ Response：
 
 ```json
 {
-  "schema_version": "screener-agent-api-v1",
+  "schema_version": "option-screener-api-v1",
   "data": {
     "market": "US",
     "rows_total": 5619,
@@ -339,42 +339,42 @@ Default top 100 by VOL：
 
 ```bash
 curl "https://ss.ljy.app/api/v1/rows" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 Top 200 by VOL：
 
 ```bash
 curl "https://ss.ljy.app/api/v1/rows?limit=200" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 Filter by liquidity and price：
 
 ```bash
 curl "https://ss.ljy.app/api/v1/rows?min_current_price=5&min_volume=1000000&min_adv_usd=50000000&limit=100" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 Filter by sector and RS：
 
 ```bash
 curl "https://ss.ljy.app/api/v1/rows?gics_sector=Technology&min_rs_rating=70&sort=rs_rating&order=desc" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 Only selected fields：
 
 ```bash
 curl "https://ss.ljy.app/api/v1/rows?fields=symbol,current_price,volume,adv_usd,rs_rating,gics_sector,ibd_industry_group" \
-  -H "Authorization: Bearer $SCREENER_AGENT_API_TOKEN"
+  -H "Authorization: Bearer $OPTION_SCREENER_API_TOKEN"
 ```
 
 ### Response
 
 ```json
 {
-  "schema_version": "screener-agent-api-v1",
+  "schema_version": "option-screener-api-v1",
   "data": {
     "rows": [
       {
@@ -433,7 +433,7 @@ curl "https://ss.ljy.app/api/v1/rows?fields=symbol,current_price,volume,adv_usd,
 
 ```json
 {
-  "schema_version": "screener-agent-api-v1",
+  "schema_version": "option-screener-api-v1",
   "data": {},
   "meta": {}
 }
@@ -531,7 +531,7 @@ bucket_name = "<R2_BUCKET>"
 Required secret：
 
 ```text
-SCREENER_AGENT_API_TOKEN
+OPTION_SCREENER_API_TOKEN
 ```
 
 Optional env：
