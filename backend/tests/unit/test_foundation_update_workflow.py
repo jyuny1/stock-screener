@@ -12,6 +12,10 @@ def test_foundation_update_workflow_is_artifact_native_us_only():
     assert "optionable-symbols-latest-us.json" in content
     assert "foundation-update-data" in content
     assert "build_foundation_update_artifact" in content
+    assert "--mode segment" in content
+    assert "--mode merge" in content
+    assert "foundation-etf-segment" in content
+    assert "foundation-stock-segment" in content
     assert "foundation-update-latest-us.json" in content
     assert "foundation-update-us-*.json.gz" in content
     assert "weekly-reference-data" in content  # prior compatibility fallback only

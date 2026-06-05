@@ -11,22 +11,12 @@ permissions:
   contents: write
 
 jobs:
-  publish-us:
+  prepare:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
+    outputs:
+      optionable_artifact: foundation-inputs
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install artifact-native foundation dependencies
-        run: pip install yfinance curl_cffi
-
       - name: Ensure foundation update release exists
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,23 +33,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/optionable-symbols
+          mkdir -p /tmp/foundation-inputs
           gh release download optionable-symbols \
             --repo "${{ github.repository }}" \
             --pattern optionable-symbols-latest-us.json \
-            --dir /tmp/optionable-symbols \
+            --dir /tmp/foundation-inputs \
             --clobber
           python - <<'PY'
           import json
           from pathlib import Path
-          manifest = json.loads(Path('/tmp/optionable-symbols/optionable-symbols-latest-us.json').read_text(encoding='utf-8'))
+          manifest = json.loads(Path('/tmp/foundation-inputs/optionable-symbols-latest-us.json').read_text(encoding='utf-8'))
           if manifest.get('market') != 'US':
               raise SystemExit(f"optionable market must be US, got {manifest.get('market')!r}")
           if len(manifest.get('symbols') or []) < 3000:
               raise SystemExit(f"optionable symbol count too low: {len(manifest.get('symbols') or [])}")
           print({'optionable_symbols': len(manifest.get('symbols') or []), 'as_of': manifest.get('as_of')})
           PY
-          echo "OPTIONABLE_SYMBOLS=/tmp/optionable-symbols/optionable-symbols-latest-us.json" >> "$GITHUB_ENV"
 
       - name: Download prior foundation artifact if available
         continue-on-error: true
@@ -67,13 +56,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/prior-foundation
           PRIOR_RELEASE="foundation-update-data"
           PRIOR_MANIFEST="foundation-update-latest-us.json"
           if ! gh release download "$PRIOR_RELEASE" \
             --repo "${{ github.repository }}" \
             --pattern "$PRIOR_MANIFEST" \
-            --dir /tmp/prior-foundation \
+            --dir /tmp/foundation-inputs \
             --clobber; then
             echo "No prior foundation-update-data release; falling back to legacy weekly-reference-data." >&2
             PRIOR_RELEASE="weekly-reference-data"
@@ -81,10 +69,10 @@ jobs:
             gh release download "$PRIOR_RELEASE" \
               --repo "${{ github.repository }}" \
               --pattern "$PRIOR_MANIFEST" \
-              --dir /tmp/prior-foundation \
+              --dir /tmp/foundation-inputs \
               --clobber
           fi
-          PRIOR_MANIFEST_PATH="/tmp/prior-foundation/${PRIOR_MANIFEST}"
+          PRIOR_MANIFEST_PATH="/tmp/foundation-inputs/${PRIOR_MANIFEST}"
           export PRIOR_MANIFEST_PATH
           PRIOR_BUNDLE_ASSET_NAME="$(python - <<'PY'
           import json, os
@@ -98,27 +86,117 @@ jobs:
           gh release download "$PRIOR_RELEASE" \
             --repo "${{ github.repository }}" \
             --pattern "$PRIOR_BUNDLE_ASSET_NAME" \
-            --dir /tmp/prior-foundation \
+            --dir /tmp/foundation-inputs \
             --clobber
-          echo "PRIOR_FOUNDATION=/tmp/prior-foundation/${PRIOR_BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          cp "/tmp/foundation-inputs/${PRIOR_BUNDLE_ASSET_NAME}" /tmp/foundation-inputs/prior-foundation.json.gz
 
-      - name: Build foundation update artifact
+      - name: Upload prepared foundation inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: foundation-inputs
+          path: /tmp/foundation-inputs
+          retention-days: 1
+
+  build-etf:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: foundation-inputs
+          path: /tmp/foundation-inputs
+      - name: Build ETF foundation segment
         run: |
-          set -euo pipefail
-          args=(
-            --optionable-symbols "$OPTIONABLE_SYMBOLS"
-            --output-dir /tmp/foundation-update
-            --stale-days 7
-            --batch-sleep-seconds 0.15
-            --min-symbol-coverage 0.98
-            --min-identity-coverage 0.95
-            --min-market-cap-coverage 0.50
-          )
-          if [ -n "${PRIOR_FOUNDATION:-}" ]; then
-            args+=(--prior-foundation "$PRIOR_FOUNDATION")
-          fi
           cd backend
-          python -m app.scripts.build_foundation_update_artifact "${args[@]}"
+          python -m app.scripts.build_foundation_update_artifact \
+            --mode segment \
+            --segment etf \
+            --optionable-symbols /tmp/foundation-inputs/optionable-symbols-latest-us.json \
+            --prior-foundation /tmp/foundation-inputs/prior-foundation.json.gz \
+            --output-path /tmp/foundation-etf-us.json.gz \
+            --stale-days 7 \
+            --batch-sleep-seconds 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foundation-etf-segment
+          path: /tmp/foundation-etf-us.json.gz
+          retention-days: 1
+
+  build-stock:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install stock foundation dependencies
+        run: pip install yfinance curl_cffi
+      - uses: actions/download-artifact@v4
+        with:
+          name: foundation-inputs
+          path: /tmp/foundation-inputs
+      - name: Build stock foundation segment
+        run: |
+          cd backend
+          python -m app.scripts.build_foundation_update_artifact \
+            --mode segment \
+            --segment stock \
+            --optionable-symbols /tmp/foundation-inputs/optionable-symbols-latest-us.json \
+            --prior-foundation /tmp/foundation-inputs/prior-foundation.json.gz \
+            --output-path /tmp/foundation-stock-us.json.gz \
+            --stale-days 7 \
+            --batch-sleep-seconds 0.10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foundation-stock-segment
+          path: /tmp/foundation-stock-us.json.gz
+          retention-days: 1
+
+  merge-publish:
+    needs:
+      - prepare
+      - build-etf
+      - build-stock
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: foundation-inputs
+          path: /tmp/foundation-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: foundation-etf-segment
+          path: /tmp/foundation-segments
+      - uses: actions/download-artifact@v4
+        with:
+          name: foundation-stock-segment
+          path: /tmp/foundation-segments
+      - name: Merge foundation segments
+        run: |
+          cd backend
+          python -m app.scripts.build_foundation_update_artifact \
+            --mode merge \
+            --optionable-symbols /tmp/foundation-inputs/optionable-symbols-latest-us.json \
+            --segment-path /tmp/foundation-segments/foundation-etf-us.json.gz \
+            --segment-path /tmp/foundation-segments/foundation-stock-us.json.gz \
+            --output-dir /tmp/foundation-update \
+            --stale-days 7 \
+            --min-symbol-coverage 0.98 \
+            --min-identity-coverage 0.95 \
+            --min-market-cap-coverage 0.50
 
       - name: Validate foundation update outputs
         run: |
@@ -147,11 +225,7 @@ jobs:
           if float(manifest.get('symbol_coverage') or 0) < 0.98:
               raise SystemExit(f"symbol coverage too low: {manifest.get('symbol_coverage')}")
           field_coverage = manifest.get('field_coverage') or {}
-          hard = {
-              'company_name': 0.95,
-              'exchange': 0.95,
-              'market_cap': 0.50,
-          }
+          hard = {'company_name': 0.95, 'exchange': 0.95, 'market_cap': 0.50}
           low = {field: field_coverage.get(field) for field, minimum in hard.items() if float(field_coverage.get(field) or 0) < minimum}
           if low:
               raise SystemExit(f"foundation field coverage below gate: {low}")

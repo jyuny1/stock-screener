@@ -178,3 +178,63 @@ def test_legacy_prior_with_provider_fields_is_not_refetched(monkeypatch, tmp_pat
     )
 
     assert summary["fetched_symbol_count"] == 0
+
+
+def test_segment_builds_merge_into_canonical_bundle(monkeypatch, tmp_path: Path):
+    optionable = {
+        "market": "US",
+        "source": "optionable_schwab:20260604",
+        "symbols": ["AAPL", "SPY"],
+        "symbol_metadata": {
+            "AAPL": {"symbol": "AAPL", "mic": "XNAS", "exchange": "NASDAQ", "name": "Apple Inc.", "is_etf": False},
+            "SPY": {"symbol": "SPY", "mic": "ARCX", "exchange": "NYSE Arca", "name": "SPDR S&P 500 ETF Trust", "is_etf": True},
+        },
+    }
+    optionable_path = tmp_path / "optionable.json"
+    optionable_path.write_text(json.dumps(optionable), encoding="utf-8")
+
+    def fake_fetch(symbol, base):
+        return {
+            **base,
+            "company_name": "Apple Inc.",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "market_cap": 100,
+            "foundation_status": "complete",
+            "foundation_updated_at": "2026-06-05T00:00:00Z",
+            "field_availability": {"identity": True, "classification": True, "fundamentals": True, "growth": False, "ipo": False},
+        }
+
+    monkeypatch.setattr(script, "_fetch_symbol", fake_fetch)
+    monkeypatch.setattr(script, "_utc_now", lambda: "2026-06-05T00:00:00Z")
+    monkeypatch.setattr(script, "_today", lambda: "2026-06-05")
+
+    etf_path = tmp_path / "etf.json.gz"
+    stock_path = tmp_path / "stock.json.gz"
+    etf = script.build_foundation_segment(
+        optionable_symbols=optionable_path,
+        output_path=etf_path,
+        segment="etf",
+        batch_sleep_seconds=0,
+    )
+    stock = script.build_foundation_segment(
+        optionable_symbols=optionable_path,
+        output_path=stock_path,
+        segment="stock",
+        batch_sleep_seconds=0,
+    )
+    assert etf["symbol_count"] == 1
+    assert etf["fetched_symbol_count"] == 0
+    assert stock["symbol_count"] == 1
+    assert stock["fetched_symbol_count"] == 1
+
+    merged = script.merge_foundation_segments(
+        optionable_symbols=optionable_path,
+        segment_paths=[etf_path, stock_path],
+        output_dir=tmp_path / "merged",
+        min_symbol_coverage=1.0,
+        min_identity_coverage=1.0,
+        min_market_cap_coverage=0.5,
+    )
+    assert merged["symbol_count"] == 2
+    assert merged["fetched_symbol_count"] == 1

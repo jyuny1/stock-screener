@@ -254,17 +254,12 @@ def _field_coverage(rows: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def build_foundation_update_artifact(
+def _prepare_rows(
     *,
     optionable_symbols: Path,
-    output_dir: Path,
     prior_foundation: Path | None = None,
     stale_days: int = DEFAULT_STALE_DAYS,
-    batch_sleep_seconds: float = 0.25,
-    min_symbol_coverage: float = 0.98,
-    min_identity_coverage: float = 0.95,
-    min_market_cap_coverage: float = 0.50,
-) -> dict[str, Any]:
+) -> tuple[list[str], dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
     optionable = _read_json(optionable_symbols)
     symbols, metadata_by_symbol = _optionable_universe(optionable)
     prior = _read_json(prior_foundation) if prior_foundation else None
@@ -296,8 +291,18 @@ def build_foundation_update_artifact(
             if not base.get("is_etf"):
                 missing_or_stale.append(symbol)
 
+    return symbols, metadata_by_symbol, rows_by_symbol, missing_or_stale
+
+
+def _fetch_provider_rows(
+    *,
+    symbols_to_fetch: list[str],
+    metadata_by_symbol: dict[str, dict[str, Any]],
+    rows_by_symbol: dict[str, dict[str, Any]],
+    batch_sleep_seconds: float,
+) -> dict[str, str]:
     failures: dict[str, str] = {}
-    for index, symbol in enumerate(missing_or_stale, start=1):
+    for index, symbol in enumerate(symbols_to_fetch, start=1):
         base = _base_payload(symbol, metadata_by_symbol.get(symbol))
         try:
             rows_by_symbol[symbol] = _fetch_symbol(symbol, base)
@@ -307,11 +312,29 @@ def build_foundation_update_artifact(
             fallback = {**fallback, "foundation_status": "metadata_only", "foundation_error": str(exc), "foundation_updated_at": _utc_now()}
             fallback["field_availability"] = _field_availability(fallback)
             rows_by_symbol[symbol] = fallback
-        if index % 50 == 0 or index == len(missing_or_stale):
-            print(f"[foundation] fetched={index}/{len(missing_or_stale)} total={len(symbols)} failures={len(failures)}", flush=True)
-        if batch_sleep_seconds > 0 and index < len(missing_or_stale):
+        total = len(symbols_to_fetch)
+        if index % 50 == 0 or index == total:
+            print(f"[foundation] fetched={index}/{total} failures={len(failures)}", flush=True)
+        if batch_sleep_seconds > 0 and index < total:
             time.sleep(batch_sleep_seconds)
 
+    return failures
+
+
+def _finalize_foundation_artifact(
+    *,
+    symbols: list[str],
+    rows_by_symbol: dict[str, dict[str, Any]],
+    optionable: dict[str, Any],
+    output_dir: Path,
+    failures: dict[str, str] | None = None,
+    fetched_symbol_count: int = 0,
+    stale_days: int = DEFAULT_STALE_DAYS,
+    min_symbol_coverage: float = 0.98,
+    min_identity_coverage: float = 0.95,
+    min_market_cap_coverage: float = 0.50,
+) -> dict[str, Any]:
+    failures = failures or {}
     normalized_rows = [rows_by_symbol[symbol] for symbol in symbols]
     identity_covered = sum(_has_minimum_identity(row) for row in normalized_rows)
     symbol_coverage = identity_covered / len(symbols) if symbols else 1.0
@@ -382,7 +405,7 @@ def build_foundation_update_artifact(
         "field_coverage": field_coverage,
         "coverage": coverage,
         "failure_count": len(failures),
-        "fetched_symbol_count": len(missing_or_stale),
+        "fetched_symbol_count": fetched_symbol_count,
         "stale_days": stale_days,
     }
     manifest_path = output_dir / "foundation-update-latest-us.json"
@@ -390,27 +413,187 @@ def build_foundation_update_artifact(
     return {**manifest, "bundle_path": str(bundle_path), "manifest_path": str(manifest_path)}
 
 
+def build_foundation_update_artifact(
+    *,
+    optionable_symbols: Path,
+    output_dir: Path,
+    prior_foundation: Path | None = None,
+    stale_days: int = DEFAULT_STALE_DAYS,
+    batch_sleep_seconds: float = 0.25,
+    min_symbol_coverage: float = 0.98,
+    min_identity_coverage: float = 0.95,
+    min_market_cap_coverage: float = 0.50,
+) -> dict[str, Any]:
+    optionable = _read_json(optionable_symbols)
+    symbols, metadata_by_symbol, rows_by_symbol, missing_or_stale = _prepare_rows(
+        optionable_symbols=optionable_symbols,
+        prior_foundation=prior_foundation,
+        stale_days=stale_days,
+    )
+    failures = _fetch_provider_rows(
+        symbols_to_fetch=missing_or_stale,
+        metadata_by_symbol=metadata_by_symbol,
+        rows_by_symbol=rows_by_symbol,
+        batch_sleep_seconds=batch_sleep_seconds,
+    )
+    return _finalize_foundation_artifact(
+        symbols=symbols,
+        rows_by_symbol=rows_by_symbol,
+        optionable=optionable,
+        output_dir=output_dir,
+        failures=failures,
+        fetched_symbol_count=len(missing_or_stale),
+        stale_days=stale_days,
+        min_symbol_coverage=min_symbol_coverage,
+        min_identity_coverage=min_identity_coverage,
+        min_market_cap_coverage=min_market_cap_coverage,
+    )
+
+
+def build_foundation_segment(
+    *,
+    optionable_symbols: Path,
+    output_path: Path,
+    segment: str,
+    prior_foundation: Path | None = None,
+    stale_days: int = DEFAULT_STALE_DAYS,
+    batch_sleep_seconds: float = 0.25,
+) -> dict[str, Any]:
+    if segment not in {"etf", "stock"}:
+        raise ValueError("segment must be 'etf' or 'stock'")
+    symbols, metadata_by_symbol, rows_by_symbol, missing_or_stale = _prepare_rows(
+        optionable_symbols=optionable_symbols,
+        prior_foundation=prior_foundation,
+        stale_days=stale_days,
+    )
+    segment_symbols = [
+        symbol for symbol in symbols
+        if bool((metadata_by_symbol.get(symbol) or {}).get("is_etf")) == (segment == "etf")
+    ]
+    segment_set = set(segment_symbols)
+    fetch_symbols = [symbol for symbol in missing_or_stale if symbol in segment_set]
+    failures = {}
+    if segment == "stock":
+        failures = _fetch_provider_rows(
+            symbols_to_fetch=fetch_symbols,
+            metadata_by_symbol=metadata_by_symbol,
+            rows_by_symbol=rows_by_symbol,
+            batch_sleep_seconds=batch_sleep_seconds,
+        )
+    # ETF segment intentionally remains metadata/prior only.
+    rows = [rows_by_symbol[symbol] for symbol in segment_symbols]
+    payload = {
+        "schema_version": "foundation-update-segment-v1",
+        "market": MARKET,
+        "segment": segment,
+        "generated_at": _utc_now(),
+        "symbol_count": len(rows),
+        "fetched_symbol_count": len(fetch_symbols) if segment == "stock" else 0,
+        "failures": failures,
+        "rows": rows,
+    }
+    if output_path.suffix == ".gz":
+        _write_gzip_json(output_path, payload)
+    else:
+        _write_json(output_path, payload)
+    return {k: v for k, v in payload.items() if k != "rows"} | {"output_path": str(output_path)}
+
+
+def merge_foundation_segments(
+    *,
+    optionable_symbols: Path,
+    segment_paths: list[Path],
+    output_dir: Path,
+    stale_days: int = DEFAULT_STALE_DAYS,
+    min_symbol_coverage: float = 0.98,
+    min_identity_coverage: float = 0.95,
+    min_market_cap_coverage: float = 0.50,
+) -> dict[str, Any]:
+    optionable = _read_json(optionable_symbols)
+    symbols, metadata_by_symbol = _optionable_universe(optionable)
+    rows_by_symbol: dict[str, dict[str, Any]] = {}
+    failures: dict[str, str] = {}
+    fetched_symbol_count = 0
+    for path in segment_paths:
+        segment = _read_json(path)
+        failures.update(segment.get("failures") or {})
+        fetched_symbol_count += int(segment.get("fetched_symbol_count") or 0)
+        for row in segment.get("rows") or []:
+            symbol = str(row.get("symbol") or "").upper().strip()
+            if symbol:
+                rows_by_symbol[symbol] = row
+    for symbol in symbols:
+        if symbol not in rows_by_symbol:
+            base = _base_payload(symbol, metadata_by_symbol.get(symbol))
+            base["foundation_status"] = "metadata_only"
+            base["field_availability"] = _field_availability(base)
+            rows_by_symbol[symbol] = base
+    return _finalize_foundation_artifact(
+        symbols=symbols,
+        rows_by_symbol=rows_by_symbol,
+        optionable=optionable,
+        output_dir=output_dir,
+        failures=failures,
+        fetched_symbol_count=fetched_symbol_count,
+        stale_days=stale_days,
+        min_symbol_coverage=min_symbol_coverage,
+        min_identity_coverage=min_identity_coverage,
+        min_market_cap_coverage=min_market_cap_coverage,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("build-all", "segment", "merge"), default="build-all")
     parser.add_argument("--optionable-symbols", required=True, type=Path)
     parser.add_argument("--prior-foundation", type=Path, default=None)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--output-path", type=Path)
+    parser.add_argument("--segment", choices=("etf", "stock"))
+    parser.add_argument("--segment-path", action="append", type=Path, default=[])
     parser.add_argument("--stale-days", type=int, default=DEFAULT_STALE_DAYS)
     parser.add_argument("--batch-sleep-seconds", type=float, default=0.25)
     parser.add_argument("--min-symbol-coverage", type=float, default=0.98)
     parser.add_argument("--min-identity-coverage", type=float, default=0.95)
     parser.add_argument("--min-market-cap-coverage", type=float, default=0.50)
     args = parser.parse_args()
-    summary = build_foundation_update_artifact(
-        optionable_symbols=args.optionable_symbols,
-        prior_foundation=args.prior_foundation if args.prior_foundation and args.prior_foundation.exists() else None,
-        output_dir=args.output_dir,
-        stale_days=args.stale_days,
-        batch_sleep_seconds=args.batch_sleep_seconds,
-        min_symbol_coverage=args.min_symbol_coverage,
-        min_identity_coverage=args.min_identity_coverage,
-        min_market_cap_coverage=args.min_market_cap_coverage,
-    )
+    prior = args.prior_foundation if args.prior_foundation and args.prior_foundation.exists() else None
+    if args.mode == "segment":
+        if not args.segment or not args.output_path:
+            raise SystemExit("--segment and --output-path are required for --mode segment")
+        summary = build_foundation_segment(
+            optionable_symbols=args.optionable_symbols,
+            prior_foundation=prior,
+            output_path=args.output_path,
+            segment=args.segment,
+            stale_days=args.stale_days,
+            batch_sleep_seconds=args.batch_sleep_seconds,
+        )
+    elif args.mode == "merge":
+        if not args.output_dir or not args.segment_path:
+            raise SystemExit("--output-dir and at least one --segment-path are required for --mode merge")
+        summary = merge_foundation_segments(
+            optionable_symbols=args.optionable_symbols,
+            segment_paths=args.segment_path,
+            output_dir=args.output_dir,
+            stale_days=args.stale_days,
+            min_symbol_coverage=args.min_symbol_coverage,
+            min_identity_coverage=args.min_identity_coverage,
+            min_market_cap_coverage=args.min_market_cap_coverage,
+        )
+    else:
+        if not args.output_dir:
+            raise SystemExit("--output-dir is required for --mode build-all")
+        summary = build_foundation_update_artifact(
+            optionable_symbols=args.optionable_symbols,
+            prior_foundation=prior,
+            output_dir=args.output_dir,
+            stale_days=args.stale_days,
+            batch_sleep_seconds=args.batch_sleep_seconds,
+            min_symbol_coverage=args.min_symbol_coverage,
+            min_identity_coverage=args.min_identity_coverage,
+            min_market_cap_coverage=args.min_market_cap_coverage,
+        )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
 

@@ -11,7 +11,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 def test_foundation_update_workflow_is_us_only_for_static_pipeline():
     content = (_PROJECT_ROOT / ".github" / "workflows" / "foundation-update.yml").read_text(encoding="utf-8")
 
-    assert "publish-us:" in content
+    assert "prepare:" in content
+    assert "build-etf:" in content
+    assert "build-stock:" in content
+    assert "merge-publish:" in content
     assert "optionable-symbols-latest-us.json" in content
     assert "foundation-update-latest-us.json" in content
     assert "postgres" not in content.lower()
