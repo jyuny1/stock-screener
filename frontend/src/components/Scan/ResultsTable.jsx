@@ -142,6 +142,7 @@ const VirtualTableRow = memo(function VirtualTableRow({
   mcapDisplay,
 }) {
   const statusChip = getStatusChipProps(row);
+  const isUsEtf = row.market === 'US' && (row.is_etf || String(row.security_type || '').toUpperCase() === 'ETF');
   const handleRowClick = useCallback(() => {
     if (!chartEnabled) {
       return;
@@ -198,6 +199,25 @@ const VirtualTableRow = memo(function VirtualTableRow({
               {row.symbol}
             </Typography>
             <MarketBadge market={row.market} exchange={row.exchange} />
+            {isUsEtf ? (
+              <Chip
+                label="ETF"
+                size="small"
+                variant="outlined"
+                title="US exchange-traded fund"
+                sx={{
+                  height: 16,
+                  fontSize: '0.62rem',
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  px: 0.25,
+                  flexShrink: 0,
+                  borderColor: 'info.main',
+                  color: 'info.main',
+                  '& .MuiChip-label': { px: 0.5 },
+                }}
+              />
+            ) : null}
             <FieldAvailabilityChip
               fieldAvailability={row.field_availability}
               growthMetricBasis={row.growth_metric_basis}

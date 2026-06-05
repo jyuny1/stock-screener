@@ -195,6 +195,8 @@ def _scan_row(
         "market": payload.get("market") or DEFAULT_MARKET,
         "exchange": payload.get("exchange"),
         "currency": currency,
+        "security_type": payload.get("security_type"),
+        "is_etf": bool(payload.get("is_etf") or str(payload.get("security_type") or "").upper() == "ETF"),
         "current_price": current_price,
         "price_change_1d": change_1d,
         "volume": dollar_volume if dollar_volume is not None else share_volume,
