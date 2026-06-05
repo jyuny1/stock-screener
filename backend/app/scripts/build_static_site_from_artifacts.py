@@ -167,8 +167,11 @@ def _scan_row(
     price_history = (latest_price or {}).get("prices") or []
     price_sparkline = _sparkline_from_prices(price_history)
     rs_sparkline = _rs_sparkline(price_history, benchmark_prices)
-    volume = (latest_price or {}).get("volume") or _number(payload.get("avg_volume"))
+    share_volume = (latest_price or {}).get("volume") or _number(payload.get("avg_volume"))
     current_price = (latest_price or {}).get("close")
+    dollar_volume = None
+    if share_volume is not None and current_price is not None:
+        dollar_volume = float(share_volume) * float(current_price)
     change_1d = (latest_price or {}).get("change_1d")
     market_cap = _number(payload.get("market_cap"))
     currency = payload.get("currency") or "USD"
@@ -183,10 +186,11 @@ def _scan_row(
         "currency": currency,
         "current_price": current_price,
         "price_change_1d": change_1d,
-        "volume": volume,
+        "volume": dollar_volume if dollar_volume is not None else share_volume,
         "avg_volume": _number(payload.get("avg_volume")),
         "market_cap": market_cap,
         "market_cap_usd": _number(payload.get("market_cap_usd")) or market_cap,
+        "adv_usd": dollar_volume,
         "gics_sector": payload.get("sector"),
         "sector": payload.get("sector"),
         "industry": payload.get("industry"),
@@ -226,6 +230,7 @@ def _scan_row(
         "se_distance_to_pivot_pct": metrics.get("se_distance_to_pivot_pct"),
         "se_bb_width_pctile_252": metrics.get("se_bb_width_pctile_252"),
         "se_volume_vs_50d": metrics.get("se_volume_vs_50d"),
+        "se_pivot_price": metrics.get("se_pivot_price"),
         "se_up_down_volume_ratio_10d": metrics.get("se_up_down_volume_ratio_10d"),
         "perf_week": _number(payload.get("perf_week")),
         "perf_month": _number(payload.get("perf_month")),

@@ -228,6 +228,18 @@ def _minervini_score(closes: list[float], rs_rating: float | None) -> tuple[floa
     return round((passed / len(checks)) * 100.0, 1), passed == len(checks)
 
 
+def _rs_line_new_high(rows: list[dict[str, Any]], benchmark_rows: list[dict[str, Any]], *, window: int = 252) -> bool | None:
+    benchmark_by_date = {str(row.get("date")): row.get("close") for row in benchmark_rows if row.get("date") and row.get("close")}
+    ratios = []
+    for row in rows[-window:]:
+        bench = benchmark_by_date.get(str(row.get("date")))
+        if bench not in (None, 0):
+            ratios.append(row["close"] / bench)
+    if len(ratios) < 20:
+        return None
+    return ratios[-1] >= max(ratios)
+
+
 def _setup_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     closes = [row["close"] for row in rows]
     volumes = [row.get("volume") or 0.0 for row in rows]
@@ -328,6 +340,8 @@ def build_scan_metrics_artifact(
             beta_adj_rs = float(rs_rating[symbol]) / abs(float(beta))
         min_score, passes_template = _minervini_score(closes, rs_rating.get(symbol)) if closes else (None, None)
         setup = _setup_metrics(price_rows) if price_rows else {}
+        if price_rows and spy_rows:
+            setup["se_rs_line_new_high"] = _rs_line_new_high(price_rows, spy_rows)
         volumes = [row.get("volume") or 0.0 for row in price_rows]
         avg50 = mean(volumes[-50:]) if len(volumes) >= 50 else (mean(volumes) if volumes else None)
         volume_vs_50 = volumes[-1] / avg50 if avg50 else None
