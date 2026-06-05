@@ -1,11 +1,12 @@
 name: Weekly Reference Data
 
 on:
-  schedule:
-    # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
-    # the real cadence is Monday 01:00 America/New_York
-    # (Taiwan Monday 13:00 during EDT / 14:00 during EST).
-    - cron: '0 * * * *'
+  # schedule: temporarily disabled during pipeline maintenance.
+  # schedule:
+  #   # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
+  #   # the real cadence is Monday 01:00 America/New_York
+  #   # (Taiwan Monday 13:00 during EDT / 14:00 during EST).
+  #   - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       market:

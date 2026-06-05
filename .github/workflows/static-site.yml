@@ -1,11 +1,12 @@
 name: Static Site
 
 on:
-  schedule:
-    # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
-    # the real cadence is Monday-Saturday 08:00 America/New_York
-    # (Taiwan 20:00 during EDT / 21:00 during EST), before the US market opens.
-    - cron: '0 * * * *'
+  # schedule: temporarily disabled during pipeline maintenance.
+  # schedule:
+  #   # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
+  #   # the real cadence is Monday-Saturday 08:00 America/New_York
+  #   # (Taiwan 20:00 during EDT / 21:00 during EST), before the US market opens.
+  #   - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       market:

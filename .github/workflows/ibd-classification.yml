@@ -43,11 +43,12 @@ on:
           - warn
           - enforce
           - off
-  schedule:
-    # Fallback ~3h after the Saturday weekly-reference cron (08:10 ET) in case
-    # the workflow_run trigger is missed.
-    - cron: '10 11 * * 6'
-      timezone: 'America/New_York'
+  # schedule: temporarily disabled during pipeline maintenance.
+  # schedule:
+  #   # Fallback ~3h after the Saturday weekly-reference cron (08:10 ET) in case
+  #   # the workflow_run trigger is missed.
+  #   - cron: '10 11 * * 6'
+  #     timezone: 'America/New_York'
 
 concurrency:
   group: ibd-classification
