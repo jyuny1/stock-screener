@@ -223,6 +223,20 @@ describe('static scan client', () => {
     expect(sorted.map((row) => row.symbol)).toEqual(['FULL80', 'FULL70', 'FULLNULL', 'IPO95']);
   });
 
+  it('keeps missing volume values last for ascending and descending sorts', () => {
+    const rowsWithMissingVolume = [
+      { symbol: 'EMPTY1', volume: null },
+      { symbol: 'HIGH', volume: 300_000_000 },
+      { symbol: 'LOW', volume: 10_000_000 },
+      { symbol: 'EMPTY2' },
+    ];
+
+    expect(sortStaticScanRows(rowsWithMissingVolume, 'volume', 'desc').map((row) => row.symbol))
+      .toEqual(['HIGH', 'LOW', 'EMPTY1', 'EMPTY2']);
+    expect(sortStaticScanRows(rowsWithMissingVolume, 'volume', 'asc').map((row) => row.symbol))
+      .toEqual(['LOW', 'HIGH', 'EMPTY1', 'EMPTY2']);
+  });
+
   it('keeps ascending composite sorts numeric instead of forcing scan-mode grouping', () => {
     const sorted = sortStaticScanRows([
       { symbol: 'IPO95', scan_mode: 'ipo_weighted', composite_score: 95 },
