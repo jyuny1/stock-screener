@@ -299,6 +299,21 @@ repair_layer:
 
 ---
 
+## 自動執行時間
+
+GitHub Actions cron 只支援 UTC，且不支援 timezone / DST；因此 production orchestrators 採用 **hourly wake + job 內用 `TZ=America/New_York` gate**，確保實際時間符合美東時間。
+
+| Workflow | 自動執行時間 | 實際用途 |
+|---|---|---|
+| `static-pipeline-full.yml` | 每二週 Sunday 20:00 America/New_York | Full refresh：optionable → foundation → prices/metrics/profiles → static site |
+| `static-pipeline-daily.yml` | Monday-Friday 20:00 America/New_York | Daily refresh：daily price → scan metrics → group rank → static site |
+| `release-asset-cleanup.yml` | Monday 03:00 America/New_York | Weekly release artifact cleanup，避開 full refresh window |
+| Component workflows | 無 production schedule；manual only | 由 orchestrators 觸發，或人工 repair |
+| `static-pipeline-repair.yml` | 無 schedule；manual only | 指定 layer 修復 |
+| `static-site.yml` | 無 schedule；manual/orchestrator only | Production pinned deploy 或 preview redeploy |
+
+---
+
 ## 推薦執行模式
 
 ### Full refresh
