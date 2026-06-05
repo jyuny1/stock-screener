@@ -156,6 +156,59 @@ jobs:
             exit 1
           fi
 
+      - name: Download optional scan metrics artifact
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/scan-metrics
+          gh release download scan-metrics-data \
+            --repo "${{ github.repository }}" \
+            --pattern scan-metrics-latest-us.json \
+            --dir /tmp/scan-metrics \
+            --clobber
+
+          BUNDLE_ASSET_NAME="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/scan-metrics/scan-metrics-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"scan metrics manifest market must be US, got {manifest.get('market')!r}")
+          if float(manifest.get('symbol_coverage') or 0) < 0.80:
+              raise SystemExit(f"scan metrics coverage too low: {manifest.get('symbol_coverage')}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+          echo "SCAN_METRICS_BUNDLE=/tmp/scan-metrics/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "SCAN_METRICS_SHA256=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/scan-metrics/scan-metrics-latest-us.json').read_text(encoding='utf-8'))['sha256'])
+          PY
+          )" >> "$GITHUB_ENV"
+
+          gh release download scan-metrics-data \
+            --repo "${{ github.repository }}" \
+            --pattern "${BUNDLE_ASSET_NAME}" \
+            --dir /tmp/scan-metrics \
+            --clobber
+
+      - name: Verify optional scan metrics checksum
+        if: ${{ env.SCAN_METRICS_BUNDLE != '' }}
+        run: |
+          set -euo pipefail
+          digest="$(python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          print(hashlib.sha256(Path(os.environ['SCAN_METRICS_BUNDLE']).read_bytes()).hexdigest())
+          PY
+          )"
+          if [ "$digest" != "$SCAN_METRICS_SHA256" ]; then
+            echo "Scan metrics checksum mismatch: $digest != $SCAN_METRICS_SHA256" >&2
+            exit 1
+          fi
+
       - name: Build static data from artifacts
         run: |
           set -euo pipefail
@@ -166,6 +219,9 @@ jobs:
           )
           if [ -n "${DAILY_PRICE_BUNDLE:-}" ]; then
             args+=(--daily-price "$DAILY_PRICE_BUNDLE")
+          fi
+          if [ -n "${SCAN_METRICS_BUNDLE:-}" ]; then
+            args+=(--scan-metrics "$SCAN_METRICS_BUNDLE")
           fi
           cd backend
           python -m app.scripts.build_static_site_from_artifacts "${args[@]}"

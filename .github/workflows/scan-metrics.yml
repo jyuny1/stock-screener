@@ -1,0 +1,199 @@
+name: Scan Metrics
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: scan-metrics-us
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish-us:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Ensure scan metrics release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view scan-metrics-data \
+            --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+          gh release create scan-metrics-data \
+            --repo "${{ github.repository }}" \
+            --title "Scan Metrics Data" \
+            --notes "Artifact-native US scan metrics for static-site builds."
+
+      - name: Download US foundation update bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/foundation-update
+          FOUNDATION_UPDATE_RELEASE="foundation-update-data"
+          FOUNDATION_UPDATE_MANIFEST="foundation-update-latest-us.json"
+          if ! gh release download "$FOUNDATION_UPDATE_RELEASE" \
+            --repo "${{ github.repository }}" \
+            --pattern "$FOUNDATION_UPDATE_MANIFEST" \
+            --dir /tmp/foundation-update \
+            --clobber; then
+            echo "No foundation-update-data release yet; falling back to legacy weekly-reference-data." >&2
+            FOUNDATION_UPDATE_RELEASE="weekly-reference-data"
+            FOUNDATION_UPDATE_MANIFEST="weekly-reference-latest-us.json"
+            gh release download "$FOUNDATION_UPDATE_RELEASE" \
+              --repo "${{ github.repository }}" \
+              --pattern "$FOUNDATION_UPDATE_MANIFEST" \
+              --dir /tmp/foundation-update \
+              --clobber
+          fi
+          FOUNDATION_UPDATE_MANIFEST_PATH="/tmp/foundation-update/${FOUNDATION_UPDATE_MANIFEST}"
+          export FOUNDATION_UPDATE_MANIFEST_PATH
+          BUNDLE_ASSET_NAME="$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          manifest = json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST_PATH']).read_text(encoding='utf-8'))
+          coverage = manifest.get('coverage') or {}
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"foundation update manifest market must be US, got {manifest.get('market')!r}")
+          if int(coverage.get('active_symbols') or manifest.get('symbol_count') or 0) < 3000:
+              raise SystemExit(f"foundation update symbol count too low: {coverage.get('active_symbols') or manifest.get('symbol_count')}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+          echo "FOUNDATION_UPDATE_RELEASE=${FOUNDATION_UPDATE_RELEASE}" >> "$GITHUB_ENV"
+          echo "FOUNDATION_UPDATE_BUNDLE=/tmp/foundation-update/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "FOUNDATION_UPDATE_SHA256=$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          print(json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST_PATH']).read_text(encoding='utf-8'))['sha256'])
+          PY
+          )" >> "$GITHUB_ENV"
+          gh release download "$FOUNDATION_UPDATE_RELEASE" \
+            --repo "${{ github.repository }}" \
+            --pattern "${BUNDLE_ASSET_NAME}" \
+            --dir /tmp/foundation-update \
+            --clobber
+
+      - name: Verify foundation update checksum
+        run: |
+          set -euo pipefail
+          digest="$(python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          print(hashlib.sha256(Path(os.environ['FOUNDATION_UPDATE_BUNDLE']).read_bytes()).hexdigest())
+          PY
+          )"
+          if [ "$digest" != "$FOUNDATION_UPDATE_SHA256" ]; then
+            echo "Foundation update checksum mismatch: $digest != $FOUNDATION_UPDATE_SHA256" >&2
+            exit 1
+          fi
+
+      - name: Download US daily price bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/daily-price
+          gh release download daily-price-data \
+            --repo "${{ github.repository }}" \
+            --pattern daily-price-latest-us.json \
+            --dir /tmp/daily-price \
+            --clobber
+          BUNDLE_ASSET_NAME="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"daily price manifest market must be US, got {manifest.get('market')!r}")
+          if float(manifest.get('symbol_coverage') or 0) < 0.80:
+              raise SystemExit(f"daily price coverage too low: {manifest.get('symbol_coverage')}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+          echo "DAILY_PRICE_BUNDLE=/tmp/daily-price/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "DAILY_PRICE_SHA256=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))['sha256'])
+          PY
+          )" >> "$GITHUB_ENV"
+          gh release download daily-price-data \
+            --repo "${{ github.repository }}" \
+            --pattern "${BUNDLE_ASSET_NAME}" \
+            --dir /tmp/daily-price \
+            --clobber
+
+      - name: Verify daily price checksum
+        run: |
+          set -euo pipefail
+          digest="$(python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          print(hashlib.sha256(Path(os.environ['DAILY_PRICE_BUNDLE']).read_bytes()).hexdigest())
+          PY
+          )"
+          if [ "$digest" != "$DAILY_PRICE_SHA256" ]; then
+            echo "Daily price checksum mismatch: $digest != $DAILY_PRICE_SHA256" >&2
+            exit 1
+          fi
+
+      - name: Build scan metrics artifact
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m app.scripts.build_scan_metrics_artifact \
+            --foundation-update "$FOUNDATION_UPDATE_BUNDLE" \
+            --daily-price "$DAILY_PRICE_BUNDLE" \
+            --output-dir /tmp/scan-metrics \
+            --min-symbol-coverage 0.80
+
+      - name: Validate scan metrics outputs
+        run: |
+          set -euo pipefail
+          test -s /tmp/scan-metrics/scan-metrics-latest-us.json
+          bundle="$(find /tmp/scan-metrics -maxdepth 1 -name 'scan-metrics-us-*.json.gz' | head -n 1)"
+          if [ -z "$bundle" ] || [ ! -s "$bundle" ]; then
+            echo "Missing scan metrics bundle" >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/scan-metrics/scan-metrics-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"scan metrics manifest market must be US, got {manifest.get('market')!r}")
+          if float(manifest.get('symbol_coverage') or 0) < 0.80:
+              raise SystemExit(f"scan metrics coverage too low: {manifest.get('symbol_coverage')}")
+          required = ['rs_rating', 'rs_rating_1m', 'rs_rating_3m', 'rs_rating_12m', 'minervini_score', 'canslim_score', 'se_setup_score']
+          low = {k: manifest.get('field_coverage', {}).get(k) for k in required if float(manifest.get('field_coverage', {}).get(k) or 0) < 0.80}
+          if low:
+              raise SystemExit(f"scan metrics field coverage too low: {low}")
+          print({
+              'symbol_count': manifest.get('symbol_count'),
+              'symbol_coverage': manifest.get('symbol_coverage'),
+              'field_coverage': {k: manifest.get('field_coverage', {}).get(k) for k in required},
+          })
+          PY
+
+      - name: Upload scan metrics assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bundle="$(find /tmp/scan-metrics -maxdepth 1 -name 'scan-metrics-us-*.json.gz' | head -n 1)"
+          gh release upload scan-metrics-data "$bundle" \
+            --repo "${{ github.repository }}" \
+            --clobber
+          gh release upload scan-metrics-data /tmp/scan-metrics/scan-metrics-latest-us.json \
+            --repo "${{ github.repository }}" \
+            --clobber

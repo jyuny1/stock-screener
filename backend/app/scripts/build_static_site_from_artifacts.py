@@ -55,6 +55,17 @@ def _number(value: Any) -> float | int | None:
     return number
 
 
+def _metrics_by_symbol(scan_metrics_bundle: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not scan_metrics_bundle:
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for row in scan_metrics_bundle.get("rows") or []:
+        symbol = str(row.get("symbol") or "").upper().strip()
+        if symbol:
+            result[symbol] = row
+    return result
+
+
 def _latest_daily_by_symbol(daily_bundle: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not daily_bundle:
         return {}
@@ -150,6 +161,7 @@ def _scan_row(
     payload: dict[str, Any],
     latest_price: dict[str, Any] | None,
     benchmark_prices: list[dict[str, Any]] | None = None,
+    scan_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     symbol = payload["symbol"]
     price_history = (latest_price or {}).get("prices") or []
@@ -162,6 +174,7 @@ def _scan_row(
     currency = payload.get("currency") or "USD"
     composite = _composite_score(payload)
     eps_rating = _number(payload.get("eps_rating"))
+    metrics = scan_metrics or {}
     row = {
         "symbol": symbol,
         "company_name": payload.get("company_name") or payload.get("name") or symbol,
@@ -181,59 +194,59 @@ def _scan_row(
         "ipo_date": payload.get("ipo_date") or payload.get("first_trade_date"),
         "rating": payload.get("recommendation") or "Insufficient Data",
         "scan_mode": "artifact_reference",
-        "composite_score": composite,
-        "minervini_score": None,
-        "canslim_score": None,
-        "ipo_score": None,
-        "custom_score": None,
-        "volume_breakthrough_score": None,
-        "se_setup_score": None,
-        "rs_rating": eps_rating,
-        "rs_rating_1m": None,
-        "rs_rating_3m": None,
-        "rs_rating_12m": None,
-        "eps_rating": eps_rating,
+        "composite_score": metrics.get("composite_score", composite),
+        "minervini_score": metrics.get("minervini_score"),
+        "canslim_score": metrics.get("canslim_score"),
+        "ipo_score": metrics.get("ipo_score"),
+        "custom_score": metrics.get("custom_score"),
+        "volume_breakthrough_score": metrics.get("volume_breakthrough_score"),
+        "se_setup_score": metrics.get("se_setup_score"),
+        "rs_rating": metrics.get("rs_rating", eps_rating),
+        "rs_rating_1m": metrics.get("rs_rating_1m"),
+        "rs_rating_3m": metrics.get("rs_rating_3m"),
+        "rs_rating_12m": metrics.get("rs_rating_12m"),
+        "eps_rating": metrics.get("eps_rating", eps_rating),
         "eps_growth_qq": _number(payload.get("eps_growth_qq")),
         "sales_growth_qq": _number(payload.get("sales_growth_qq")),
         "adr_percent": None,
-        "beta": _number(payload.get("beta")),
-        "beta_adj_rs": None,
-        "vcp_score": None,
-        "vcp_pivot": None,
-        "stage": None,
-        "ma_alignment": None,
-        "passes_template": None,
+        "beta": metrics.get("beta", _number(payload.get("beta"))),
+        "beta_adj_rs": metrics.get("beta_adj_rs"),
+        "vcp_score": metrics.get("vcp_score"),
+        "vcp_pivot": metrics.get("vcp_pivot"),
+        "stage": metrics.get("stage"),
+        "ma_alignment": metrics.get("ma_alignment"),
+        "passes_template": metrics.get("passes_template"),
         "pocket_pivot": None,
         "power_trend": None,
-        "vcp_detected": None,
-        "vcp_ready_for_breakout": None,
-        "se_setup_ready": None,
-        "se_rs_line_new_high": None,
-        "se_pattern_primary": None,
-        "se_distance_to_pivot_pct": None,
-        "se_bb_width_pctile_252": None,
-        "se_volume_vs_50d": None,
-        "se_up_down_volume_ratio_10d": None,
+        "vcp_detected": metrics.get("vcp_detected"),
+        "vcp_ready_for_breakout": metrics.get("vcp_ready_for_breakout"),
+        "se_setup_ready": metrics.get("se_setup_ready"),
+        "se_rs_line_new_high": metrics.get("se_rs_line_new_high"),
+        "se_pattern_primary": metrics.get("se_pattern_primary"),
+        "se_distance_to_pivot_pct": metrics.get("se_distance_to_pivot_pct"),
+        "se_bb_width_pctile_252": metrics.get("se_bb_width_pctile_252"),
+        "se_volume_vs_50d": metrics.get("se_volume_vs_50d"),
+        "se_up_down_volume_ratio_10d": metrics.get("se_up_down_volume_ratio_10d"),
         "perf_week": _number(payload.get("perf_week")),
         "perf_month": _number(payload.get("perf_month")),
         "perf_3m": _number(payload.get("perf_quarter")),
         "perf_6m": _number(payload.get("perf_half_year")),
-        "gap_percent": None,
-        "volume_surge": _number(payload.get("relative_volume")),
-        "ema_10_distance": None,
-        "ema_20_distance": None,
-        "ema_50_distance": None,
+        "gap_percent": metrics.get("gap_percent"),
+        "volume_surge": metrics.get("volume_surge", _number(payload.get("relative_volume"))),
+        "ema_10_distance": metrics.get("ema_10_distance"),
+        "ema_20_distance": metrics.get("ema_20_distance"),
+        "ema_50_distance": metrics.get("ema_50_distance"),
         "week_52_high_distance": _number(payload.get("week_52_high_distance")),
         "week_52_low_distance": _number(payload.get("week_52_low_distance")),
-        "pct_day": None,
-        "pct_week": None,
-        "pct_month": None,
+        "pct_day": metrics.get("pct_day"),
+        "pct_week": metrics.get("pct_week"),
+        "pct_month": metrics.get("pct_month"),
         "sparkline": price_sparkline,
         "price_sparkline_data": price_sparkline,
         "price_trend": _trend(price_sparkline),
         "rs_sparkline": rs_sparkline,
         "rs_sparkline_data": rs_sparkline,
-        "rs_trend": _trend(rs_sparkline),
+        "rs_trend": metrics.get("rs_trend", _trend(rs_sparkline)),
     }
     return row
 
@@ -348,11 +361,14 @@ def build_static_site_from_artifacts(
     foundation_update: Path,
     output_dir: Path,
     daily_price: Path | None = None,
+    scan_metrics: Path | None = None,
 ) -> dict[str, Any]:
     generated_at = _utc_now()
     weekly = _read_json(foundation_update)
     daily = _read_json(daily_price) if daily_price else None
+    metrics_bundle = _read_json(scan_metrics) if scan_metrics else None
     latest_prices = _latest_daily_by_symbol(daily)
+    metrics_by_symbol = _metrics_by_symbol(metrics_bundle)
     benchmark_prices = (latest_prices.get("SPY") or {}).get("prices") or []
     as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
     coverage = dict((weekly.get("coverage") or {}))
@@ -363,7 +379,8 @@ def build_static_site_from_artifacts(
         payload = _row_payload(source_row)
         if not payload.get("symbol"):
             continue
-        rows.append(_scan_row(payload, latest_prices.get(payload["symbol"]), benchmark_prices))
+        symbol = payload["symbol"]
+        rows.append(_scan_row(payload, latest_prices.get(symbol), benchmark_prices, metrics_by_symbol.get(symbol)))
     rows = _sort_rows(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -429,11 +446,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--foundation-update", required=True, type=Path)
     parser.add_argument("--daily-price", type=Path, default=None)
+    parser.add_argument("--scan-metrics", type=Path, default=None)
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     summary = build_static_site_from_artifacts(
         foundation_update=args.foundation_update,
         daily_price=args.daily_price,
+        scan_metrics=args.scan_metrics,
         output_dir=args.output_dir,
     )
     print(json.dumps({"rows_total": summary["rows_total"], "output_dir": str(args.output_dir)}, indent=2))
