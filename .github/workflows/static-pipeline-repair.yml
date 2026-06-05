@@ -1,0 +1,210 @@
+name: Static Pipeline Repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      repair_layer:
+        description: "Layer to repair; necessary downstream layers run automatically."
+        required: true
+        type: choice
+        default: static-site-only
+        options:
+          - optionable
+          - foundation
+          - daily-price
+          - scan-metrics
+          - group-rank
+          - listing-profile
+          - etf-profile
+          - static-site-only
+      retry_optionable_errors_from_latest:
+        description: "When repairing optionable symbols, retry prior retryable failures from latest artifact."
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: static-pipeline-repair-us
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  repair:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ github.event.repository.default_branch }}
+      MARKET: US
+      PIPELINE_TYPE: repair
+      REPAIR_LAYER: ${{ inputs.repair_layer }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure pipeline-run-manifest release exists
+        run: |
+          gh release view pipeline-run-manifest --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+          gh release create pipeline-run-manifest --repo "${{ github.repository }}" \
+            --title "Pipeline Run Manifests" \
+            --notes "Pinned artifact sets used by static pipeline orchestrators."
+
+      - name: Repair selected layer and deploy pinned static site
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pipeline-run
+
+          run_component() {
+            local workflow="$1" var_name="$2"
+            shift 2
+            local started run_id
+            started="$(date -u +%s)"
+            echo "Dispatching $workflow $*"
+            gh workflow run "$workflow" --repo "${{ github.repository }}" --ref "$BRANCH" "$@"
+            sleep 10
+            run_id="$(WORKFLOW="$workflow" STARTED="$started" python - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime
+          workflow = os.environ['WORKFLOW']
+          started = int(os.environ['STARTED']) - 30
+          raw = subprocess.check_output([
+              'gh', 'run', 'list', '--repo', os.environ['GITHUB_REPOSITORY'],
+              '--workflow', workflow, '--branch', os.environ['BRANCH'],
+              '--event', 'workflow_dispatch', '--limit', '20',
+              '--json', 'databaseId,createdAt,status,headSha'
+          ], text=True)
+          candidates = []
+          for run in json.loads(raw):
+              ts = datetime.fromisoformat(run['createdAt'].replace('Z', '+00:00')).timestamp()
+              if ts >= started:
+                  candidates.append((ts, run['databaseId']))
+          if not candidates:
+              raise SystemExit(f'No dispatched run found for {workflow}')
+          print(sorted(candidates)[-1][1])
+          PY
+            )"
+            echo "$workflow run id: $run_id"
+            gh run watch "$run_id" --repo "${{ github.repository }}" --exit-status --interval 30
+            printf -v "$var_name" '%s' "$run_id"
+            export "$var_name"
+            echo "${var_name}=${run_id}" >> "$GITHUB_ENV"
+          }
+
+          should_run() {
+            local target="$1"
+            case "$REPAIR_LAYER:$target" in
+              optionable:optionable|optionable:foundation|optionable:daily|optionable:scan|optionable:group|optionable:listing|optionable:etf) return 0 ;;
+              foundation:foundation|foundation:daily|foundation:scan|foundation:group|foundation:listing|foundation:etf) return 0 ;;
+              daily-price:daily|daily-price:scan|daily-price:group) return 0 ;;
+              scan-metrics:scan|scan-metrics:group) return 0 ;;
+              group-rank:group) return 0 ;;
+              listing-profile:listing) return 0 ;;
+              etf-profile:etf) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          if should_run optionable; then
+            run_component optionable-symbols.yml OPTIONABLE_RUN_ID \
+              -f force=true -f dry_run=false \
+              -f retry_errors_from_latest=${{ inputs.retry_optionable_errors_from_latest }} \
+              -f max_retry_rounds=3
+          fi
+          if should_run foundation; then run_component foundation-update.yml FOUNDATION_RUN_ID; fi
+          if should_run daily; then run_component daily-price.yml DAILY_PRICE_RUN_ID; fi
+          if should_run listing; then run_component listing-profile.yml LISTING_PROFILE_RUN_ID; fi
+          if should_run etf; then run_component etf-profile.yml ETF_PROFILE_RUN_ID; fi
+          if should_run scan; then run_component scan-metrics.yml SCAN_METRICS_RUN_ID; fi
+          if should_run group; then run_component group-rank.yml GROUP_RANK_RUN_ID; fi
+
+          create_manifest() {
+            local static_run_id="${1:-}"
+            rm -rf /tmp/pipeline-run-inputs
+            mkdir -p /tmp/pipeline-run-inputs
+            download_manifest() {
+              local key="$1" release="$2" manifest="$3"
+              mkdir -p "/tmp/pipeline-run-inputs/$key"
+              gh release download "$release" --repo "${{ github.repository }}" --pattern "$manifest" --dir "/tmp/pipeline-run-inputs/$key" --clobber
+            }
+            download_manifest optionable_symbols optionable-symbols optionable-symbols-latest-us.json
+            download_manifest foundation_update foundation-update-data foundation-update-latest-us.json
+            download_manifest daily_price daily-price-data daily-price-latest-us.json
+            download_manifest scan_metrics scan-metrics-data scan-metrics-latest-us.json
+            download_manifest group_rank group-rank-data group-rank-latest-us.json
+            download_manifest listing_profile listing-profile-data listing-profile-latest-us.json
+            download_manifest etf_profile etf-profile-data etf-profile-latest-us.json
+            STATIC_RUN_ID="$static_run_id" python - <<'PY'
+          import hashlib, json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          items = {
+              'optionable_symbols': ('optionable-symbols', 'optionable-symbols-latest-us.json'),
+              'foundation_update': ('foundation-update-data', 'foundation-update-latest-us.json'),
+              'daily_price': ('daily-price-data', 'daily-price-latest-us.json'),
+              'scan_metrics': ('scan-metrics-data', 'scan-metrics-latest-us.json'),
+              'group_rank': ('group-rank-data', 'group-rank-latest-us.json'),
+              'listing_profile': ('listing-profile-data', 'listing-profile-latest-us.json'),
+              'etf_profile': ('etf-profile-data', 'etf-profile-latest-us.json'),
+          }
+          artifacts = {}
+          for key, (release, manifest_asset) in items.items():
+              path = Path('/tmp/pipeline-run-inputs') / key / manifest_asset
+              payload = json.loads(path.read_text(encoding='utf-8'))
+              artifacts[key] = {
+                  'release': release,
+                  'manifest_asset': manifest_asset,
+                  'manifest_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                  'bundle_asset_name': payload.get('bundle_asset_name') or manifest_asset,
+                  'sha256': payload.get('sha256') or hashlib.sha256(path.read_bytes()).hexdigest(),
+                  'schema_version': payload.get('schema_version'),
+                  'market': payload.get('market', 'US'),
+                  'as_of_date': payload.get('as_of_date') or payload.get('as_of'),
+                  'symbol_count': payload.get('symbol_count') or len(payload.get('symbols') or []),
+                  'symbol_coverage': payload.get('symbol_coverage'),
+              }
+          run_id = os.environ['GITHUB_RUN_ID']
+          payload = {
+              'schema_version': 'pipeline-run-manifest-v1',
+              'market': 'US',
+              'pipeline_type': os.environ['PIPELINE_TYPE'],
+              'repair_layer': os.environ['REPAIR_LAYER'],
+              'workflow': os.environ['GITHUB_WORKFLOW'],
+              'workflow_run_id': int(run_id),
+              'head_sha': os.environ['GITHUB_SHA'],
+              'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
+              'required_artifacts': ['foundation_update', 'daily_price', 'scan_metrics', 'group_rank', 'listing_profile', 'etf_profile'],
+              'component_runs': {
+                  'optionable_symbols': os.environ.get('OPTIONABLE_RUN_ID'),
+                  'foundation_update': os.environ.get('FOUNDATION_RUN_ID'),
+                  'daily_price': os.environ.get('DAILY_PRICE_RUN_ID'),
+                  'scan_metrics': os.environ.get('SCAN_METRICS_RUN_ID'),
+                  'group_rank': os.environ.get('GROUP_RANK_RUN_ID'),
+                  'listing_profile': os.environ.get('LISTING_PROFILE_RUN_ID'),
+                  'etf_profile': os.environ.get('ETF_PROFILE_RUN_ID'),
+                  'static_site': os.environ.get('STATIC_RUN_ID') or None,
+              },
+              'artifacts': artifacts,
+          }
+          date_key = datetime.now(timezone.utc).strftime('%Y%m%d')
+          out = Path('/tmp/pipeline-run') / f"pipeline-run-repair-{date_key}-{run_id}.json"
+          out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding='utf-8')
+          Path('/tmp/pipeline-run/pipeline-run-latest-us.json').write_text(json.dumps(payload, indent=2, sort_keys=True), encoding='utf-8')
+          PY
+          }
+
+          create_manifest ""
+          PIPELINE_DATE="$(date -u +%Y%m%d)"
+          PIPELINE_ASSET="pipeline-run-repair-${PIPELINE_DATE}-${GITHUB_RUN_ID}.json"
+          gh release upload pipeline-run-manifest "/tmp/pipeline-run/${PIPELINE_ASSET}" /tmp/pipeline-run/pipeline-run-latest-us.json --repo "${{ github.repository }}" --clobber
+          run_component static-site.yml STATIC_SITE_RUN_ID \
+            -f deployment_mode=production -f pipeline_manifest_asset="$PIPELINE_ASSET"
+          create_manifest "$STATIC_SITE_RUN_ID"
+          gh release upload pipeline-run-manifest "/tmp/pipeline-run/${PIPELINE_ASSET}" /tmp/pipeline-run/pipeline-run-latest-us.json --repo "${{ github.repository }}" --clobber
+
+          echo "### Static Pipeline Repair" >> "$GITHUB_STEP_SUMMARY"
+          echo "Repair layer: ${REPAIR_LAYER}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pipeline manifest: ${PIPELINE_ASSET}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Static Site run: ${STATIC_SITE_RUN_ID}" >> "$GITHUB_STEP_SUMMARY"

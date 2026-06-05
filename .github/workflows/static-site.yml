@@ -2,10 +2,24 @@ name: Static Site
 
 on:
   workflow_dispatch:
+    inputs:
+      deployment_mode:
+        description: "production requires all artifacts; preview allows missing non-core artifacts."
+        required: false
+        type: choice
+        default: production
+        options:
+          - production
+          - preview
+      pipeline_manifest_asset:
+        description: "Optional pipeline-run-manifest asset to pin artifact bundle names and sha256 values."
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: static-site-us
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -17,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STATIC_DATA_DIR: frontend/public/static-data
+      STATIC_SITE_DEPLOYMENT_MODE: ${{ inputs.deployment_mode || 'production' }}
+      PIPELINE_MANIFEST_ASSET: ${{ inputs.pipeline_manifest_asset || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -34,219 +50,87 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
-      - name: Download foundation update artifact
+      - name: Download pipeline run manifest if provided
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/foundation-update
-          FOUNDATION_UPDATE_RELEASE="foundation-update-data"
-          FOUNDATION_UPDATE_MANIFEST="foundation-update-latest-us.json"
-          if ! gh release download "$FOUNDATION_UPDATE_RELEASE" \
-            --repo "${{ github.repository }}" \
-            --pattern "$FOUNDATION_UPDATE_MANIFEST" \
-            --dir /tmp/foundation-update \
-            --clobber; then
-            echo "No foundation-update-data release yet; falling back to legacy weekly-reference-data." >&2
-            FOUNDATION_UPDATE_RELEASE="weekly-reference-data"
-            FOUNDATION_UPDATE_MANIFEST="weekly-reference-latest-us.json"
-            gh release download "$FOUNDATION_UPDATE_RELEASE" \
-              --repo "${{ github.repository }}" \
-              --pattern "$FOUNDATION_UPDATE_MANIFEST" \
-              --dir /tmp/foundation-update \
-              --clobber
+          if [ -z "$PIPELINE_MANIFEST_ASSET" ]; then
+            echo "No pipeline-run-manifest asset provided; static site will resolve latest artifacts."
+            exit 0
           fi
-          FOUNDATION_UPDATE_MANIFEST_PATH="/tmp/foundation-update/${FOUNDATION_UPDATE_MANIFEST}"
-          export FOUNDATION_UPDATE_MANIFEST_PATH
-          echo "FOUNDATION_UPDATE_RELEASE=${FOUNDATION_UPDATE_RELEASE}" >> "$GITHUB_ENV"
-          echo "FOUNDATION_UPDATE_MANIFEST=${FOUNDATION_UPDATE_MANIFEST_PATH}" >> "$GITHUB_ENV"
-
-          BUNDLE_ASSET_NAME="$(python - <<'PY'
-          import json, os
-          from pathlib import Path
-          manifest = json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST_PATH']).read_text(encoding='utf-8'))
-          coverage = manifest.get('coverage') or {}
-          if manifest.get('market') != 'US':
-              raise SystemExit(f"foundation update manifest market must be US, got {manifest.get('market')!r}")
-          if coverage.get('universe_mode') != 'US_OPTIONABLE':
-              raise SystemExit(f"foundation update manifest must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
-          if int(coverage.get('active_symbols') or 0) < 3000:
-              raise SystemExit(f"foundation update manifest active_symbols too low: {coverage.get('active_symbols')}")
-          if int(coverage.get('missing_active_symbols') or 0) != 0:
-              raise SystemExit(f"foundation update manifest has missing active symbols: {coverage.get('missing_active_symbols')}")
-          print(manifest['bundle_asset_name'])
-          PY
-          )"
-          echo "FOUNDATION_UPDATE_BUNDLE=/tmp/foundation-update/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
-          echo "FOUNDATION_UPDATE_SHA256=$(python - <<'PY'
-          import json, os
-          from pathlib import Path
-          print(json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST_PATH']).read_text(encoding='utf-8'))['sha256'])
-          PY
-          )" >> "$GITHUB_ENV"
-
-          gh release download "$FOUNDATION_UPDATE_RELEASE" \
+          mkdir -p /tmp/pipeline-run-manifest
+          gh release download pipeline-run-manifest \
             --repo "${{ github.repository }}" \
-            --pattern "${BUNDLE_ASSET_NAME}" \
-            --dir /tmp/foundation-update \
+            --pattern "$PIPELINE_MANIFEST_ASSET" \
+            --dir /tmp/pipeline-run-manifest \
             --clobber
+          echo "PIPELINE_MANIFEST_PATH=/tmp/pipeline-run-manifest/${PIPELINE_MANIFEST_ASSET}" >> "$GITHUB_ENV"
 
-      - name: Verify foundation update checksum
-        run: |
-          set -euo pipefail
-          digest="$(python - <<'PY'
-          import hashlib, os
-          from pathlib import Path
-          print(hashlib.sha256(Path(os.environ['FOUNDATION_UPDATE_BUNDLE']).read_bytes()).hexdigest())
-          PY
-          )"
-          if [ "$digest" != "$FOUNDATION_UPDATE_SHA256" ]; then
-            echo "Foundation update checksum mismatch: $digest != $FOUNDATION_UPDATE_SHA256" >&2
-            exit 1
-          fi
-
-      - name: Download optional daily price artifact
-        continue-on-error: true
+      - name: Download artifact inputs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/daily-price
-          gh release download daily-price-data \
-            --repo "${{ github.repository }}" \
-            --pattern daily-price-latest-us.json \
-            --dir /tmp/daily-price \
-            --clobber
 
-          BUNDLE_ASSET_NAME="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))
-          if manifest.get('market') != 'US':
-              raise SystemExit(f"daily manifest market must be US, got {manifest.get('market')!r}")
-          print(manifest['bundle_asset_name'])
-          PY
-          )"
-          echo "DAILY_PRICE_BUNDLE=/tmp/daily-price/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
-          echo "DAILY_PRICE_SHA256=$(python - <<'PY'
-          import json
-          from pathlib import Path
-          print(json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))['sha256'])
-          PY
-          )" >> "$GITHUB_ENV"
-
-          gh release download daily-price-data \
-            --repo "${{ github.repository }}" \
-            --pattern "${BUNDLE_ASSET_NAME}" \
-            --dir /tmp/daily-price \
-            --clobber
-
-      - name: Verify optional daily price checksum
-        if: ${{ env.DAILY_PRICE_BUNDLE != '' }}
-        run: |
-          set -euo pipefail
-          digest="$(python - <<'PY'
-          import hashlib, os
-          from pathlib import Path
-          print(hashlib.sha256(Path(os.environ['DAILY_PRICE_BUNDLE']).read_bytes()).hexdigest())
-          PY
-          )"
-          if [ "$digest" != "$DAILY_PRICE_SHA256" ]; then
-            echo "Daily price checksum mismatch: $digest != $DAILY_PRICE_SHA256" >&2
-            exit 1
-          fi
-
-      - name: Download optional scan metrics artifact
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/scan-metrics
-          gh release download scan-metrics-data \
-            --repo "${{ github.repository }}" \
-            --pattern scan-metrics-latest-us.json \
-            --dir /tmp/scan-metrics \
-            --clobber
-
-          BUNDLE_ASSET_NAME="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path('/tmp/scan-metrics/scan-metrics-latest-us.json').read_text(encoding='utf-8'))
-          if manifest.get('market') != 'US':
-              raise SystemExit(f"scan metrics manifest market must be US, got {manifest.get('market')!r}")
-          if float(manifest.get('symbol_coverage') or 0) < 0.80:
-              raise SystemExit(f"scan metrics coverage too low: {manifest.get('symbol_coverage')}")
-          print(manifest['bundle_asset_name'])
-          PY
-          )"
-          echo "SCAN_METRICS_BUNDLE=/tmp/scan-metrics/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
-          echo "SCAN_METRICS_SHA256=$(python - <<'PY'
-          import json
-          from pathlib import Path
-          print(json.loads(Path('/tmp/scan-metrics/scan-metrics-latest-us.json').read_text(encoding='utf-8'))['sha256'])
-          PY
-          )" >> "$GITHUB_ENV"
-
-          gh release download scan-metrics-data \
-            --repo "${{ github.repository }}" \
-            --pattern "${BUNDLE_ASSET_NAME}" \
-            --dir /tmp/scan-metrics \
-            --clobber
-
-      - name: Verify optional scan metrics checksum
-        if: ${{ env.SCAN_METRICS_BUNDLE != '' }}
-        run: |
-          set -euo pipefail
-          digest="$(python - <<'PY'
-          import hashlib, os
-          from pathlib import Path
-          print(hashlib.sha256(Path(os.environ['SCAN_METRICS_BUNDLE']).read_bytes()).hexdigest())
-          PY
-          )"
-          if [ "$digest" != "$SCAN_METRICS_SHA256" ]; then
-            echo "Scan metrics checksum mismatch: $digest != $SCAN_METRICS_SHA256" >&2
-            exit 1
-          fi
-
-      - name: Download optional supplemental profile artifacts
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          download_profile() {
-            local release="$1" manifest="$2" dir="$3" env_prefix="$4"
+          require_artifact() {
+            local key="$1" release="$2" manifest="$3" dir="$4" env_prefix="$5"
             mkdir -p "$dir"
-            gh release download "$release" --repo "${{ github.repository }}" --pattern "$manifest" --dir "$dir" --clobber
-            local bundle sha
-            bundle="$(python - <<PY
+            local bundle sha manifest_path
+            if [ -n "${PIPELINE_MANIFEST_PATH:-}" ]; then
+              bundle="$(python scripts/read_pipeline_manifest.py "$PIPELINE_MANIFEST_PATH" "$key" bundle_asset_name)"
+              sha="$(python scripts/read_pipeline_manifest.py "$PIPELINE_MANIFEST_PATH" "$key" sha256)"
+              manifest_path="$dir/$manifest"
+              gh release download "$release" --repo "${{ github.repository }}" --pattern "$manifest" --dir "$dir" --clobber
+            else
+              gh release download "$release" --repo "${{ github.repository }}" --pattern "$manifest" --dir "$dir" --clobber
+              manifest_path="$dir/$manifest"
+              bundle="$(python - <<PY
           import json
           from pathlib import Path
-          manifest = json.loads(Path('$dir/$manifest').read_text(encoding='utf-8'))
-          if manifest.get('market') != 'US':
-              raise SystemExit(f"profile manifest market must be US, got {manifest.get('market')!r}")
-          print(manifest['bundle_asset_name'])
+          payload = json.loads(Path('$manifest_path').read_text(encoding='utf-8'))
+          if payload.get('market') != 'US':
+              raise SystemExit(f"$release manifest market must be US, got {payload.get('market')!r}")
+          print(payload['bundle_asset_name'])
           PY
-          )"
-            sha="$(python - <<PY
+              )"
+              sha="$(python - <<PY
           import json
           from pathlib import Path
-          print(json.loads(Path('$dir/$manifest').read_text(encoding='utf-8'))['sha256'])
+          print(json.loads(Path('$manifest_path').read_text(encoding='utf-8'))['sha256'])
           PY
-          )"
+              )"
+            fi
             gh release download "$release" --repo "${{ github.repository }}" --pattern "$bundle" --dir "$dir" --clobber
             echo "${env_prefix}_BUNDLE=${dir}/${bundle}" >> "$GITHUB_ENV"
             echo "${env_prefix}_SHA256=${sha}" >> "$GITHUB_ENV"
+            echo "${env_prefix}_MANIFEST=${manifest_path}" >> "$GITHUB_ENV"
           }
-          download_profile group-rank-data group-rank-latest-us.json /tmp/group-rank GROUP_RANK
-          download_profile listing-profile-data listing-profile-latest-us.json /tmp/listing-profile LISTING_PROFILE
-          download_profile etf-profile-data etf-profile-latest-us.json /tmp/etf-profile ETF_PROFILE
 
-      - name: Verify optional supplemental profile checksums
+          optional_artifact() {
+            local key="$1" release="$2" manifest="$3" dir="$4" env_prefix="$5"
+            if require_artifact "$key" "$release" "$manifest" "$dir" "$env_prefix"; then
+              return 0
+            fi
+            if [ "$STATIC_SITE_DEPLOYMENT_MODE" = "production" ]; then
+              echo "Required production artifact missing or invalid: $release/$manifest" >&2
+              return 1
+            fi
+            echo "Preview mode: missing optional artifact ignored: $release/$manifest" >&2
+            return 0
+          }
+
+          require_artifact foundation_update foundation-update-data foundation-update-latest-us.json /tmp/foundation-update FOUNDATION_UPDATE
+          require_artifact daily_price daily-price-data daily-price-latest-us.json /tmp/daily-price DAILY_PRICE
+          require_artifact scan_metrics scan-metrics-data scan-metrics-latest-us.json /tmp/scan-metrics SCAN_METRICS
+          optional_artifact group_rank group-rank-data group-rank-latest-us.json /tmp/group-rank GROUP_RANK
+          optional_artifact listing_profile listing-profile-data listing-profile-latest-us.json /tmp/listing-profile LISTING_PROFILE
+          optional_artifact etf_profile etf-profile-data etf-profile-latest-us.json /tmp/etf-profile ETF_PROFILE
+
+      - name: Validate artifact checksums and contracts
         run: |
           set -euo pipefail
-          verify_optional() {
+          verify() {
             local path="$1" expected="$2" label="$3"
             if [ -z "$path" ]; then return 0; fi
             digest="$(python - <<PY
@@ -254,15 +138,46 @@ jobs:
           from pathlib import Path
           print(hashlib.sha256(Path('$path').read_bytes()).hexdigest())
           PY
-          )"
+            )"
             if [ "$digest" != "$expected" ]; then
               echo "$label checksum mismatch: $digest != $expected" >&2
               exit 1
             fi
           }
-          verify_optional "${GROUP_RANK_BUNDLE:-}" "${GROUP_RANK_SHA256:-}" group-rank
-          verify_optional "${LISTING_PROFILE_BUNDLE:-}" "${LISTING_PROFILE_SHA256:-}" listing-profile
-          verify_optional "${ETF_PROFILE_BUNDLE:-}" "${ETF_PROFILE_SHA256:-}" etf-profile
+          verify "$FOUNDATION_UPDATE_BUNDLE" "$FOUNDATION_UPDATE_SHA256" foundation-update
+          verify "$DAILY_PRICE_BUNDLE" "$DAILY_PRICE_SHA256" daily-price
+          verify "$SCAN_METRICS_BUNDLE" "$SCAN_METRICS_SHA256" scan-metrics
+          verify "${GROUP_RANK_BUNDLE:-}" "${GROUP_RANK_SHA256:-}" group-rank
+          verify "${LISTING_PROFILE_BUNDLE:-}" "${LISTING_PROFILE_SHA256:-}" listing-profile
+          verify "${ETF_PROFILE_BUNDLE:-}" "${ETF_PROFILE_SHA256:-}" etf-profile
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          foundation = json.loads(Path(os.environ['FOUNDATION_UPDATE_MANIFEST']).read_text(encoding='utf-8'))
+          coverage = foundation.get('coverage') or {}
+          if foundation.get('market') != 'US':
+              raise SystemExit('foundation update manifest market must be US')
+          if coverage.get('universe_mode') != 'US_OPTIONABLE':
+              raise SystemExit(f"foundation universe must be US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
+          if int(coverage.get('active_symbols') or 0) < 3000:
+              raise SystemExit(f"foundation active_symbols too low: {coverage.get('active_symbols')}")
+          if int(coverage.get('missing_active_symbols') or 0) != 0:
+              raise SystemExit(f"foundation missing active symbols: {coverage.get('missing_active_symbols')}")
+          daily = json.loads(Path(os.environ['DAILY_PRICE_MANIFEST']).read_text(encoding='utf-8'))
+          if daily.get('market') != 'US' or float(daily.get('symbol_coverage') or 0) < 0.80:
+              raise SystemExit(f"daily price contract failed: {daily}")
+          scan = json.loads(Path(os.environ['SCAN_METRICS_MANIFEST']).read_text(encoding='utf-8'))
+          if scan.get('market') != 'US' or float(scan.get('symbol_coverage') or 0) < 0.80:
+              raise SystemExit(f"scan metrics contract failed: {scan}")
+          print({
+              'deployment_mode': os.environ.get('STATIC_SITE_DEPLOYMENT_MODE'),
+              'pinned_pipeline_manifest': os.environ.get('PIPELINE_MANIFEST_ASSET') or None,
+              'foundation_symbols': coverage.get('active_symbols'),
+              'daily_coverage': daily.get('symbol_coverage'),
+              'scan_coverage': scan.get('symbol_coverage'),
+          })
+          PY
 
       - name: Build static data from artifacts
         run: |
@@ -270,23 +185,13 @@ jobs:
           rm -rf "$STATIC_DATA_DIR"
           args=(
             --foundation-update "$FOUNDATION_UPDATE_BUNDLE"
+            --daily-price "$DAILY_PRICE_BUNDLE"
+            --scan-metrics "$SCAN_METRICS_BUNDLE"
             --output-dir "../$STATIC_DATA_DIR"
           )
-          if [ -n "${DAILY_PRICE_BUNDLE:-}" ]; then
-            args+=(--daily-price "$DAILY_PRICE_BUNDLE")
-          fi
-          if [ -n "${SCAN_METRICS_BUNDLE:-}" ]; then
-            args+=(--scan-metrics "$SCAN_METRICS_BUNDLE")
-          fi
-          if [ -n "${GROUP_RANK_BUNDLE:-}" ]; then
-            args+=(--group-rank "$GROUP_RANK_BUNDLE")
-          fi
-          if [ -n "${LISTING_PROFILE_BUNDLE:-}" ]; then
-            args+=(--listing-profile "$LISTING_PROFILE_BUNDLE")
-          fi
-          if [ -n "${ETF_PROFILE_BUNDLE:-}" ]; then
-            args+=(--etf-profile "$ETF_PROFILE_BUNDLE")
-          fi
+          if [ -n "${GROUP_RANK_BUNDLE:-}" ]; then args+=(--group-rank "$GROUP_RANK_BUNDLE"); fi
+          if [ -n "${LISTING_PROFILE_BUNDLE:-}" ]; then args+=(--listing-profile "$LISTING_PROFILE_BUNDLE"); fi
+          if [ -n "${ETF_PROFILE_BUNDLE:-}" ]; then args+=(--etf-profile "$ETF_PROFILE_BUNDLE"); fi
           cd backend
           python -m app.scripts.build_static_site_from_artifacts "${args[@]}"
 
@@ -309,9 +214,7 @@ jobs:
           missing = required - set(scan['initial_rows'][0])
           if missing:
               raise SystemExit(f'missing required scan row fields: {sorted(missing)}')
-          priced = 0
-          price_sparklines = 0
-          rs_sparklines = 0
+          priced = price_sparklines = rs_sparklines = 0
           for chunk in scan['chunks']:
               path = root / chunk['path']
               if not path.exists():

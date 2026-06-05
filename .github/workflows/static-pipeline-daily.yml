@@ -1,0 +1,187 @@
+name: Static Pipeline Daily
+
+on:
+  # Wake hourly and gate inside the job so the effective cadence is after the
+  # US market close: Monday-Friday 20:00 America/New_York.
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even if scheduled cadence would normally skip."
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: static-pipeline-daily-us
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  orchestrate:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ github.event.repository.default_branch }}
+      MARKET: US
+      PIPELINE_TYPE: daily
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide scheduled cadence
+        id: cadence
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          et_dow="$(TZ=America/New_York date +%u)"
+          et_hour="$(TZ=America/New_York date +%H)"
+          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && [ "$et_hour" = "20" ]; then
+            echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping; target is Monday-Friday 20:00 America/New_York."
+            echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure pipeline-run-manifest release exists
+        if: ${{ steps.cadence.outputs.run_pipeline == 'true' }}
+        run: |
+          gh release view pipeline-run-manifest --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+          gh release create pipeline-run-manifest --repo "${{ github.repository }}" \
+            --title "Pipeline Run Manifests" \
+            --notes "Pinned artifact sets used by static pipeline orchestrators."
+
+      - name: Run daily pipeline and deploy pinned static site
+        if: ${{ steps.cadence.outputs.run_pipeline == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pipeline-run
+
+          run_component() {
+            local workflow="$1" var_name="$2"
+            shift 2
+            local started run_id
+            started="$(date -u +%s)"
+            echo "Dispatching $workflow $*"
+            gh workflow run "$workflow" --repo "${{ github.repository }}" --ref "$BRANCH" "$@"
+            sleep 10
+            run_id="$(WORKFLOW="$workflow" STARTED="$started" python - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime
+          workflow = os.environ['WORKFLOW']
+          started = int(os.environ['STARTED']) - 30
+          raw = subprocess.check_output([
+              'gh', 'run', 'list', '--repo', os.environ['GITHUB_REPOSITORY'],
+              '--workflow', workflow, '--branch', os.environ['BRANCH'],
+              '--event', 'workflow_dispatch', '--limit', '20',
+              '--json', 'databaseId,createdAt,status,headSha'
+          ], text=True)
+          candidates = []
+          for run in json.loads(raw):
+              ts = datetime.fromisoformat(run['createdAt'].replace('Z', '+00:00')).timestamp()
+              if ts >= started:
+                  candidates.append((ts, run['databaseId']))
+          if not candidates:
+              raise SystemExit(f'No dispatched run found for {workflow}')
+          print(sorted(candidates)[-1][1])
+          PY
+            )"
+            echo "$workflow run id: $run_id"
+            gh run watch "$run_id" --repo "${{ github.repository }}" --exit-status --interval 30
+            printf -v "$var_name" '%s' "$run_id"
+            export "$var_name"
+            echo "${var_name}=${run_id}" >> "$GITHUB_ENV"
+          }
+
+          run_component daily-price.yml DAILY_PRICE_RUN_ID
+          run_component scan-metrics.yml SCAN_METRICS_RUN_ID
+          run_component group-rank.yml GROUP_RANK_RUN_ID
+
+          create_manifest() {
+            local static_run_id="${1:-}"
+            rm -rf /tmp/pipeline-run-inputs
+            mkdir -p /tmp/pipeline-run-inputs
+            download_manifest() {
+              local key="$1" release="$2" manifest="$3"
+              mkdir -p "/tmp/pipeline-run-inputs/$key"
+              gh release download "$release" --repo "${{ github.repository }}" --pattern "$manifest" --dir "/tmp/pipeline-run-inputs/$key" --clobber
+            }
+            download_manifest foundation_update foundation-update-data foundation-update-latest-us.json
+            download_manifest daily_price daily-price-data daily-price-latest-us.json
+            download_manifest scan_metrics scan-metrics-data scan-metrics-latest-us.json
+            download_manifest group_rank group-rank-data group-rank-latest-us.json
+            download_manifest listing_profile listing-profile-data listing-profile-latest-us.json
+            download_manifest etf_profile etf-profile-data etf-profile-latest-us.json
+            STATIC_RUN_ID="$static_run_id" python - <<'PY'
+          import hashlib, json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          items = {
+              'foundation_update': ('foundation-update-data', 'foundation-update-latest-us.json'),
+              'daily_price': ('daily-price-data', 'daily-price-latest-us.json'),
+              'scan_metrics': ('scan-metrics-data', 'scan-metrics-latest-us.json'),
+              'group_rank': ('group-rank-data', 'group-rank-latest-us.json'),
+              'listing_profile': ('listing-profile-data', 'listing-profile-latest-us.json'),
+              'etf_profile': ('etf-profile-data', 'etf-profile-latest-us.json'),
+          }
+          artifacts = {}
+          for key, (release, manifest_asset) in items.items():
+              path = Path('/tmp/pipeline-run-inputs') / key / manifest_asset
+              payload = json.loads(path.read_text(encoding='utf-8'))
+              artifacts[key] = {
+                  'release': release,
+                  'manifest_asset': manifest_asset,
+                  'manifest_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                  'bundle_asset_name': payload['bundle_asset_name'],
+                  'sha256': payload['sha256'],
+                  'schema_version': payload.get('schema_version'),
+                  'market': payload.get('market', 'US'),
+                  'as_of_date': payload.get('as_of_date'),
+                  'symbol_count': payload.get('symbol_count'),
+                  'symbol_coverage': payload.get('symbol_coverage'),
+              }
+          run_id = os.environ['GITHUB_RUN_ID']
+          payload = {
+              'schema_version': 'pipeline-run-manifest-v1',
+              'market': 'US',
+              'pipeline_type': os.environ['PIPELINE_TYPE'],
+              'workflow': os.environ['GITHUB_WORKFLOW'],
+              'workflow_run_id': int(run_id),
+              'head_sha': os.environ['GITHUB_SHA'],
+              'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
+              'required_artifacts': ['foundation_update', 'daily_price', 'scan_metrics', 'group_rank', 'listing_profile', 'etf_profile'],
+              'component_runs': {
+                  'daily_price': os.environ.get('DAILY_PRICE_RUN_ID'),
+                  'scan_metrics': os.environ.get('SCAN_METRICS_RUN_ID'),
+                  'group_rank': os.environ.get('GROUP_RANK_RUN_ID'),
+                  'static_site': os.environ.get('STATIC_RUN_ID') or None,
+              },
+              'artifacts': artifacts,
+          }
+          date_key = datetime.now(timezone.utc).strftime('%Y%m%d')
+          out = Path('/tmp/pipeline-run') / f"pipeline-run-daily-{date_key}-{run_id}.json"
+          out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding='utf-8')
+          Path('/tmp/pipeline-run/pipeline-run-latest-us.json').write_text(json.dumps(payload, indent=2, sort_keys=True), encoding='utf-8')
+          PY
+          }
+
+          create_manifest ""
+          PIPELINE_DATE="$(date -u +%Y%m%d)"
+          PIPELINE_ASSET="pipeline-run-daily-${PIPELINE_DATE}-${GITHUB_RUN_ID}.json"
+          gh release upload pipeline-run-manifest "/tmp/pipeline-run/${PIPELINE_ASSET}" /tmp/pipeline-run/pipeline-run-latest-us.json --repo "${{ github.repository }}" --clobber
+          run_component static-site.yml STATIC_SITE_RUN_ID \
+            -f deployment_mode=production -f pipeline_manifest_asset="$PIPELINE_ASSET"
+          create_manifest "$STATIC_SITE_RUN_ID"
+          gh release upload pipeline-run-manifest "/tmp/pipeline-run/${PIPELINE_ASSET}" /tmp/pipeline-run/pipeline-run-latest-us.json --repo "${{ github.repository }}" --clobber
+
+          echo "### Static Pipeline Daily" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pipeline manifest: ${PIPELINE_ASSET}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Static Site run: ${STATIC_SITE_RUN_ID}" >> "$GITHUB_STEP_SUMMARY"

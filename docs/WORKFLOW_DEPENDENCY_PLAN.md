@@ -471,12 +471,76 @@ Static Site manifest 應記錄完整 input set：
 
 ---
 
-## 後續落地項目
+## 已落地 workflow 實作
 
-1. 新增 `pipeline-run-manifest` release contract。
-2. 新增 `static-pipeline-full.yml`：每二週 full refresh。
-3. 新增 `static-pipeline-daily.yml`：美股收盤後 daily refresh。
-4. 視需要新增 `static-pipeline-repair.yml`：指定 layer 修復。
-5. 調整 `static-site.yml`：production mode 不允許 required artifact 缺失；preview/emergency mode 才能 optional。
-6. 更新 downstream manifests，記錄 upstream bundle sha。
-7. 更新 release cleanup policy，納入所有新 artifact releases 與 `pipeline-run-manifest`。
+1. **`pipeline-run-manifest` release contract**
+   - Orchestrators 會建立/更新 `pipeline-run-manifest` release。
+   - 每次 run 會發布：
+     - `pipeline-run-full-YYYYMMDD-<run_id>.json`
+     - `pipeline-run-daily-YYYYMMDD-<run_id>.json`
+     - `pipeline-run-repair-YYYYMMDD-<run_id>.json`
+     - `pipeline-run-latest-us.json`
+   - Manifest 內容包含 component run ids、required artifacts、release names、manifest asset names、bundle asset names、sha256、coverage summary。
+
+2. **`static-pipeline-full.yml`**
+   - 每二週 full refresh。
+   - GitHub cron hourly wake；job 內 gate 到每二週 Sunday 20:00 America/New_York。
+   - 執行：
+     ```text
+     optionable-symbols
+     → foundation-update
+     → daily-price
+     → listing-profile
+     → etf-profile
+     → scan-metrics
+     → group-rank
+     → pipeline-run-manifest
+     → static-site production pinned deploy
+     ```
+
+3. **`static-pipeline-daily.yml`**
+   - 美股收盤後 daily refresh。
+   - GitHub cron hourly wake；job 內 gate 到 Monday-Friday 20:00 America/New_York。
+   - 執行：
+     ```text
+     daily-price
+     → scan-metrics
+     → group-rank
+     → pipeline-run-manifest
+     → static-site production pinned deploy
+     ```
+
+4. **`static-pipeline-repair.yml`**
+   - 支援指定 layer 修復：
+     ```text
+     optionable / foundation / daily-price / scan-metrics /
+     group-rank / listing-profile / etf-profile / static-site-only
+     ```
+   - 修上游時自動跑必要下游。
+   - 修 supplemental profile 時只跑該 profile + pinned Static Site deploy。
+
+5. **`static-site.yml` production required gate**
+   - 新增 `deployment_mode`：`production` / `preview`。
+   - `production` 必須具備完整 artifact：
+     - foundation update
+     - daily price
+     - scan metrics
+     - group rank
+     - listing profile
+     - ETF profile
+   - 新增 `pipeline_manifest_asset` input；production orchestrators 會用 pinned manifest deploy，避免 latest race condition。
+   - `preview` 才允許 non-core artifacts 缺失。
+
+6. **Release cleanup policy 已更新**
+   - 納入：
+     - `optionable-symbols`
+     - `scan-metrics-data`
+     - `group-rank-data`
+     - `listing-profile-data`
+     - `etf-profile-data`
+     - `pipeline-run-manifest`
+   - 保留最新 manifest 參照的 bundle，不刪 active latest。
+
+7. **Downstream upstream sha 記錄**
+   - 目前由 `pipeline-run-manifest` 統一記錄每次 deployment 使用的 artifact set 與 sha。
+   - 各 component manifest 仍可後續補上自身 upstream sha，但 production deploy 已先由 pipeline-run manifest 達成 pinning 與追溯。

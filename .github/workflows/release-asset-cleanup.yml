@@ -62,6 +62,22 @@ jobs:
                   ),
               ),
               Policy(
+                  release="optionable-symbols",
+                  keep=6,
+                  mode="dates",
+                  patterns=(
+                      re.compile(r"^optionable-symbols-(?P<market>[a-z]{2})-(?P<date>\d{8})\.json$"),
+                  ),
+              ),
+              Policy(
+                  release="pipeline-run-manifest",
+                  keep=30,
+                  mode="dates",
+                  patterns=(
+                      re.compile(r"^pipeline-run-(?P<market>full|daily|repair)-(?P<date>\d{8})-\d+\.json$"),
+                  ),
+              ),
+              Policy(
                   release="foundation-update-data",
                   keep=4,
                   mode="dates",
@@ -70,6 +86,38 @@ jobs:
                           r"^foundation-update-(?P<market>[a-z]{2})-(?P<date>\d{8})-.+\.json\.gz$"
                       ),
                       re.compile(r"^foundation-update-(?P<date>\d{8})-.+\.json\.gz$"),
+                  ),
+              ),
+              Policy(
+                  release="scan-metrics-data",
+                  keep=10,
+                  mode="dates",
+                  patterns=(
+                      re.compile(r"^scan-metrics-(?P<market>[a-z]{2})-(?P<date>\d{8})\.json\.gz$"),
+                  ),
+              ),
+              Policy(
+                  release="group-rank-data",
+                  keep=10,
+                  mode="dates",
+                  patterns=(
+                      re.compile(r"^group-rank-(?P<market>[a-z]{2})-(?P<date>\d{8})\.json\.gz$"),
+                  ),
+              ),
+              Policy(
+                  release="listing-profile-data",
+                  keep=6,
+                  mode="dates",
+                  patterns=(
+                      re.compile(r"^listing-profile-(?P<market>[a-z]{2})-(?P<date>\d{8})\.json\.gz$"),
+                  ),
+              ),
+              Policy(
+                  release="etf-profile-data",
+                  keep=6,
+                  mode="dates",
+                  patterns=(
+                      re.compile(r"^etf-profile-(?P<market>[a-z]{2})-(?P<date>\d{8})\.json\.gz$"),
                   ),
               ),
               Policy(
