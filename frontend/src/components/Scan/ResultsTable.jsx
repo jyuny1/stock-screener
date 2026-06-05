@@ -11,6 +11,7 @@ import {
   TableSortLabel,
   Paper,
   Chip,
+  Tooltip,
   Typography,
   Box,
   CircularProgress,
@@ -53,6 +54,73 @@ const MCAP_DISPLAY = Object.freeze({
 });
 
 // Column definitions with explicit widths
+const columnHelp = {
+  chart: { zh: '圖表', description: '開啟個股圖表。' },
+  symbol: { zh: '代號', description: '股票或 ETF 交易代號。美國 ETF 會在代號旁顯示 ETF 標記。' },
+  rs_trend: { zh: '相對強度趨勢', description: '近期價格相對 SPY 的 RS line 趨勢；上升代表近期跑贏 SPY。' },
+  price_change_1d: { zh: '日漲跌', description: '最新交易日價格變化百分比。' },
+  gics_sector: { zh: '板塊', description: '標的所屬 sector / 板塊。' },
+  ibd_industry_group: { zh: 'IBD 產業', description: '標的所屬產業組；目前 US 使用 foundation/provider 或 artifact surrogate group。' },
+  market_themes: { zh: '主題', description: '投資主題或市場敘事；目前 US static pipeline 尚未接入 themes artifact。' },
+  ibd_group_rank: { zh: '產業排名', description: '產業組強度排名，數字越小越強；目前為 artifact-native surrogate rank。' },
+  composite_score: { zh: '綜合分', description: '多個技術/相對強度/型態指標的綜合分數。' },
+  minervini_score: { zh: 'Minervini 分', description: 'Minervini 趨勢模板條件的通過程度。' },
+  canslim_score: { zh: 'CANSLIM 分', description: '以 CANSLIM 風格綜合 RS、EPS、趨勢等因素的分數。' },
+  ipo_score: { zh: 'IPO 分', description: '新股/上市時間相關的分數。' },
+  custom_score: { zh: '自訂分', description: '自訂策略綜合分數。' },
+  volume_breakthrough_score: { zh: '放量突破', description: '成交量相對近期均量的放大程度；越高代表越明顯放量。' },
+  se_setup_score: { zh: 'SE 型態分', description: 'Setup Engine 對目前型態與突破準備度的綜合分。' },
+  se_pattern_primary: { zh: '型態', description: 'Setup Engine 偵測到的主要型態。' },
+  se_distance_to_pivot_pct: { zh: '距樞紐%', description: '現價距離 pivot / 樞紐價的百分比；接近 0 代表接近樞紐。' },
+  se_bb_width_pctile_252: { zh: '壓縮度', description: '252 日布林帶寬度百分位；越低代表波動越收縮。' },
+  se_volume_vs_50d: { zh: '量比50日', description: '當日成交量除以 50 日平均成交量。' },
+  se_rs_line_new_high: { zh: 'RS 新高', description: 'RS line 是否創近期新高，用來確認相對強勢。' },
+  se_pivot_price: { zh: '樞紐價', description: 'Setup Engine 計算的 pivot price。' },
+  rs_rating: { zh: '相對強度', description: '12 個月相對強度排名，通常越高代表長期表現越強。' },
+  rs_rating_1m: { zh: '1月強度', description: '1 個月相對強度排名。' },
+  rs_rating_3m: { zh: '3月強度', description: '3 個月相對強度排名。' },
+  rs_rating_12m: { zh: '12月強度', description: '12 個月相對強度排名。' },
+  beta: { zh: 'Beta', description: '相對市場的波動度；越高代表對市場波動更敏感。' },
+  beta_adj_rs: { zh: 'Beta調整RS', description: '以 Beta 調整後的相對強度。' },
+  eps_rating: { zh: 'EPS評級', description: '由 EPS growth 派生的評級；目前受 foundation coverage 限制。' },
+  stage: { zh: '階段', description: '技術趨勢階段；Stage 2 通常代表較健康上升趨勢，Stage 4 偏弱。' },
+  current_price: { zh: '現價', description: '最新可用收盤價或價格。' },
+  volume: { zh: '成交額', description: '美元成交額，約等於成交股數乘以現價。' },
+  market_cap: { zh: '市值/AUM', description: '股票為市值；ETF 使用 AUM / net assets fallback。' },
+  adv_usd: { zh: '日均成交額', description: '美元日成交額，用於判斷標的流動性。' },
+  ipo_date: { zh: '上市日期', description: 'IPO 或 first trade date。' },
+  eps_growth_qq: { zh: 'EPS成長', description: '近期 EPS 成長率。' },
+  sales_growth_qq: { zh: '營收成長', description: '近期營收成長率。' },
+  adr_percent: { zh: '平均日振幅', description: 'Average Daily Range 百分比，用於衡量日內波動。' },
+  ma_alignment: { zh: '均線排列', description: '價格與主要均線是否呈多頭排列。' },
+  vcp_detected: { zh: 'VCP型態', description: '是否偵測到波動收縮型態 VCP。' },
+  vcp_score: { zh: 'VCP分', description: 'VCP 型態品質分數。' },
+  vcp_pivot: { zh: 'VCP樞紐', description: 'VCP 型態的 pivot price。' },
+  vcp_ready_for_breakout: { zh: '突破準備', description: '是否接近可突破狀態。' },
+  passes_template: { zh: '通過模板', description: '是否通過 Minervini / 趨勢模板條件。' },
+  rating: { zh: '評級', description: '由 scan metrics 派生的綜合評級。' },
+};
+
+const ColumnHeaderLabel = ({ column }) => {
+  const help = columnHelp[column.id];
+  const label = <Box component="span" sx={{ borderBottom: help ? '1px dotted currentColor' : 'none' }}>{column.label}</Box>;
+  if (!help) return label;
+  return (
+    <Tooltip
+      arrow
+      placement="top"
+      title={(
+        <Box>
+          <Typography variant="subtitle2" component="div">{help.zh}</Typography>
+          <Typography variant="caption" component="div">{help.description}</Typography>
+        </Box>
+      )}
+    >
+      {label}
+    </Tooltip>
+  );
+};
+
 const columns = [
   { id: 'chart', label: '', sortable: false, width: 60 },
   // Width fits "0700.HK" + MarketBadge + FieldAvailabilityChip on a single
@@ -630,10 +698,10 @@ function ResultsTable({
                       direction={sortBy === column.id ? sortOrder : 'asc'}
                       onClick={() => handleRequestSort(column.id)}
                     >
-                      {column.label}
+                      <ColumnHeaderLabel column={column} />
                     </TableSortLabel>
                   ) : (
-                    column.label
+                    <ColumnHeaderLabel column={column} />
                   )}
                 </TableCell>
               ))}
