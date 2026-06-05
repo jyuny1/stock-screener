@@ -152,7 +152,7 @@ Response：
 GET /api/screener/manifest
 ```
 
-用途：讓 agent 知道目前 scan table 的資料版本、總筆數、可用欄位與預設排序。
+用途：讓 agent 知道目前 scan table 的資料版本、總筆數、可用欄位、預設排序與資料更新時間。
 
 Response：
 
@@ -211,8 +211,16 @@ Response：
     ]
   },
   "meta": {
-    "static_manifest_path": "static-data/manifest.json",
-    "scan_manifest_path": "static-data/markets/us/scan/manifest.json"
+    "market": "US",
+    "rows_total": 5619,
+    "generated_at": "2026-06-05T10:08:31Z",
+    "as_of_date": "2026-06-05",
+    "data_updated_at": "2026-06-05T10:08:31Z",
+    "source": {
+      "type": "r2-static-data",
+      "static_manifest_path": "static-data/manifest.json",
+      "scan_manifest_path": "static-data/markets/us/scan/manifest.json"
+    }
   }
 }
 ```
@@ -405,8 +413,12 @@ curl "https://screener-api.example.com/api/screener/rows?fields=symbol,current_p
   "meta": {
     "market": "US",
     "rows_total": 5619,
+    "generated_at": "2026-06-05T10:08:31Z",
+    "as_of_date": "2026-06-05",
+    "data_updated_at": "2026-06-05T10:08:31Z",
     "source": {
       "type": "r2-static-data",
+      "static_manifest_path": "static-data/manifest.json",
       "scan_manifest_path": "static-data/markets/us/scan/manifest.json"
     }
   }
@@ -485,6 +497,24 @@ Content-Type: application/json; charset=utf-8
 ```
 
 API 有 Bearer token，因此不使用 public cache。
+
+---
+
+## Data freshness fields
+
+所有成功 response 的 `meta` 都應包含：
+
+| Field | Description |
+|---|---|
+| `generated_at` | Static scan manifest 產生時間，優先取 `markets/us/scan/manifest.json.generated_at` |
+| `as_of_date` | 資料 as-of date，通常是 foundation/daily artifact 對應日期 |
+| `data_updated_at` | Agent 判斷資料新鮮度用；第一版等同 `generated_at` |
+
+Agent 應優先看：
+
+```text
+meta.data_updated_at
+```
 
 ---
 

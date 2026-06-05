@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "stock-screener-agent-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-05",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "STATIC_DATA_PREFIX": "static-data",
+    "DEFAULT_ROWS_LIMIT": "100",
+    "MAX_ROWS_LIMIT": "500",
+    "DEFAULT_SORT": "volume",
+    "DEFAULT_ORDER": "desc"
+  },
+  "r2_buckets": [
+    {
+      "binding": "STATIC_DATA_BUCKET",
+      "bucket_name": "replace-with-r2-bucket"
+    }
+  ]
+}
