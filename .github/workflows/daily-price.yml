@@ -1,0 +1,182 @@
+name: Daily Price Data
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: daily-price-us
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish-us:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: stockscanner
+          POSTGRES_USER: stockscanner
+          POSTGRES_PASSWORD: stockscanner
+        options: >-
+          --health-cmd "pg_isready -U stockscanner -d stockscanner"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      REDIS_ENABLED: "false"
+      DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
+      US_UNIVERSE_MODE: optionable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Ensure daily price release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view daily-price-data \
+            --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+          gh release create daily-price-data \
+            --repo "${{ github.repository }}" \
+            --title "Daily Price Data" \
+            --notes "Automated US OHLCV bundles for artifact-native static-site builds."
+
+      - name: Download US weekly reference bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/weekly-reference
+          gh release download weekly-reference-data \
+            --repo "${{ github.repository }}" \
+            --pattern weekly-reference-latest-us.json \
+            --dir /tmp/weekly-reference \
+            --clobber
+
+          BUNDLE_ASSET_NAME="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/weekly-reference/weekly-reference-latest-us.json').read_text(encoding='utf-8'))
+          coverage = manifest.get('coverage') or {}
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"weekly manifest market must be US, got {manifest.get('market')!r}")
+          if coverage.get('universe_mode') != 'US_OPTIONABLE':
+              raise SystemExit(f"weekly manifest must use US_OPTIONABLE, got {coverage.get('universe_mode')!r}")
+          if int(coverage.get('active_symbols') or 0) < 3000:
+              raise SystemExit(f"weekly manifest active_symbols too low: {coverage.get('active_symbols')}")
+          if int(coverage.get('missing_active_symbols') or 0) != 0:
+              raise SystemExit(f"weekly manifest has missing active symbols: {coverage.get('missing_active_symbols')}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+          echo "WEEKLY_REFERENCE_BUNDLE=/tmp/weekly-reference/${BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+          echo "WEEKLY_REFERENCE_SHA256=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/weekly-reference/weekly-reference-latest-us.json').read_text(encoding='utf-8'))['sha256'])
+          PY
+          )" >> "$GITHUB_ENV"
+
+          gh release download weekly-reference-data \
+            --repo "${{ github.repository }}" \
+            --pattern "${BUNDLE_ASSET_NAME}" \
+            --dir /tmp/weekly-reference \
+            --clobber
+
+      - name: Verify weekly reference checksum
+        run: |
+          set -euo pipefail
+          digest="$(python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          print(hashlib.sha256(Path(os.environ['WEEKLY_REFERENCE_BUNDLE']).read_bytes()).hexdigest())
+          PY
+          )"
+          if [ "$digest" != "$WEEKLY_REFERENCE_SHA256" ]; then
+            echo "Weekly reference checksum mismatch: $digest != $WEEKLY_REFERENCE_SHA256" >&2
+            exit 1
+          fi
+
+      - name: Import weekly reference bundle
+        run: |
+          cd backend
+          python -m app.scripts.import_weekly_reference_bundle \
+            --input "$WEEKLY_REFERENCE_BUNDLE"
+
+      - name: Seed prior daily price bundle from GitHub
+        run: |
+          cd backend
+          python -m app.scripts.sync_daily_price_bundle_from_github \
+            --market US \
+            --allow-stale
+
+      - name: Refresh US daily prices
+        run: |
+          cd backend
+          python -m app.scripts.export_static_site \
+            --output-dir /tmp/daily-price-static-export \
+            --refresh-daily \
+            --build-mode price_delta \
+            --skip-universe-refresh \
+            --skip-fundamentals-refresh \
+            --market US
+
+      - name: Build daily price bundle
+        run: |
+          cd backend
+          python -m app.scripts.build_daily_price_bundle \
+            --market US \
+            --output-dir /tmp/daily-price
+
+      - name: Validate daily price outputs
+        run: |
+          set -euo pipefail
+          test -s /tmp/daily-price/daily-price-latest-us.json
+          bundle="$(find /tmp/daily-price -maxdepth 1 -name 'daily-price-us-*.json.gz' | head -n 1)"
+          if [ -z "$bundle" ] || [ ! -s "$bundle" ]; then
+            echo "Missing daily price bundle" >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/daily-price/daily-price-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"daily manifest market must be US, got {manifest.get('market')!r}")
+          if int(manifest.get('symbol_count') or 0) < 3000:
+              raise SystemExit(f"daily manifest symbol_count too low: {manifest.get('symbol_count')}")
+          print({
+              'as_of_date': manifest.get('as_of_date'),
+              'symbol_count': manifest.get('symbol_count'),
+              'bundle_asset_name': manifest.get('bundle_asset_name'),
+          })
+          PY
+
+      - name: Upload daily price assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bundle="$(find /tmp/daily-price -maxdepth 1 -name 'daily-price-us-*.json.gz' | head -n 1)"
+          gh release upload daily-price-data "$bundle" \
+            --repo "${{ github.repository }}" \
+            --clobber
+          gh release upload daily-price-data /tmp/daily-price/daily-price-latest-us.json \
+            --repo "${{ github.repository }}" \
+            --clobber
