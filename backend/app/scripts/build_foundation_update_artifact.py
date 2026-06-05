@@ -22,7 +22,10 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import yfinance as yf
+try:
+    import yfinance as yf
+except Exception:  # pragma: no cover - ETF/merge modes do not need yfinance
+    yf = None  # type: ignore[assignment]
 
 try:
     from app.services.yf_session import get_session
@@ -163,6 +166,8 @@ def _get_fast_info_values(ticker: Any) -> dict[str, Any]:
 
 
 def _fetch_symbol(symbol: str, base: dict[str, Any]) -> dict[str, Any]:
+    if yf is None:
+        raise RuntimeError("yfinance is required for stock provider fetches")
     yahoo_symbol = _symbol_for_yahoo(symbol)
     session = None
     if get_session is not None:
