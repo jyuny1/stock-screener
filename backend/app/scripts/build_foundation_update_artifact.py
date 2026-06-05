@@ -280,11 +280,21 @@ def build_foundation_update_artifact(
             merged.setdefault("foundation_updated_at", _utc_now())
             merged["field_availability"] = _field_availability(merged)
             rows_by_symbol[symbol] = merged
-            if _is_stale(merged, stale_days=stale_days):
+            if _is_stale(merged, stale_days=stale_days) and not bool(merged.get("is_etf")):
                 missing_or_stale.append(symbol)
         else:
-            rows_by_symbol[symbol] = {**base, "field_availability": _field_availability(base)}
-            missing_or_stale.append(symbol)
+            metadata_only = {
+                **base,
+                "foundation_status": "metadata_only" if base.get("is_etf") else "missing_provider_fields",
+                "foundation_updated_at": _utc_now(),
+            }
+            metadata_only["field_availability"] = _field_availability(metadata_only)
+            rows_by_symbol[symbol] = metadata_only
+            # ETF static-page foundation needs identity/classification from NasdaqTrader;
+            # yfinance fundamentals are sparse and slow for ETFs. Do not spend
+            # provider calls on ETF-only deltas during optionable-universe expansion.
+            if not base.get("is_etf"):
+                missing_or_stale.append(symbol)
 
     failures: dict[str, str] = {}
     for index, symbol in enumerate(missing_or_stale, start=1):

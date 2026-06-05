@@ -89,6 +89,42 @@ def test_build_foundation_update_artifact_reuses_prior_and_fetches_missing(monke
     assert rows[1]["normalized_payload"]["market_cap"] == 200
 
 
+def test_missing_etf_uses_metadata_without_provider_fetch(monkeypatch, tmp_path: Path):
+    optionable = {
+        "market": "US",
+        "source": "optionable_schwab:20260604",
+        "symbols": ["SPY"],
+        "symbol_metadata": {
+            "SPY": {"symbol": "SPY", "mic": "ARCX", "exchange": "NYSE Arca", "name": "SPDR S&P 500 ETF Trust", "is_etf": True},
+        },
+    }
+    optionable_path = tmp_path / "optionable.json"
+    optionable_path.write_text(json.dumps(optionable), encoding="utf-8")
+
+    def fail_fetch(symbol, base):
+        raise AssertionError("missing ETFs should not call yfinance provider")
+
+    monkeypatch.setattr(script, "_fetch_symbol", fail_fetch)
+    monkeypatch.setattr(script, "_utc_now", lambda: "2026-06-05T00:00:00Z")
+    monkeypatch.setattr(script, "_today", lambda: "2026-06-05")
+
+    summary = script.build_foundation_update_artifact(
+        optionable_symbols=optionable_path,
+        output_dir=tmp_path / "out",
+        batch_sleep_seconds=0,
+        min_symbol_coverage=1.0,
+        min_identity_coverage=1.0,
+        min_market_cap_coverage=0.0,
+    )
+
+    assert summary["fetched_symbol_count"] == 0
+    with gzip.open(tmp_path / "out" / summary["bundle_asset_name"], "rt", encoding="utf-8") as handle:
+        bundle = json.load(handle)
+    payload = bundle["snapshot"]["rows"][0]["normalized_payload"]
+    assert payload["is_etf"] is True
+    assert payload["foundation_status"] == "metadata_only"
+
+
 def test_legacy_prior_with_provider_fields_is_not_refetched(monkeypatch, tmp_path: Path):
     optionable = {
         "market": "US",
