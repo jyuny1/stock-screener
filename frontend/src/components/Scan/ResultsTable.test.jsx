@@ -52,74 +52,60 @@ const defaultProps = {
 };
 
 describe('ResultsTable', () => {
-  // ── SE column rendering — full data ──────────────────────────────────
-  describe('SE column rendering — full data', () => {
+  // ── retained setup column rendering — full data ─────────────────────
+  describe('retained setup column rendering — full data', () => {
     beforeEach(() => {
       renderWithProviders(<ResultsTable {...defaultProps} results={[fullSeRow]} />);
-    });
-
-    it('renders se_setup_score as 78.3', () => {
-      expect(screen.getByText('78.3')).toBeInTheDocument();
-    });
-
-    it('renders se_pattern_primary as cup_with_handle', () => {
-      expect(screen.getByText('cup_with_handle')).toBeInTheDocument();
     });
 
     it('renders se_distance_to_pivot_pct as -3.2%', () => {
       expect(screen.getByText('-3.2%')).toBeInTheDocument();
     });
 
-    it('renders se_bb_width_pctile_252 as 15', () => {
-      expect(screen.getByText('15')).toBeInTheDocument();
-    });
-
     it('renders se_volume_vs_50d as 1.8x', () => {
       expect(screen.getByText('1.8x')).toBeInTheDocument();
     });
 
-    it('renders CheckIcon for se_rs_line_new_high=true', () => {
-      // Multiple boolean columns render CheckIcon (ma_alignment, passes_template, se_rs_line_new_high).
-      // fullSeRow has ma_alignment=true, passes_template=true, se_rs_line_new_high=true → 3 CheckIcons.
+    it('renders CheckIcon for retained boolean columns', () => {
+      // Retained boolean columns: ma_alignment and se_rs_line_new_high.
       const checkIcons = screen.getAllByTestId('CheckIcon');
-      expect(checkIcons.length).toBe(3);
+      expect(checkIcons.length).toBe(2);
     });
 
-    it('renders se_pivot_price as $198.50', () => {
-      expect(screen.getByText('$198.50')).toBeInTheDocument();
+    it('hides X-marked setup body values', () => {
+      expect(screen.queryByText('78.3')).not.toBeInTheDocument();
+      expect(screen.queryByText('cup_with_handle')).not.toBeInTheDocument();
+      expect(screen.queryByText('15')).not.toBeInTheDocument();
+      expect(screen.queryByText('$198.50')).not.toBeInTheDocument();
     });
   });
 
-  // ── SE column rendering — null data ──────────────────────────────────
-  describe('SE column rendering — null data', () => {
+  // ── retained setup column rendering — null data ─────────────────────
+  describe('retained setup column rendering — null data', () => {
     it('renders dash for all 7 SE columns when null', () => {
       renderWithProviders(<ResultsTable {...defaultProps} results={[nullSeRow]} />);
       // The table has many '-' dashes (other null columns too). We verify
       // by checking that none of the SE-specific formatted values appear.
-      expect(screen.queryByText('78.3')).not.toBeInTheDocument();
-      expect(screen.queryByText('cup_with_handle')).not.toBeInTheDocument();
       expect(screen.queryByText('-3.2%')).not.toBeInTheDocument();
       expect(screen.queryByText('1.8x')).not.toBeInTheDocument();
-      expect(screen.queryByText('$198.50')).not.toBeInTheDocument();
       // No CheckIcon should appear for se_rs_line_new_high=null
       // (other booleans like ma_alignment still render icons)
     });
   });
 
-  // ── SE column rendering — mixed data ─────────────────────────────────
-  describe('SE column rendering — mixed data', () => {
+  // ── retained setup column rendering — mixed data ────────────────────
+  describe('retained setup column rendering — mixed data', () => {
     beforeEach(() => {
       renderWithProviders(<ResultsTable {...defaultProps} results={[mixedSeRow]} />);
     });
 
-    it('renders CloseIcon for se_rs_line_new_high=false', () => {
-      // mixedSeRow has se_rs_line_new_high=false, vcp_detected=false, vcp_ready_for_breakout=false → 3 CloseIcons.
+    it('renders CloseIcon for retained se_rs_line_new_high=false', () => {
       const closeIcons = screen.getAllByTestId('CloseIcon');
-      expect(closeIcons.length).toBe(3);
+      expect(closeIcons.length).toBe(1);
     });
 
-    it('renders populated SE values alongside dashes for null ones', () => {
-      expect(screen.getByText('62.1')).toBeInTheDocument();
+    it('renders retained populated values and hides X-marked values', () => {
+      expect(screen.queryByText('62.1')).not.toBeInTheDocument();
       expect(screen.getByText('4.7%')).toBeInTheDocument();
       expect(screen.getByText('2.3x')).toBeInTheDocument();
     });
@@ -162,13 +148,15 @@ describe('ResultsTable', () => {
     });
   });
 
-  // ── SE column headers ────────────────────────────────────────────────
-  describe('SE column headers', () => {
-    it('renders all 7 SE header labels', () => {
+  // ── curated scan columns ────────────────────────────────────────────
+  describe('curated scan columns', () => {
+    it('renders kept setup header labels and hides X-marked labels', () => {
       renderWithProviders(<ResultsTable {...defaultProps} />);
-      const headers = ['SE', 'Pat', 'Pvt%', 'Sqz', 'V50', 'RSH', 'Pvt$'];
-      headers.forEach((label) => {
+      ['Pvt%', 'V50', 'RSH'].forEach((label) => {
         expect(screen.getByText(label)).toBeInTheDocument();
+      });
+      ['SE', 'Pat', 'Sqz', 'Pvt$', 'Themes'].forEach((label) => {
+        expect(screen.queryByText(label)).not.toBeInTheDocument();
       });
     });
 
@@ -184,7 +172,7 @@ describe('ResultsTable', () => {
       expect(screen.getByText('Semiconductors')).toBeInTheDocument();
     });
 
-    it('renders a compact market themes column', () => {
+    it('does not render the hidden market themes column', () => {
       renderWithProviders(
         <ResultsTable
           {...defaultProps}
@@ -196,10 +184,9 @@ describe('ResultsTable', () => {
         />
       );
 
-      expect(screen.getByText('Themes')).toBeInTheDocument();
-      // Compact variant: first theme renders as a chip, with a +N counter for overflow.
-      expect(screen.getByText('AI Infrastructure')).toBeInTheDocument();
-      expect(screen.getByText('+1')).toBeInTheDocument();
+      expect(screen.queryByText('Themes')).not.toBeInTheDocument();
+      expect(screen.queryByText('AI Infrastructure')).not.toBeInTheDocument();
+      expect(screen.queryByText('+1')).not.toBeInTheDocument();
     });
   });
 
@@ -296,7 +283,7 @@ describe('ResultsTable', () => {
       );
 
       expect(screen.queryByText('New IPO')).not.toBeInTheDocument();
-      expect(screen.getByText('Error')).toBeInTheDocument();
+      expect(screen.queryByText('Error')).not.toBeInTheDocument();
       expect(screen.queryByTestId('ShowChartIcon')).not.toBeInTheDocument();
     });
   });
@@ -320,27 +307,27 @@ describe('ResultsTable', () => {
       );
 
       const user = userEvent.setup();
-      // Click the "SE" header (sortable)
-      await user.click(screen.getByText('SE'));
-      expect(onSortChange).toHaveBeenCalledWith('se_setup_score', 'asc');
+      // Click a retained sortable setup header.
+      await user.click(screen.getByText('V50'));
+      expect(onSortChange).toHaveBeenCalledWith('se_volume_vs_50d', 'asc');
     });
 
     it('toggles sort direction when same header is clicked twice', async () => {
       const onSortChange = vi.fn();
-      // Start sorted by se_setup_score asc
+      // Start sorted by a retained setup column asc
       renderWithProviders(
         <ResultsTable
           {...defaultProps}
-          sortBy="se_setup_score"
+          sortBy="se_volume_vs_50d"
           sortOrder="asc"
           onSortChange={onSortChange}
         />
       );
 
       const user = userEvent.setup();
-      await user.click(screen.getByText('SE'));
+      await user.click(screen.getByText('V50'));
       // Since current is asc, clicking again should flip to desc
-      expect(onSortChange).toHaveBeenCalledWith('se_setup_score', 'desc');
+      expect(onSortChange).toHaveBeenCalledWith('se_volume_vs_50d', 'desc');
     });
   });
 });
