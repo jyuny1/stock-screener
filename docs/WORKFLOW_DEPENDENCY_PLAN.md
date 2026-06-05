@@ -306,7 +306,7 @@ GitHub Actions cron 只支援 UTC，且不支援 timezone / DST；因此 product
 | Workflow | 自動執行時間 | 實際用途 |
 |---|---|---|
 | `static-pipeline-full.yml` | 每二週 Sunday 20:00 America/New_York | Full refresh：optionable → foundation → prices/metrics/profiles → static site |
-| `static-pipeline-daily.yml` | Monday-Friday 20:00 America/New_York | Daily refresh：daily price → scan metrics → group rank → static site |
+| `static-pipeline-daily.yml` | Monday-Friday 08:00 and 18:00 America/New_York | Daily refresh：daily price → scan metrics → group rank → static site；開盤前與收盤後各更新一次 |
 | `release-asset-cleanup.yml` | Monday 03:00 America/New_York | Weekly release artifact cleanup，避開 full refresh window |
 | Component workflows | 無 production schedule；manual only | 由 orchestrators 觸發，或人工 repair |
 | `static-pipeline-repair.yml` | 無 schedule；manual only | 指定 layer 修復 |
@@ -460,7 +460,9 @@ Static Site manifest 應記錄完整 input set：
    - 用於刷新 optionable universe、foundation、daily price、scan metrics、profiles、group rank、static site。
    - 排程只放在 full orchestrator，不放在 component workflows。
 
-2. **Daily refresh cadence：美股收盤後。**
+2. **Daily refresh cadence：美股開盤前與收盤後。**
+   - Monday-Friday 08:00 America/New_York：開盤前刷新，保留約 90 分鐘緩衝，確保 09:30 開盤前完成。
+   - Monday-Friday 18:00 America/New_York：收盤後刷新，比原 20:00 ET 提早 2 小時。
    - 用於日常刷新 daily price、scan metrics、group rank、static site。
    - 不重建 optionable universe / foundation / listing profile / ETF profile，除非人工修復或 full refresh。
 
@@ -514,8 +516,8 @@ Static Site manifest 應記錄完整 input set：
      ```
 
 3. **`static-pipeline-daily.yml`**
-   - 美股收盤後 daily refresh。
-   - GitHub cron hourly wake；job 內 gate 到 Monday-Friday 20:00 America/New_York。
+   - 美股開盤前與收盤後 daily refresh。
+   - GitHub cron hourly wake；job 內 gate 到 Monday-Friday 08:00 and 18:00 America/New_York。
    - 執行：
      ```text
      daily-price

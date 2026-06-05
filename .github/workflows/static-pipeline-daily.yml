@@ -1,8 +1,8 @@
 name: Static Pipeline Daily
 
 on:
-  # Wake hourly and gate inside the job so the effective cadence is after the
-  # US market close: Monday-Friday 20:00 America/New_York.
+  # Wake hourly and gate inside the job so the effective cadence is twice per
+  # US trading weekday: pre-open 08:00 and post-close 18:00 America/New_York.
   schedule:
     - cron: '0 * * * *'
   workflow_dispatch:
@@ -44,10 +44,10 @@ jobs:
           fi
           et_dow="$(TZ=America/New_York date +%u)"
           et_hour="$(TZ=America/New_York date +%H)"
-          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && [ "$et_hour" = "20" ]; then
+          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && { [ "$et_hour" = "08" ] || [ "$et_hour" = "18" ]; }; then
             echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Skipping; target is Monday-Friday 20:00 America/New_York."
+            echo "Skipping; target is Monday-Friday 08:00 or 18:00 America/New_York."
             echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
           fi
 
