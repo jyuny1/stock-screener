@@ -1,106 +1,32 @@
 name: Foundation Update
 
 on:
-  # schedule: temporarily disabled during pipeline maintenance.
-  # schedule:
-  #   # GitHub cron is UTC-only. Wake hourly and gate inside the workflow so
-  #   # the real cadence is Monday 01:00 America/New_York
-  #   # (Taiwan Monday 13:00 during EDT / 14:00 during EST).
-  #   - cron: '0 * * * *'
   workflow_dispatch:
-    inputs:
-      market:
-        description: "Run only this market (or 'all' for the full matrix)."
-        required: false
-        type: choice
-        default: US
-        options:
-          - all
-          - US
-          - HK
-          - IN
-          - JP
-          - KR
-          - TW
-          - CN
-          - CA
-          - DE
-          - SG
-          - AU
-          - MY
-      max_runtime_minutes:
-        description: >-
-          Per-market deadline in minutes for the fundamentals refresh. Blank
-          uses the built-in defaults (CN=300, others=0). CN bootstrap runs
-          should keep a deadline so a partial resumable bundle can publish
-          before the GitHub Actions job cap.
-        required: false
-        type: string
-        default: ''
-      allow_partial_publish:
-        description: >-
-          Whether to publish the bundle when the deadline trips. "default"
-          keeps the per-market default (CN=enable, others=disable); "enable"
-          forces partial publish on; "disable" forces it off (useful for
-          first-time CN runs where there is no prior bundle to fall back to).
-        required: false
-        type: choice
-        default: default
-        options:
-          - default
-          - enable
-          - disable
-      cn_resume_partial_seed:
-        description: >-
-          CN only: continue an initial partial bootstrap by skipping symbols
-          already present in the partial bundle. Keep disabled for ordinary
-          weekly refreshes so stale prior-bundle rows are refreshed.
-        required: false
-        type: choice
-        default: disable
-        options:
-          - disable
-          - enable
 
 concurrency:
-  group: foundation-update-data
+  group: foundation-update-us
   cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  schedule_gate:
+  publish-us:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    outputs:
-      run_workflow: ${{ steps.gate.outputs.run_workflow }}
-    steps:
-      - name: Decide whether to run
-        id: gate
-        run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          et_dow="$(TZ=America/New_York date +%u)"
-          et_hour="$(TZ=America/New_York date +%H)"
-          taiwan_now="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')"
-          eastern_now="$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "Taiwan now: ${taiwan_now}"
-          echo "Eastern now: ${eastern_now}"
-          if [ "$et_dow" = "1" ] && [ "$et_hour" = "01" ]; then
-            echo "run_workflow=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Skipping; target is Monday 01:00 America/New_York."
-            echo "run_workflow=false" >> "$GITHUB_OUTPUT"
-          fi
+    timeout-minutes: 90
 
-  ensure_release:
-    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
-    needs: schedule_gate
-    runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install artifact-native foundation dependencies
+        run: pip install yfinance curl_cffi
+
       - name: Ensure foundation update release exists
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,209 +36,142 @@ jobs:
           gh release create foundation-update-data \
             --repo "${{ github.repository }}" \
             --title "Foundation Update" \
-            --notes "Automated market-scoped foundation update bundles for static-site builds."
+            --notes "Artifact-native US foundation data for static-site builds."
 
-  publish:
-    if: ${{ needs.schedule_gate.outputs.run_workflow == 'true' }}
-    needs:
-      - schedule_gate
-      - ensure_release
-    runs-on: ubuntu-latest
-    # GitHub Actions hard-caps a job at 360 minutes. Setting an explicit ceiling
-    # below that gives the build script's --max-runtime-minutes deadline a
-    # chance to fire (and publish a partial bundle) before the runner is killed.
-    timeout-minutes: 350
-    strategy:
-      fail-fast: false
-      matrix:
-        # By default, scheduled runs and workflow_dispatch without an explicit
-        # market build only the US static reference bundle. Operators can choose
-        # market=all manually to run the full matrix.
-        market: ${{ fromJSON((github.event.inputs.market || 'US') != 'all' && format('["{0}"]', github.event.inputs.market || 'US') || '["US","HK","IN","JP","KR","TW","CN","CA","DE","SG","AU","MY"]') }}
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: stockscanner
-          POSTGRES_USER: stockscanner
-          POSTGRES_PASSWORD: stockscanner
-        options: >-
-          --health-cmd "pg_isready -U stockscanner -d stockscanner"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    env:
-      REDIS_ENABLED: "false"
-      DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
-      US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}
-      SG_UNIVERSE_SOURCE_URL: ${{ matrix.market == 'SG' && 'https://api.sgx.com/securities/v1.1?excludetypes=bonds' || '' }}
-      # Bursa Malaysia equities-listing JSON endpoint. The bundled CSV
-      # fallback only ships the FBM KLCI 30 + a handful of Top 100 names
-      # (~47 issuers); the live endpoint covers all Main + ACE Market
-      # listings. Override via the ``MY_UNIVERSE_SOURCE_URL`` Actions
-      # variable when the operator has confirmed acceptable use; the
-      # default URL below is the public endpoint that powers the
-      # equities_prices page. On any HTTP or parse failure the fetcher
-      # falls back to the bundled CSV so a broken URL is not a regression.
-      MY_UNIVERSE_SOURCE_URL: ${{ matrix.market == 'MY' && (vars.MY_UNIVERSE_SOURCE_URL || 'https://www.bursamalaysia.com/api/v1/equities_prices?legacy=1&format=json&perPage=2000&board=MAIN-MKT,ACE-MKT&sector=&sub_sector=&page=1') || '' }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Seed prior foundation update bundle
+      - name: Download US optionable symbols
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p /tmp/foundation-update-seed
-          export MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
-          BUNDLE_ASSET_NAME=""
+          set -euo pipefail
+          mkdir -p /tmp/optionable-symbols
+          gh release download optionable-symbols \
+            --repo "${{ github.repository }}" \
+            --pattern optionable-symbols-latest-us.json \
+            --dir /tmp/optionable-symbols \
+            --clobber
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/optionable-symbols/optionable-symbols-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"optionable market must be US, got {manifest.get('market')!r}")
+          if len(manifest.get('symbols') or []) < 3000:
+              raise SystemExit(f"optionable symbol count too low: {len(manifest.get('symbols') or [])}")
+          print({'optionable_symbols': len(manifest.get('symbols') or []), 'as_of': manifest.get('as_of')})
+          PY
+          echo "OPTIONABLE_SYMBOLS=/tmp/optionable-symbols/optionable-symbols-latest-us.json" >> "$GITHUB_ENV"
 
-          if gh release download foundation-update-data \
-            --pattern "foundation-update-latest-${MARKET_LOWER}.json" \
-            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
-            BUNDLE_ASSET_NAME="$(python - <<'PY'
+      - name: Download prior foundation artifact if available
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/prior-foundation
+          PRIOR_RELEASE="foundation-update-data"
+          PRIOR_MANIFEST="foundation-update-latest-us.json"
+          if ! gh release download "$PRIOR_RELEASE" \
+            --repo "${{ github.repository }}" \
+            --pattern "$PRIOR_MANIFEST" \
+            --dir /tmp/prior-foundation \
+            --clobber; then
+            echo "No prior foundation-update-data release; falling back to legacy weekly-reference-data." >&2
+            PRIOR_RELEASE="weekly-reference-data"
+            PRIOR_MANIFEST="weekly-reference-latest-us.json"
+            gh release download "$PRIOR_RELEASE" \
+              --repo "${{ github.repository }}" \
+              --pattern "$PRIOR_MANIFEST" \
+              --dir /tmp/prior-foundation \
+              --clobber
+          fi
+          PRIOR_MANIFEST_PATH="/tmp/prior-foundation/${PRIOR_MANIFEST}"
+          export PRIOR_MANIFEST_PATH
+          PRIOR_BUNDLE_ASSET_NAME="$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          manifest = json.loads(Path(os.environ['PRIOR_MANIFEST_PATH']).read_text(encoding='utf-8'))
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"prior foundation market must be US, got {manifest.get('market')!r}")
+          print(manifest['bundle_asset_name'])
+          PY
+          )"
+          gh release download "$PRIOR_RELEASE" \
+            --repo "${{ github.repository }}" \
+            --pattern "$PRIOR_BUNDLE_ASSET_NAME" \
+            --dir /tmp/prior-foundation \
+            --clobber
+          echo "PRIOR_FOUNDATION=/tmp/prior-foundation/${PRIOR_BUNDLE_ASSET_NAME}" >> "$GITHUB_ENV"
+
+      - name: Build foundation update artifact
+        run: |
+          set -euo pipefail
+          args=(
+            --optionable-symbols "$OPTIONABLE_SYMBOLS"
+            --output-dir /tmp/foundation-update
+            --stale-days 7
+            --batch-sleep-seconds 0.15
+            --min-symbol-coverage 0.98
+            --min-identity-coverage 0.95
+            --min-market-cap-coverage 0.50
+          )
+          if [ -n "${PRIOR_FOUNDATION:-}" ]; then
+            args+=(--prior-foundation "$PRIOR_FOUNDATION")
+          fi
+          cd backend
+          python -m app.scripts.build_foundation_update_artifact "${args[@]}"
+
+      - name: Validate foundation update outputs
+        run: |
+          set -euo pipefail
+          test -s /tmp/foundation-update/foundation-update-latest-us.json
+          bundle="$(find /tmp/foundation-update -maxdepth 1 -name 'foundation-update-us-*.json.gz' | head -n 1)"
+          if [ -z "$bundle" ] || [ ! -s "$bundle" ]; then
+            echo "Missing foundation update bundle" >&2
+            exit 1
+          fi
+          BUNDLE_PATH="$bundle" python - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
-
-          market = os.environ["MARKET_LOWER"]
-          manifest = json.loads(
-              Path(f"/tmp/foundation-update-seed/foundation-update-latest-{market}.json").read_text(
-                  encoding="utf-8"
-              )
-          )
-          print(manifest["bundle_asset_name"])
+          manifest = json.loads(Path('/tmp/foundation-update/foundation-update-latest-us.json').read_text(encoding='utf-8'))
+          if manifest.get('schema_version') != 'foundation-update-manifest-v1':
+              raise SystemExit(f"bad schema: {manifest.get('schema_version')}")
+          if manifest.get('market') != 'US':
+              raise SystemExit(f"market must be US, got {manifest.get('market')!r}")
+          sha256 = hashlib.sha256(Path(os.environ['BUNDLE_PATH']).read_bytes()).hexdigest()
+          if sha256 != manifest.get('sha256'):
+              raise SystemExit(f"foundation bundle sha256 mismatch: {sha256} != {manifest.get('sha256')}")
+          if int(manifest.get('symbol_count') or 0) < 3000:
+              raise SystemExit(f"symbol_count too low: {manifest.get('symbol_count')}")
+          if float(manifest.get('symbol_coverage') or 0) < 0.98:
+              raise SystemExit(f"symbol coverage too low: {manifest.get('symbol_coverage')}")
+          field_coverage = manifest.get('field_coverage') or {}
+          hard = {
+              'company_name': 0.95,
+              'exchange': 0.95,
+              'market_cap': 0.50,
+          }
+          low = {field: field_coverage.get(field) for field, minimum in hard.items() if float(field_coverage.get(field) or 0) < minimum}
+          if low:
+              raise SystemExit(f"foundation field coverage below gate: {low}")
+          print({
+              'symbol_count': manifest.get('symbol_count'),
+              'symbol_coverage': manifest.get('symbol_coverage'),
+              'fetched_symbol_count': manifest.get('fetched_symbol_count'),
+              'field_coverage': {k: field_coverage.get(k) for k in ['company_name', 'exchange', 'sector', 'industry', 'market_cap', 'beta', 'eps_growth_qq', 'sales_growth_qq']},
+          })
           PY
-            )"
-          elif [ "${{ matrix.market }}" = "US" ] && gh release download foundation-update-data \
-            --pattern "foundation-update-latest.json" \
-            --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
-            BUNDLE_ASSET_NAME="$(python - <<'PY'
-          import json
-          from pathlib import Path
-
-          manifest = json.loads(
-              Path("/tmp/foundation-update-seed/foundation-update-latest.json").read_text(
-                  encoding="utf-8"
-              )
-          )
-          print(manifest["bundle_asset_name"])
-          PY
-            )"
-          fi
-
-          if [ -n "$BUNDLE_ASSET_NAME" ]; then
-            if gh release download foundation-update-data \
-              --pattern "$BUNDLE_ASSET_NAME" \
-              --dir /tmp/foundation-update-seed >/dev/null 2>&1; then
-              cd backend
-              python -m app.scripts.import_foundation_update_bundle \
-                --input "/tmp/foundation-update-seed/${BUNDLE_ASSET_NAME}" \
-                --hydrate-mode full
-            else
-              echo "Unable to download prior bundle ${BUNDLE_ASSET_NAME} for ${{ matrix.market }}; continuing without seed."
-            fi
-          else
-            echo "No prior foundation update bundle found for ${{ matrix.market }}; continuing without seed."
-          fi
-
-      - name: Download US optionable symbols
-        if: ${{ matrix.market == 'US' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p /tmp/optionable-symbols
-          if ! gh release download optionable-symbols \
-            --pattern "optionable-symbols-latest-us.json" \
-            --dir /tmp/optionable-symbols; then
-            echo "Missing optionable-symbols-latest-us.json. Run the Optionable Symbols workflow first." >&2
-            exit 1
-          fi
-          echo "OPTIONABLE_SYMBOLS_PATH=/tmp/optionable-symbols/optionable-symbols-latest-us.json" >> "$GITHUB_ENV"
-
-      - name: Resolve build inputs
-        id: build_inputs
-        env:
-          # Per-market wall-clock budget defaults for the fundamentals refresh.
-          # CN is the slow path: ~5,500 sequential AKShare+yfinance round-trips
-          # can blow past 6h, so we leave ~50 min headroom under the 350-min
-          # job cap and opt in to partial publish. Initial bootstrap
-          # continuation requires explicitly enabling cn_resume_partial_seed on
-          # a manual CN run so ordinary weekly refreshes do not skip stale
-          # prior-bundle rows.
-          INPUT_RUNTIME: ${{ github.event.inputs.max_runtime_minutes }}
-          INPUT_PARTIAL: ${{ github.event.inputs.allow_partial_publish }}
-          INPUT_CN_RESUME_PARTIAL_SEED: ${{ github.event.inputs.cn_resume_partial_seed }}
-          MATRIX_MARKET: ${{ matrix.market }}
-        run: |
-          if [ -n "$INPUT_RUNTIME" ]; then
-            RUNTIME="$INPUT_RUNTIME"
-          elif [ "$MATRIX_MARKET" = "CN" ]; then
-            RUNTIME="300"
-          else
-            RUNTIME="0"
-          fi
-
-          case "$INPUT_PARTIAL" in
-            enable)
-              PARTIAL="--allow-partial-publish"
-              ;;
-            disable)
-              PARTIAL=""
-              ;;
-            *)
-              if [ "$MATRIX_MARKET" = "CN" ]; then
-                PARTIAL="--allow-partial-publish"
-              else
-                PARTIAL=""
-              fi
-              ;;
-          esac
-
-          RESUME=""
-          if [ "$MATRIX_MARKET" = "CN" ] && [ "$INPUT_CN_RESUME_PARTIAL_SEED" = "enable" ]; then
-            RESUME="--resume-partial-seed"
-          fi
-
-          echo "max_runtime_minutes=$RUNTIME" >> "$GITHUB_OUTPUT"
-          echo "partial_flag=$PARTIAL" >> "$GITHUB_OUTPUT"
-          echo "resume_flag=$RESUME" >> "$GITHUB_OUTPUT"
-          echo "Resolved build inputs for $MATRIX_MARKET: runtime=$RUNTIME partial='$PARTIAL' resume='$RESUME'"
-
-      - name: Build foundation update bundle
-        run: |
-          cd backend
-          python -m app.scripts.build_foundation_update_bundle \
-            --market "${{ matrix.market }}" \
-            --output-dir /tmp/foundation-update \
-            --max-runtime-minutes "${{ steps.build_inputs.outputs.max_runtime_minutes }}" \
-            --us-universe-mode "${US_UNIVERSE_MODE}" \
-            ${{ steps.build_inputs.outputs.resume_flag }} \
-            ${{ steps.build_inputs.outputs.partial_flag }}
 
       - name: Upload foundation update assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          MARKET_LOWER="$(echo "${{ matrix.market }}" | tr '[:upper:]' '[:lower:]')"
-          BUNDLE_PATH="$(find /tmp/foundation-update -maxdepth 1 -name "foundation-update-${MARKET_LOWER}-*.json.gz" | head -n 1)"
-          MANIFEST_PATH="/tmp/foundation-update/foundation-update-latest-${MARKET_LOWER}.json"
-
-          if [ -z "$BUNDLE_PATH" ] || [ ! -f "$MANIFEST_PATH" ]; then
-            echo "Missing foundation update bundle outputs" >&2
-            exit 1
-          fi
-
-          gh release upload foundation-update-data "$BUNDLE_PATH" --clobber
-          gh release upload foundation-update-data "$MANIFEST_PATH" --clobber
+          set -euo pipefail
+          bundle="$(find /tmp/foundation-update -maxdepth 1 -name 'foundation-update-us-*.json.gz' | head -n 1)"
+          gh release upload foundation-update-data "$bundle" \
+            --repo "${{ github.repository }}" \
+            --clobber
+          gh release upload foundation-update-data /tmp/foundation-update/foundation-update-latest-us.json \
+            --repo "${{ github.repository }}" \
+            --clobber

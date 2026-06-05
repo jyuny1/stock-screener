@@ -2,31 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
-
-from app.domain.markets import market_registry
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _workflow_matrix_markets(path: str) -> list[str]:
-    content = (_PROJECT_ROOT / path).read_text(encoding="utf-8")
-    match = re.search(r"market:\s*\[([^\]]+)\]", content)
-    if match is not None:
-        return [market.strip() for market in match.group(1).split(",")]
+def test_foundation_update_workflow_is_us_only_for_static_pipeline():
+    content = (_PROJECT_ROOT / ".github" / "workflows" / "foundation-update.yml").read_text(encoding="utf-8")
 
-    dispatch_matrix_match = re.search(r"\|\|\s*'(\[[^']+\])'", content)
-    assert dispatch_matrix_match is not None, f"{path} does not declare a market matrix"
-    return list(json.loads(dispatch_matrix_match.group(1)))
-
-
-def test_foundation_update_workflow_covers_supported_markets():
-    assert _workflow_matrix_markets(".github/workflows/foundation-update.yml") == list(
-        market_registry.supported_market_codes()
-    )
+    assert "publish-us:" in content
+    assert "optionable-symbols-latest-us.json" in content
+    assert "foundation-update-latest-us.json" in content
+    assert "postgres" not in content.lower()
 
 
 def test_static_workflow_is_us_only_artifact_native():

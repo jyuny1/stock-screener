@@ -22,14 +22,15 @@ def _fake_session(db="db-session"):
     yield db
 
 
-def test_foundation_update_schedule_runs_after_optionable_refresh() -> None:
+def test_foundation_update_workflow_is_artifact_native() -> None:
     content = (ROOT / ".github" / "workflows" / "foundation-update.yml").read_text()
 
-    assert "cron: '0 * * * *'" in content
-    assert "Monday 01:00 America/New_York" in content
-    assert "Taiwan Monday 13:00 during EDT / 14:00 during EST" in content
-    assert "TZ=Asia/Taipei" in content
-    assert "needs.schedule_gate.outputs.run_workflow == 'true'" in content
+    assert "workflow_dispatch:" in content
+    assert "build_foundation_update_artifact" in content
+    assert "optionable-symbols-latest-us.json" in content
+    assert "foundation-update-latest-us.json" in content
+    assert "postgres" not in content.lower()
+    assert "DATABASE_URL" not in content
 
 
 def test_build_foundation_update_bundle_requires_market(monkeypatch, tmp_path):

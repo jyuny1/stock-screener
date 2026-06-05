@@ -290,9 +290,11 @@ def test_workflows_default_static_us_to_optionable():
     static = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
     optionable = (ROOT / ".github" / "workflows" / "optionable-symbols.yml").read_text()
 
-    assert "US_UNIVERSE_MODE: ${{ matrix.market == 'US' && 'optionable' || 'full' }}" in weekly
     assert "Download US optionable symbols" in weekly
-    assert "--us-universe-mode \"${US_UNIVERSE_MODE}\"" in weekly
+    assert "build_foundation_update_artifact" in weekly
+    assert "--optionable-symbols \"$OPTIONABLE_SYMBOLS\"" in weekly
+    assert "postgres" not in weekly.lower()
+    assert "DATABASE_URL" not in weekly
     assert "build_static_site_from_artifacts" in static
     assert "--foundation-update \"$FOUNDATION_UPDATE_BUNDLE\"" in static
     assert "cron: '0 * * * *'" in optionable
