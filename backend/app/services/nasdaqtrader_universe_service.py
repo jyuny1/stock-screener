@@ -45,6 +45,7 @@ _ALLOWED_OTHER_LISTING_EXCHANGES = {
     "N": ("NYSE", "XNYS"),
     "A": ("NYSE American", "XASE"),
     "P": ("NYSE Arca", "ARCX"),
+    "Z": ("Cboe BZX", "BATS"),
 }
 
 
@@ -167,7 +168,9 @@ class NasdaqTraderUniverseService:
             # /chains rejects them as bad requests.
             return False
         if row.is_etf:
-            return row.symbol in self.etf_allowlist
+            return True
+        if row.mic == "BATS":
+            return False
         name = row.name or ""
         if _SECURITY_NAME_EXCLUDE_RE.search(name):
             return False

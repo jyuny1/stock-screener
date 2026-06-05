@@ -19,6 +19,7 @@ def test_nasdaqtrader_service_filters_to_clean_common_symbols_and_liquid_etfs():
     nasdaq_text = """Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
 AAPL|Apple Inc. Common Stock|Q|N|N|100|N|N
 TQQQ|ProShares UltraPro QQQ|G|N|N|100|Y|N
+SMCX|Defiance Daily Target 2X Long SMCI ETF|G|N|N|100|Y|N
 ABCW|ABC Warrants|Q|N|N|100|N|N
 FOO.U|Foo Units|Q|N|N|100|N|N
 PREF$A|Example Preferred Share|Q|N|N|100|N|N
@@ -31,6 +32,7 @@ SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY
 BRK.B|Berkshire Hathaway Class B|N|BRK.B|N|100|N|BRK.B
 BAC$L|Bank of America Depositary Shares|N|BAC$L|N|100|N|BAC$L
 XYZ|XYZ Debenture|A|XYZ|N|100|N|XYZ
+QBTX|Tradr 2X Long QBTS Daily ETF|Z|QBTX|Y|100|N|QBTX
 CBOE|Cboe Listed Co|Z|CBOE|N|100|N|CBOE
 File Creation Time: 2026-06-04
 """
@@ -42,7 +44,7 @@ File Creation Time: 2026-06-04
     service = NasdaqTraderUniverseService(etf_allowlist={"SPY"})
     kept = [row.symbol for row in rows if service._keep_symbol(row)]
 
-    assert kept == ["AAPL", "XNYS1", "XASE1", "SPY"]
+    assert kept == ["AAPL", "TQQQ", "SMCX", "XNYS1", "XASE1", "SPY", "QBTX"]
     assert "PREF$A" not in kept
     assert "BAC$L" not in kept
 
