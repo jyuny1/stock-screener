@@ -252,13 +252,17 @@ function StaticScanPage() {
     return <Alert severity="error">Failed to load the static scan dataset.</Alert>;
   }
 
+  const universeAsOfDate = scanManifestQuery.data.universe_as_of_date || scanManifestQuery.data.as_of_date || '-';
+  const priceAsOfDate = scanManifestQuery.data.price_as_of_date || scanManifestQuery.data.as_of_date || '-';
+  const scanAsOfDate = scanManifestQuery.data.scan_as_of_date || scanManifestQuery.data.as_of_date || '-';
+
   return (
     <Box>
       <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.5px', mb: 0.5 }}>
         Daily Scan
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: '12px' }}>
-        Run {scanManifestQuery.data.run_id} as of {scanManifestQuery.data.as_of_date}.
+        股票清單更新：{universeAsOfDate} | 股票價格更新：{priceAsOfDate} | 股票指標更新: {scanAsOfDate}
       </Typography>
 
       <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid', borderColor: 'divider' }}>

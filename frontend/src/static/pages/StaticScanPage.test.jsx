@@ -114,7 +114,10 @@ describe('StaticScanPage', () => {
           status: 200,
           json: async () => ({
             generated_at: '2026-04-01T00:00:00Z',
-            as_of_date: '2026-03-31',
+            as_of_date: '2026-04-01',
+            universe_as_of_date: '2026-04-01',
+            price_as_of_date: '2026-03-31',
+            scan_as_of_date: '2026-03-31',
             run_id: 9,
             sort: { field: 'composite_score', order: 'desc' },
             default_page_size: 50,
@@ -168,6 +171,7 @@ describe('StaticScanPage', () => {
     renderPage();
 
     expect(await screen.findByText(/Loading full scan dataset: [01] \/ 2 rows/i)).toBeInTheDocument();
+    expect(screen.getByText('股票清單更新：2026-04-01 | 股票價格更新：2026-03-31 | 股票指標更新: 2026-03-31')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId('results-table-rows')).toHaveTextContent('NVDA');
     });

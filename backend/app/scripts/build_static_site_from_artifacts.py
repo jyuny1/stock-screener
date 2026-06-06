@@ -293,7 +293,16 @@ def _filter_options(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     }
 
 
-def _build_scan(output_dir: Path, *, generated_at: str, as_of_date: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_scan(
+    output_dir: Path,
+    *,
+    generated_at: str,
+    as_of_date: str,
+    universe_as_of_date: str,
+    price_as_of_date: str | None,
+    scan_as_of_date: str | None,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
     scan_dir = output_dir / "markets" / "us" / "scan"
     chunks_dir = scan_dir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -306,6 +315,9 @@ def _build_scan(output_dir: Path, *, generated_at: str, as_of_date: str, rows: l
             "schema_version": SCAN_BUNDLE_SCHEMA_VERSION,
             "generated_at": generated_at,
             "as_of_date": as_of_date,
+            "universe_as_of_date": universe_as_of_date,
+            "price_as_of_date": price_as_of_date,
+            "scan_as_of_date": scan_as_of_date,
             "run_id": "artifact-native-us",
             "chunk_index": chunk_num,
             "rows": chunk,
@@ -317,6 +329,9 @@ def _build_scan(output_dir: Path, *, generated_at: str, as_of_date: str, rows: l
         "schema_version": SCAN_BUNDLE_SCHEMA_VERSION,
         "generated_at": generated_at,
         "as_of_date": as_of_date,
+        "universe_as_of_date": universe_as_of_date,
+        "price_as_of_date": price_as_of_date,
+        "scan_as_of_date": scan_as_of_date,
         "run_id": "artifact-native-us",
         "sort": {"field": "composite_score", "order": "desc"},
         "default_page_size": 50,
@@ -342,7 +357,16 @@ def _build_scan(output_dir: Path, *, generated_at: str, as_of_date: str, rows: l
     return manifest
 
 
-def _build_home(*, generated_at: str, as_of_date: str, rows: list[dict[str, Any]], coverage: dict[str, Any]) -> dict[str, Any]:
+def _build_home(
+    *,
+    generated_at: str,
+    as_of_date: str,
+    universe_as_of_date: str,
+    price_as_of_date: str | None,
+    scan_as_of_date: str | None,
+    rows: list[dict[str, Any]],
+    coverage: dict[str, Any],
+) -> dict[str, Any]:
     top_groups = []
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -364,10 +388,15 @@ def _build_home(*, generated_at: str, as_of_date: str, rows: list[dict[str, Any]
         "market": DEFAULT_MARKET,
         "market_display_name": DEFAULT_MARKET_DISPLAY,
         "as_of_date": as_of_date,
+        "universe_as_of_date": universe_as_of_date,
+        "price_as_of_date": price_as_of_date,
+        "scan_as_of_date": scan_as_of_date,
         "freshness": {
-            "scan_as_of_date": as_of_date,
+            "universe_as_of_date": universe_as_of_date,
+            "price_as_of_date": price_as_of_date,
+            "scan_as_of_date": scan_as_of_date,
             "breadth_latest_date": None,
-            "groups_latest_date": as_of_date,
+            "groups_latest_date": scan_as_of_date or as_of_date,
             "foundation_update_source_revision": coverage.get("source_revision"),
         },
         "coverage": coverage,
@@ -399,7 +428,10 @@ def build_static_site_from_artifacts(
     listing_by_symbol = _rows_by_symbol(listing_bundle)
     etf_by_symbol = _rows_by_symbol(etf_bundle)
     benchmark_prices = (latest_prices.get("SPY") or {}).get("prices") or []
-    as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
+    universe_as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
+    price_as_of_date = str(daily.get("as_of_date")) if daily and daily.get("as_of_date") else None
+    scan_as_of_date = str(metrics_bundle.get("as_of_date")) if metrics_bundle and metrics_bundle.get("as_of_date") else None
+    as_of_date = universe_as_of_date
     coverage = dict((weekly.get("coverage") or {}))
     coverage["source_revision"] = weekly.get("source_revision")
 
@@ -421,7 +453,15 @@ def build_static_site_from_artifacts(
     rows = _sort_rows(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    scan_manifest = _build_scan(output_dir, generated_at=generated_at, as_of_date=as_of_date, rows=rows)
+    scan_manifest = _build_scan(
+        output_dir,
+        generated_at=generated_at,
+        as_of_date=as_of_date,
+        universe_as_of_date=universe_as_of_date,
+        price_as_of_date=price_as_of_date,
+        scan_as_of_date=scan_as_of_date,
+        rows=rows,
+    )
 
     breadth_payload = {
         "available": False,
@@ -435,7 +475,15 @@ def build_static_site_from_artifacts(
         "generated_at": generated_at,
         "payload": {},
     }
-    home_payload = _build_home(generated_at=generated_at, as_of_date=as_of_date, rows=rows, coverage=coverage)
+    home_payload = _build_home(
+        generated_at=generated_at,
+        as_of_date=as_of_date,
+        universe_as_of_date=universe_as_of_date,
+        price_as_of_date=price_as_of_date,
+        scan_as_of_date=scan_as_of_date,
+        rows=rows,
+        coverage=coverage,
+    )
     _write_json(output_dir / "markets/us/home.json", home_payload)
     _write_json(output_dir / "markets/us/breadth.json", breadth_payload)
     _write_json(output_dir / "markets/us/groups.json", groups_payload)
@@ -444,6 +492,9 @@ def build_static_site_from_artifacts(
         "market": DEFAULT_MARKET,
         "display_name": DEFAULT_MARKET_DISPLAY,
         "as_of_date": as_of_date,
+        "universe_as_of_date": universe_as_of_date,
+        "price_as_of_date": price_as_of_date,
+        "scan_as_of_date": scan_as_of_date,
         "features": {"scan": True, "breadth": False, "groups": False, "charts": False},
         "pages": {
             "home": {"path": "markets/us/home.json"},
@@ -458,6 +509,10 @@ def build_static_site_from_artifacts(
         "schema_version": STATIC_SITE_SCHEMA_VERSION,
         "generated_at": generated_at,
         "as_of_date": as_of_date,
+        "universe_as_of_date": universe_as_of_date,
+        "price_as_of_date": price_as_of_date,
+        "scan_as_of_date": scan_as_of_date,
+        "freshness": home_payload["freshness"],
         "default_market": DEFAULT_MARKET,
         "supported_markets": [DEFAULT_MARKET],
         "features": dict(market_entry["features"]),
