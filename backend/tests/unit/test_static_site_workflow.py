@@ -10,6 +10,13 @@ from app.scripts.build_static_site_from_artifacts import build_static_site_from_
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_daily_price_workflow_refreshes_all_symbols_not_only_missing() -> None:
+    content = (ROOT / ".github" / "workflows" / "daily-price.yml").read_text()
+
+    assert "--fetch-mode all" in content
+    assert "--fetch-mode missing" not in content
+
+
 def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> None:
     content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
 

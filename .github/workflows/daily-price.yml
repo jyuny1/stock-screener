@@ -145,7 +145,7 @@ jobs:
             --batch-size 100
             --batch-sleep-seconds 1
             --min-symbol-coverage 0.80
-            --fetch-mode missing
+            --fetch-mode all
           )
           if [ -n "${PRIOR_DAILY_PRICE_BUNDLE:-}" ]; then
             args+=(--prior-daily "$PRIOR_DAILY_PRICE_BUNDLE")
