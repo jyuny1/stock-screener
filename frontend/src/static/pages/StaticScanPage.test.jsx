@@ -195,6 +195,57 @@ describe('StaticScanPage', () => {
     });
   });
 
+  it('does not fall back update labels to the dataset as_of_date', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      const path = String(url).split('/static-data/')[1];
+
+      if (path === 'manifest.json') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            pages: {
+              scan: {
+                path: 'scan/manifest.json',
+              },
+            },
+          }),
+        };
+      }
+
+      if (path === 'scan/manifest.json') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            generated_at: '2026-04-01T00:00:00Z',
+            as_of_date: '2026-04-01',
+            run_id: 9,
+            sort: { field: 'composite_score', order: 'desc' },
+            default_page_size: 50,
+            rows_total: 0,
+            default_filters: {},
+            default_filtered_rows_total: 0,
+            filter_options: {},
+            initial_rows: [],
+            chunks: [],
+            charts: { available: false },
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+      };
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('股票清單更新：- | 股票價格更新：- | 股票指標更新: -')).toBeInTheDocument();
+  });
+
   it('passes company_name through to the shared results table before and after hydration', async () => {
     const chunkRequest = deferred();
 

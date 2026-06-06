@@ -252,9 +252,9 @@ function StaticScanPage() {
     return <Alert severity="error">Failed to load the static scan dataset.</Alert>;
   }
 
-  const universeAsOfDate = scanManifestQuery.data.universe_as_of_date || scanManifestQuery.data.as_of_date || '-';
-  const priceAsOfDate = scanManifestQuery.data.price_as_of_date || scanManifestQuery.data.as_of_date || '-';
-  const scanAsOfDate = scanManifestQuery.data.scan_as_of_date || scanManifestQuery.data.as_of_date || '-';
+  const universeAsOfDate = scanManifestQuery.data.universe_as_of_date || '-';
+  const priceAsOfDate = scanManifestQuery.data.price_as_of_date || '-';
+  const scanAsOfDate = scanManifestQuery.data.scan_as_of_date || '-';
 
   return (
     <Box>
