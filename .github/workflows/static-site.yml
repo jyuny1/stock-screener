@@ -249,27 +249,23 @@ jobs:
           VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
         run: cd frontend && npm run build
 
-      - name: Validate Cloudflare deployment configuration
+      - name: Validate Cloudflare R2 static-data configuration
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
         run: |
           missing=0
           for name in \
-            CLOUDFLARE_API_TOKEN \
             CLOUDFLARE_ACCOUNT_ID \
             R2_ACCESS_KEY_ID \
             R2_SECRET_ACCESS_KEY \
             R2_BUCKET \
-            STATIC_DATA_BASE_URL \
-            CLOUDFLARE_PAGES_PROJECT; do
+            STATIC_DATA_BASE_URL; do
             if [ -z "${!name}" ]; then
-              echo "Missing required Cloudflare deployment setting: ${name}" >&2
+              echo "Missing required Cloudflare R2 static-data setting: ${name}" >&2
               missing=1
             fi
           done
@@ -307,14 +303,7 @@ jobs:
             --transfers 8 \
             --checkers 16
 
-      - name: Strip static-data from Pages bundle
-        run: rm -rf frontend/dist/static-data
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
-          directory: frontend/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Pages bundle excludes static-data
+        run: |
+          rm -rf frontend/dist/static-data
+          test ! -e frontend/dist/static-data
