@@ -3,10 +3,11 @@ name: Optionable Symbols
 on:
   # schedule: temporarily disabled during pipeline maintenance.
   # schedule:
-  #   # GitHub cron is UTC-only. Wake hourly and gate inside the job so
-  #   # the real cadence is every other Sunday 20:00 America/New_York
+  #   # GitHub cron is UTC-only. These explicit UTC triggers cover every other
+  #   # Sunday 20:00 America/New_York across DST/non-DST; the ET gate below skips
+  #   # the non-matching UTC hour.
   #   # (Taiwan Monday 08:00 during EDT / 09:00 during EST).
-  #   - cron: '0 * * * *'
+  #   - cron: '0 0,1 * * 1'
   workflow_dispatch:
     inputs:
       force:

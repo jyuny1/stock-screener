@@ -1,10 +1,11 @@
 name: Static Pipeline Daily
 
 on:
-  # Wake hourly and gate inside the job so the effective cadence is twice per
-  # US trading weekday: pre-open 08:00 and post-close 18:00 America/New_York.
+  # GitHub cron is UTC-only. These four explicit UTC triggers cover 08:00 and
+  # 18:00 America/New_York across DST/non-DST; the ET gate below skips the two
+  # non-matching UTC hours.
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 12,13,22,23 * * 1-5'
   workflow_dispatch:
     inputs:
       force:

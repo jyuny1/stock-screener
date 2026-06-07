@@ -721,10 +721,14 @@ class StaticSiteExportService:
                 }
             )
 
+        run_published_at = _coerce_datetime(run.published_at) or generated_at
         manifest = {
             "schema_version": SCAN_BUNDLE_SCHEMA_VERSION,
             "generated_at": generated_at,
             "as_of_date": run.as_of_date.isoformat(),
+            "universe_updated_at": run_published_at,
+            "price_updated_at": run_published_at,
+            "scan_updated_at": run_published_at,
             "run_id": run.id,
             "sort": {"field": "composite_score", "order": "desc"},
             "default_page_size": 50,

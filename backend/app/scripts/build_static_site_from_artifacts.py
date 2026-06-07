@@ -301,6 +301,9 @@ def _build_scan(
     universe_as_of_date: str,
     price_as_of_date: str | None,
     scan_as_of_date: str | None,
+    universe_updated_at: str | None,
+    price_updated_at: str | None,
+    scan_updated_at: str | None,
     rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     scan_dir = output_dir / "markets" / "us" / "scan"
@@ -318,6 +321,9 @@ def _build_scan(
             "universe_as_of_date": universe_as_of_date,
             "price_as_of_date": price_as_of_date,
             "scan_as_of_date": scan_as_of_date,
+            "universe_updated_at": universe_updated_at,
+            "price_updated_at": price_updated_at,
+            "scan_updated_at": scan_updated_at,
             "run_id": "artifact-native-us",
             "chunk_index": chunk_num,
             "rows": chunk,
@@ -332,6 +338,9 @@ def _build_scan(
         "universe_as_of_date": universe_as_of_date,
         "price_as_of_date": price_as_of_date,
         "scan_as_of_date": scan_as_of_date,
+        "universe_updated_at": universe_updated_at,
+        "price_updated_at": price_updated_at,
+        "scan_updated_at": scan_updated_at,
         "run_id": "artifact-native-us",
         "sort": {"field": "composite_score", "order": "desc"},
         "default_page_size": 50,
@@ -364,6 +373,9 @@ def _build_home(
     universe_as_of_date: str,
     price_as_of_date: str | None,
     scan_as_of_date: str | None,
+    universe_updated_at: str | None,
+    price_updated_at: str | None,
+    scan_updated_at: str | None,
     rows: list[dict[str, Any]],
     coverage: dict[str, Any],
 ) -> dict[str, Any]:
@@ -391,10 +403,16 @@ def _build_home(
         "universe_as_of_date": universe_as_of_date,
         "price_as_of_date": price_as_of_date,
         "scan_as_of_date": scan_as_of_date,
+        "universe_updated_at": universe_updated_at,
+        "price_updated_at": price_updated_at,
+        "scan_updated_at": scan_updated_at,
         "freshness": {
             "universe_as_of_date": universe_as_of_date,
             "price_as_of_date": price_as_of_date,
             "scan_as_of_date": scan_as_of_date,
+            "universe_updated_at": universe_updated_at,
+            "price_updated_at": price_updated_at,
+            "scan_updated_at": scan_updated_at,
             "breadth_latest_date": None,
             "groups_latest_date": scan_as_of_date or as_of_date,
             "foundation_update_source_revision": coverage.get("source_revision"),
@@ -431,6 +449,9 @@ def build_static_site_from_artifacts(
     universe_as_of_date = str(weekly.get("as_of_date") or datetime.now(timezone.utc).date().isoformat())
     price_as_of_date = str(daily.get("as_of_date")) if daily and daily.get("as_of_date") else None
     scan_as_of_date = str(metrics_bundle.get("as_of_date")) if metrics_bundle and metrics_bundle.get("as_of_date") else None
+    universe_updated_at = str(weekly.get("generated_at")) if weekly.get("generated_at") else None
+    price_updated_at = str(daily.get("generated_at")) if daily and daily.get("generated_at") else None
+    scan_updated_at = str(metrics_bundle.get("generated_at")) if metrics_bundle and metrics_bundle.get("generated_at") else None
     as_of_date = universe_as_of_date
     coverage = dict((weekly.get("coverage") or {}))
     coverage["source_revision"] = weekly.get("source_revision")
@@ -460,6 +481,9 @@ def build_static_site_from_artifacts(
         universe_as_of_date=universe_as_of_date,
         price_as_of_date=price_as_of_date,
         scan_as_of_date=scan_as_of_date,
+        universe_updated_at=universe_updated_at,
+        price_updated_at=price_updated_at,
+        scan_updated_at=scan_updated_at,
         rows=rows,
     )
 
@@ -481,6 +505,9 @@ def build_static_site_from_artifacts(
         universe_as_of_date=universe_as_of_date,
         price_as_of_date=price_as_of_date,
         scan_as_of_date=scan_as_of_date,
+        universe_updated_at=universe_updated_at,
+        price_updated_at=price_updated_at,
+        scan_updated_at=scan_updated_at,
         rows=rows,
         coverage=coverage,
     )
@@ -495,6 +522,9 @@ def build_static_site_from_artifacts(
         "universe_as_of_date": universe_as_of_date,
         "price_as_of_date": price_as_of_date,
         "scan_as_of_date": scan_as_of_date,
+        "universe_updated_at": universe_updated_at,
+        "price_updated_at": price_updated_at,
+        "scan_updated_at": scan_updated_at,
         "features": {"scan": True, "breadth": False, "groups": False, "charts": False},
         "pages": {
             "home": {"path": "markets/us/home.json"},
@@ -512,6 +542,9 @@ def build_static_site_from_artifacts(
         "universe_as_of_date": universe_as_of_date,
         "price_as_of_date": price_as_of_date,
         "scan_as_of_date": scan_as_of_date,
+        "universe_updated_at": universe_updated_at,
+        "price_updated_at": price_updated_at,
+        "scan_updated_at": scan_updated_at,
         "freshness": home_payload["freshness"],
         "default_market": DEFAULT_MARKET,
         "supported_markets": [DEFAULT_MARKET],

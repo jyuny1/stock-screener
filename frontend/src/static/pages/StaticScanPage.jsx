@@ -28,6 +28,28 @@ import { usePresetScreens, buildFiltersFromPreset } from '../hooks/usePresetScre
 import { useStaticMarket } from '../StaticMarketContext';
 
 const HYDRATION_BATCH_SIZE = 2;
+const TAIWAN_TIME_ZONE = 'Asia/Taipei';
+
+function formatTaiwanTimestamp(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TAIWAN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}-${parts.minute}`;
+}
 
 function StaticScanPage() {
   const manifestQuery = useStaticManifest();
@@ -252,9 +274,9 @@ function StaticScanPage() {
     return <Alert severity="error">Failed to load the static scan dataset.</Alert>;
   }
 
-  const universeAsOfDate = scanManifestQuery.data.universe_as_of_date || '-';
-  const priceAsOfDate = scanManifestQuery.data.price_as_of_date || '-';
-  const scanAsOfDate = scanManifestQuery.data.scan_as_of_date || '-';
+  const universeUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.universe_updated_at);
+  const priceUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.price_updated_at);
+  const scanUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.scan_updated_at);
 
   return (
     <Box>
@@ -262,7 +284,7 @@ function StaticScanPage() {
         Daily Scan
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: '12px' }}>
-        股票清單更新：{universeAsOfDate} | 股票價格更新：{priceAsOfDate} | 股票指標更新: {scanAsOfDate}
+        股票清單更新：{universeUpdatedAt} | 股票價格更新：{priceUpdatedAt} | 股票指標更新: {scanUpdatedAt}
       </Typography>
 
       <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid', borderColor: 'divider' }}>

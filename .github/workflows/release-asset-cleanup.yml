@@ -1,11 +1,11 @@
 name: Release Asset Cleanup
 
 on:
-  # GitHub cron is UTC-only. Wake hourly and gate inside the job so the
-  # effective cadence is Monday 03:00 America/New_York, after the Sunday
-  # full-refresh window has had time to finish.
+  # GitHub cron is UTC-only. These explicit UTC triggers cover Monday 03:00
+  # America/New_York across DST/non-DST, after the Sunday full-refresh window
+  # has had time to finish; the ET gate below skips the non-matching UTC hour.
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 7,8 * * 1'
   workflow_dispatch:
     inputs:
       dry_run:
