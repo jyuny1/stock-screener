@@ -104,6 +104,8 @@ jobs:
             echo "${var_name}=${run_id}" >> "$GITHUB_ENV"
           }
 
+          # Optionable Symbols is intentionally scheduled here instead of via its
+          # own cron, so the full static pipeline has a single ordered cadence.
           run_component optionable-symbols.yml OPTIONABLE_RUN_ID \
             -f force=true -f dry_run=false -f retry_errors_from_latest=false -f max_retry_rounds=3
           run_component foundation-update.yml FOUNDATION_RUN_ID
@@ -167,7 +169,7 @@ jobs:
               'workflow_run_id': int(run_id),
               'head_sha': os.environ['GITHUB_SHA'],
               'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
-              'required_artifacts': ['foundation_update', 'daily_price', 'scan_metrics', 'group_rank', 'listing_profile', 'etf_profile'],
+              'required_artifacts': ['optionable_symbols', 'foundation_update', 'daily_price', 'scan_metrics', 'group_rank', 'listing_profile', 'etf_profile'],
               'component_runs': {
                   'optionable_symbols': os.environ.get('OPTIONABLE_RUN_ID'),
                   'foundation_update': os.environ.get('FOUNDATION_RUN_ID'),

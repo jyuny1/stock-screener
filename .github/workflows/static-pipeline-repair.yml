@@ -175,7 +175,7 @@ jobs:
               'workflow_run_id': int(run_id),
               'head_sha': os.environ['GITHUB_SHA'],
               'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
-              'required_artifacts': ['foundation_update', 'daily_price', 'scan_metrics', 'group_rank', 'listing_profile', 'etf_profile'],
+              'required_artifacts': ['optionable_symbols', 'foundation_update', 'daily_price', 'scan_metrics', 'group_rank', 'listing_profile', 'etf_profile'],
               'component_runs': {
                   'optionable_symbols': os.environ.get('OPTIONABLE_RUN_ID'),
                   'foundation_update': os.environ.get('FOUNDATION_RUN_ID'),
