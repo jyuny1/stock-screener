@@ -274,9 +274,10 @@ function StaticScanPage() {
     return <Alert severity="error">Failed to load the static scan dataset.</Alert>;
   }
 
-  const universeUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.universe_updated_at);
-  const priceUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.price_updated_at);
-  const scanUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.scan_updated_at);
+  const fallbackUpdatedAt = scanManifestQuery.data.generated_at;
+  const universeUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.universe_updated_at || fallbackUpdatedAt);
+  const priceUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.price_updated_at || fallbackUpdatedAt);
+  const scanUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.scan_updated_at || fallbackUpdatedAt);
 
   return (
     <Box>
