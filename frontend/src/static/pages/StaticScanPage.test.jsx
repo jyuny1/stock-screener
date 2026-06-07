@@ -198,7 +198,7 @@ describe('StaticScanPage', () => {
     });
   });
 
-  it('falls back update labels to generated_at when layer timestamps are unavailable', async () => {
+  it('does not fake layer update labels from the site generated_at timestamp', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       const path = String(url).split('/static-data/')[1];
 
@@ -246,7 +246,7 @@ describe('StaticScanPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('股票清單更新：2026-04-01-08-00 | 股票價格更新：2026-04-01-08-00 | 股票指標更新: 2026-04-01-08-00')).toBeInTheDocument();
+    expect(await screen.findByText('股票清單更新：- | 股票價格更新：- | 股票指標更新: -')).toBeInTheDocument();
   });
 
   it('passes company_name through to the shared results table before and after hydration', async () => {
