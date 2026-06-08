@@ -174,7 +174,7 @@ describe('StaticScanPage', () => {
     renderPage();
 
     expect(await screen.findByText(/Loading full scan dataset: [01] \/ 2 rows/i)).toBeInTheDocument();
-    expect(screen.getByText('股票清單更新：2026-04-01-08-00 | 股票價格更新：2026-04-01-06-15 | 股票指標更新: 2026-04-01-07-30')).toBeInTheDocument();
+    expect(screen.getByText('股票清單更新：2026-04-01-08:00:00 | 股票價格更新：2026-04-01-06:15:00 | 股票指標更新: 2026-04-01-07:30:00')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId('results-table-rows')).toHaveTextContent('NVDA');
     });

@@ -42,13 +42,14 @@ function formatTaiwanTimestamp(value) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   }).formatToParts(date).reduce((acc, part) => {
     acc[part.type] = part.value;
     return acc;
   }, {});
 
-  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}-${parts.minute}`;
+  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 function StaticScanPage() {

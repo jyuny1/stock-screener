@@ -6,7 +6,10 @@ import { renderWithProviders } from '../test/renderWithProviders';
 import ValidationPage from './ValidationPage';
 
 const getValidationOverview = vi.fn();
-const formatDate = (value) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+const formatDate = (value) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString();
+};
 
 vi.mock('../api/validation', () => ({
   getValidationOverview: (...args) => getValidationOverview(...args),
