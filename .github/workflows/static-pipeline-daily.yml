@@ -43,12 +43,44 @@ jobs:
             echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          latest_recent_same_type() {
+            local wanted_type="$1" max_age_hours="$2" tmp_dir
+            tmp_dir="$(mktemp -d)"
+            if ! gh release download pipeline-run-manifest --repo "${{ github.repository }}" \
+              --pattern pipeline-run-latest-us.json --dir "$tmp_dir" --clobber >/dev/null 2>&1; then
+              rm -rf "$tmp_dir"
+              return 1
+            fi
+            PIPELINE_TYPE_WANTED="$wanted_type" MAX_AGE_HOURS="$max_age_hours" \
+              MANIFEST_PATH="$tmp_dir/pipeline-run-latest-us.json" python3 - <<'PY'
+          import json, os, sys
+          from datetime import datetime, timezone
+          payload = json.load(open(os.environ['MANIFEST_PATH'], encoding='utf-8'))
+          if payload.get('pipeline_type') != os.environ['PIPELINE_TYPE_WANTED']:
+              raise SystemExit(1)
+          generated_at = payload.get('generated_at')
+          if not generated_at:
+              raise SystemExit(1)
+          generated = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+          age_hours = (datetime.now(timezone.utc) - generated).total_seconds() / 3600
+          raise SystemExit(0 if age_hours <= float(os.environ['MAX_AGE_HOURS']) else 1)
+          PY
+            local rc=$?
+            rm -rf "$tmp_dir"
+            return "$rc"
+          }
+
           et_dow="$(TZ=America/New_York date +%u)"
           et_hour="$(TZ=America/New_York date +%H)"
-          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && { [ "$et_hour" = "08" ] || [ "$et_hour" = "18" ]; }; then
-            echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
+          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && { [ "$et_hour" = "08" ] || [ "$et_hour" = "09" ] || [ "$et_hour" = "18" ] || [ "$et_hour" = "19" ]; }; then
+            if latest_recent_same_type daily 6; then
+              echo "Skipping; a daily pipeline manifest was generated within the last 6 hours."
+              echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "Skipping; target is Monday-Friday 08:00 or 18:00 America/New_York."
+            echo "Skipping; target is Monday-Friday 08:00/18:00 America/New_York with one-hour delay tolerance."
             echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
           fi
 
