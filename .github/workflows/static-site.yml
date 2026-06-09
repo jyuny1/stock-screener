@@ -256,23 +256,27 @@ jobs:
           VITE_GIT_PUSH_HASH: ${{ github.sha }}
         run: cd frontend && npm run build
 
-      - name: Validate Cloudflare R2 static-data configuration
+      - name: Validate Cloudflare static deployment configuration
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
         run: |
           missing=0
           for name in \
             CLOUDFLARE_ACCOUNT_ID \
+            CLOUDFLARE_API_TOKEN \
             R2_ACCESS_KEY_ID \
             R2_SECRET_ACCESS_KEY \
             R2_BUCKET \
-            STATIC_DATA_BASE_URL; do
+            STATIC_DATA_BASE_URL \
+            CLOUDFLARE_PAGES_PROJECT; do
             if [ -z "${!name}" ]; then
-              echo "Missing required Cloudflare R2 static-data setting: ${name}" >&2
+              echo "Missing required Cloudflare static deployment setting: ${name}" >&2
               missing=1
             fi
           done
@@ -314,3 +318,15 @@ jobs:
         run: |
           rm -rf frontend/dist/static-data
           test ! -e frontend/dist/static-data
+
+      - name: Deploy frontend to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          cd frontend
+          npx --yes wrangler@latest pages deploy dist \
+            --project-name "$CLOUDFLARE_PAGES_PROJECT" \
+            --branch main \
+            --commit-hash "${GITHUB_SHA}"
