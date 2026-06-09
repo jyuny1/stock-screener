@@ -743,7 +743,8 @@ def build_static_site_from_artifacts(
     _enrich_rows_with_option_pcr(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=as_of_date)
+    option_history_date = scan_as_of_date or price_as_of_date or as_of_date
+    _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
     scan_manifest = _build_scan(
         output_dir,
         generated_at=generated_at,
