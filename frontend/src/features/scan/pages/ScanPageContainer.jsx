@@ -44,6 +44,8 @@ import {
 } from '../runtimeUniverseSelections';
 
 const INITIAL_UNIVERSE_SELECTION = parseLegacyUniverseDefault(DEFAULT_SCAN_DEFAULTS.universe);
+const DEFAULT_SCAN_SORT_BY = 'adv_rs';
+const DEFAULT_SCAN_SORT_ORDER = 'desc';
 
 function getMutationErrorMessage(error) {
   if (!error) {
@@ -80,8 +82,8 @@ function ScanPage() {
   const [customFilters, setCustomFilters] = useState(DEFAULT_SCAN_DEFAULTS.criteria.custom_filters);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(50);
-  const [sortBy, setSortBy] = useState('composite_score');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortBy, setSortBy] = useState(DEFAULT_SCAN_SORT_BY);
+  const [sortOrder, setSortOrder] = useState(DEFAULT_SCAN_SORT_ORDER);
   const [filters, setFilters] = useState(buildDefaultScanFilters);
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
   const [chartModalOpen, setChartModalOpen] = useState(false);
@@ -144,7 +146,7 @@ function ScanPage() {
 
       queryClient.setQueryData(['filterOptions', selectedScanId], payload.filter_options ?? null);
       queryClient.setQueryData(
-        ['scanResults', selectedScanId, 1, 50, 'composite_score', 'desc', DEFAULT_FILTER_KEY],
+        ['scanResults', selectedScanId, 1, 50, DEFAULT_SCAN_SORT_BY, DEFAULT_SCAN_SORT_ORDER, DEFAULT_FILTER_KEY],
         payload.results_page ?? null
       );
       if (payload.selected_scan_status) {
@@ -507,8 +509,8 @@ function ScanPage() {
       bootstrappedScanId === currentScanId &&
       page === 1 &&
       perPage === 50 &&
-      sortBy === 'composite_score' &&
-      sortOrder === 'desc' &&
+      sortBy === DEFAULT_SCAN_SORT_BY &&
+      sortOrder === DEFAULT_SCAN_SORT_ORDER &&
       stableFilterKey === DEFAULT_FILTER_KEY
     ) {
       return;

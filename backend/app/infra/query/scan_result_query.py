@@ -194,6 +194,21 @@ def apply_filters(query: Query, filters: FilterSpec) -> Query:
     return query
 
 
+def _apply_adv_rs_sort(query: Query, order: SortOrder) -> Query:
+    """Default scan ranking: high ADV first, then high RS."""
+    if order == SortOrder.ASC:
+        return query.order_by(
+            asc(StockFundamental.adv_usd).nullslast(),
+            asc(ScanResult.rs_rating).nullslast(),
+            asc(ScanResult.symbol),
+        )
+    return query.order_by(
+        desc(StockFundamental.adv_usd).nullslast(),
+        desc(ScanResult.rs_rating).nullslast(),
+        asc(ScanResult.symbol),
+    )
+
+
 def apply_sort_and_paginate(
     query: Query,
     sort: SortSpec,
@@ -214,7 +229,9 @@ def apply_sort_and_paginate(
         rows = rows[page.offset : page.offset + page.limit]
     else:
         col = _COLUMN_MAP.get(sort.field)
-        if col is not None:
+        if sort.field == "adv_rs":
+            query = _apply_adv_rs_sort(query, sort.order)
+        elif col is not None:
             order_fn = asc if sort.order == SortOrder.ASC else desc
             ordered_col = order_fn(col)
             if sort.field == "composite_score":
@@ -242,7 +259,9 @@ def apply_sort_all(query: Query, sort: SortSpec) -> list:
         return _sort_in_python(rows, sort)
 
     col = _COLUMN_MAP.get(sort.field)
-    if col is not None:
+    if sort.field == "adv_rs":
+        query = _apply_adv_rs_sort(query, sort.order)
+    elif col is not None:
         order_fn = asc if sort.order == SortOrder.ASC else desc
         ordered_col = order_fn(col)
         if sort.field == "composite_score":

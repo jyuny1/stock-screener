@@ -329,7 +329,7 @@ def parse_scan_filters(
 
 
 def parse_scan_sort(
-    sort_by: str = Query("composite_score", description="Sort field"),
+    sort_by: str = Query("adv_rs", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
 ) -> SortSpec:
     """Build a SortSpec from HTTP query parameters."""

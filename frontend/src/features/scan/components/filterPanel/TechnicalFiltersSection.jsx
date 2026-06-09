@@ -114,7 +114,7 @@ function TechnicalFiltersSection({
         </Grid>
         <Grid item xs={6} sm={3} md={1}>
           <CompactCheckbox
-            label="MA Align"
+            label="MA"
             value={filters.maAlignment}
             onChange={(value) => updateFilter('maAlignment', value)}
           />

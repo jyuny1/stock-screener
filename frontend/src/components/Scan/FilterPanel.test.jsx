@@ -149,6 +149,28 @@ describe('FilterPanel', () => {
 
   // ── SE checkbox filter interactions ──────────────────────────────────
   describe('SE checkbox filter interactions', () => {
+    it('sets maAlignment with explicit All/Yes/No controls', async () => {
+      const onFilterChange = vi.fn();
+      renderWithProviders(
+        <FilterPanel {...makeProps({ onFilterChange })} />
+      );
+
+      const user = userEvent.setup();
+      const maLabel = screen.getByText('MA');
+      const maContainer = maLabel.closest('[class*="MuiGrid-item"]');
+
+      expect(within(maContainer).getByText('All')).toBeInTheDocument();
+      await user.click(within(maContainer).getByText('Yes'));
+      expect(onFilterChange).toHaveBeenCalledWith(
+        expect.objectContaining({ maAlignment: true })
+      );
+
+      await user.click(within(maContainer).getByText('No'));
+      expect(onFilterChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ maAlignment: false })
+      );
+    });
+
     it('sets seSetupReady=true when Yes is clicked', async () => {
       const onFilterChange = vi.fn();
       renderWithProviders(

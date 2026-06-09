@@ -146,6 +146,10 @@ _JSON_FIELD_MAP: dict[str, tuple[str, ...]] = {
     # Setup Engine (string)
     "se_pattern_primary": ("setup_engine", "pattern_primary"),
     "se_pivot_type": ("setup_engine", "pivot_type"),
+    # Option-chain derived metrics
+    "option_pcr_volume_30_45dte": ("option_pcr_volume_30_45dte",),
+    "option_put_volume_30_45dte": ("option_put_volume_30_45dte",),
+    "option_call_volume_30_45dte": ("option_call_volume_30_45dte",),
 }
 
 # JSON fields requiring CAST(... AS FLOAT) for correct numeric sorting.
@@ -161,6 +165,8 @@ _JSON_SORT_NUMERIC: frozenset[str] = frozenset({
     "se_bb_width_pctile_252", "se_volume_vs_50d",
     "se_up_down_volume_ratio_10d", "se_quiet_days_10d", "se_rs",
     "se_rs_vs_spy_65d", "se_rs_vs_spy_trend_20d",
+    "option_pcr_volume_30_45dte", "option_put_volume_30_45dte",
+    "option_call_volume_30_45dte",
 })
 
 
@@ -176,6 +182,22 @@ def _json_sort_expr(query: Query, field: str, column, json_path: tuple[str, ...]
 
 
 # ── Public API ──────────────────────────────────────────────────────────
+
+
+def _apply_adv_rs_sort(query: Query, order: SortOrder) -> Query:
+    """Default scan ranking: high ADV first, then high RS."""
+    rs_expr = json_number(StockFeatureDaily.details_json, ("rs_rating",), bind_or_session=query)
+    if order == SortOrder.ASC:
+        return query.order_by(
+            asc(StockFundamental.adv_usd).nullslast(),
+            asc(rs_expr).nullslast(),
+            asc(StockFeatureDaily.symbol),
+        )
+    return query.order_by(
+        desc(StockFundamental.adv_usd).nullslast(),
+        desc(rs_expr).nullslast(),
+        asc(StockFeatureDaily.symbol),
+    )
 
 
 def apply_filters(query: Query, filters: FilterSpec) -> Query:
@@ -200,7 +222,9 @@ def apply_sort_and_paginate(
     total = query.count()
 
     col = _COLUMN_MAP.get(sort.field)
-    if col is not None:
+    if sort.field == "adv_rs":
+        query = _apply_adv_rs_sort(query, sort.order)
+    elif col is not None:
         order_fn = asc if sort.order == SortOrder.ASC else desc
         ordered_col = order_fn(col)
         if sort.field == "composite_score":
@@ -227,7 +251,9 @@ def apply_sort_all(query: Query, sort: SortSpec) -> list:
     because all feature store fields are SQL-sortable via json_extract.
     """
     col = _COLUMN_MAP.get(sort.field)
-    if col is not None:
+    if sort.field == "adv_rs":
+        query = _apply_adv_rs_sort(query, sort.order)
+    elif col is not None:
         order_fn = asc if sort.order == SortOrder.ASC else desc
         ordered_col = order_fn(col)
         if sort.field == "composite_score":

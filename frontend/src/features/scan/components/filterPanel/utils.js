@@ -181,7 +181,7 @@ export function buildActiveFilters(filters) {
     active.push({ key: 'vcpReady', label: `VCP Ready: ${filters.vcpReady ? 'Yes' : 'No'}` });
   }
   if (filters.maAlignment != null) {
-    active.push({ key: 'maAlignment', label: `MA Align: ${filters.maAlignment ? 'Yes' : 'No'}` });
+    active.push({ key: 'maAlignment', label: `MA: ${filters.maAlignment ? 'Yes' : 'No'}` });
   }
   if (filters.passesTemplate != null) {
     active.push({ key: 'passesTemplate', label: `Passes: ${filters.passesTemplate ? 'Yes' : 'No'}` });

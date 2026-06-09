@@ -59,7 +59,7 @@ function ChartViewerModal({
   initialSymbol,
   scanId,
   filters = {},
-  sortBy = 'composite_score',
+  sortBy = 'adv_rs',
   sortOrder = 'desc',
   navigationSymbolsOverride = null,
   currentPageResults = [],

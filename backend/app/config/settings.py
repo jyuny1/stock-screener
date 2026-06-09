@@ -378,7 +378,7 @@ class Settings(BaseSettings):
     scan_option_pcr_enabled: bool = True  # Enrich US scan rows with Schwab 30-45 DTE volume PCR when credentials exist
     scan_option_pcr_min_dte: int = 30
     scan_option_pcr_max_dte: int = 45
-    scan_option_pcr_max_symbols_per_scan: int = 500  # 0 = no cap; Schwab /chains is single-symbol, so keep bounded by default
+    scan_option_pcr_max_symbols_per_scan: int = 300  # PCR enrichment follows ADV desc + RS desc top-N; 0 = no cap
     scan_option_pcr_request_interval_seconds: float = 0.5  # <=120 calls/minute default safety limit
     static_snapshot_chunk_size: int = 100  # Larger chunk size for CI/static batch processing
     static_snapshot_parallel_workers: int = 8  # Bounded symbol-level parallelism for static batch processing

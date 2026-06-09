@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.scan_result import ScanResult
+from app.models.stock import StockFundamental
 from app.models.stock_universe import StockUniverse
 from app.services.schwab_token_service import SchwabTokenService
 
@@ -181,9 +182,14 @@ def enrich_scan_results_with_option_pcr(
     query = (
         db.query(ScanResult)
         .outerjoin(StockUniverse, ScanResult.symbol == StockUniverse.symbol)
+        .outerjoin(StockFundamental, ScanResult.symbol == StockFundamental.symbol)
         .filter(ScanResult.scan_id == scan_id)
         .filter((StockUniverse.market == "US") | (StockUniverse.market.is_(None)))
-        .order_by(ScanResult.composite_score.desc().nullslast(), ScanResult.symbol.asc())
+        .order_by(
+            StockFundamental.adv_usd.desc().nullslast(),
+            ScanResult.rs_rating.desc().nullslast(),
+            ScanResult.symbol.asc(),
+        )
     )
     if max_symbols and max_symbols > 0:
         query = query.limit(max_symbols)
