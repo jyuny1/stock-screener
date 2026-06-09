@@ -12,6 +12,7 @@ from numbers import Integral, Real
 import os
 from pathlib import Path
 import shutil
+import subprocess
 from typing import Any
 from urllib.parse import quote
 
@@ -60,7 +61,14 @@ def _git_push_hash() -> str | None:
         value = os.environ.get(name)
         if value:
             return value
-    return None
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return None
 
 
 # Default minVolume thresholds are expressed in local-currency daily dollar

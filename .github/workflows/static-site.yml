@@ -208,6 +208,8 @@ jobs:
           scan_path = root / manifest['markets']['US']['pages']['scan']['path']
           scan = json.loads(scan_path.read_text(encoding='utf-8'))
           assert scan['schema_version'] == 'static-scan-v1'
+          assert manifest.get('git_push_hash'), 'root static manifest missing git_push_hash'
+          assert scan.get('git_push_hash'), 'scan manifest missing git_push_hash'
           assert scan['rows_total'] >= 3000
           assert scan['initial_rows']
           required = {'symbol', 'company_name', 'market', 'composite_score', 'volume', 'market_cap', 'gics_sector'}
@@ -247,6 +249,7 @@ jobs:
           VITE_STATIC_SITE: "true"
           VITE_BASE_PATH: /
           VITE_STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
+          VITE_GIT_PUSH_HASH: ${{ github.sha }}
         run: cd frontend && npm run build
 
       - name: Validate Cloudflare R2 static-data configuration

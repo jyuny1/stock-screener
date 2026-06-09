@@ -29,6 +29,7 @@ import { useStaticMarket } from '../StaticMarketContext';
 
 const HYDRATION_BATCH_SIZE = 2;
 const TAIWAN_TIME_ZONE = 'Asia/Taipei';
+const BUILD_GIT_HASH = import.meta.env.VITE_GIT_PUSH_HASH;
 
 function formatGitHash(value) {
   if (!value) return '-';
@@ -284,7 +285,7 @@ function StaticScanPage() {
   const priceUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.price_updated_at);
   const scanUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.scan_updated_at);
   const gitPushHash = formatGitHash(
-    scanManifestQuery.data.git_push_hash ?? manifestQuery.data?.git_push_hash
+    scanManifestQuery.data.git_push_hash ?? manifestQuery.data?.git_push_hash ?? BUILD_GIT_HASH
   );
 
   return (
