@@ -809,6 +809,11 @@ def _map_feature_to_scan_result(
         "ema_50_distance": d.get("ema_50_distance"),
         "week_52_high_distance": d.get("from_52w_high_pct"),
         "week_52_low_distance": d.get("above_52w_low_pct"),
+        "option_pcr_volume_30_45dte": d.get("option_pcr_volume_30_45dte"),
+        "option_put_volume_30_45dte": d.get("option_put_volume_30_45dte"),
+        "option_call_volume_30_45dte": d.get("option_call_volume_30_45dte"),
+        "option_pcr_volume_30_45dte_expirations": d.get("option_pcr_volume_30_45dte_expirations"),
+        "option_pcr_volume_30_45dte_asof": d.get("option_pcr_volume_30_45dte_asof"),
     }
 
     # Setup Engine fields (extracted from details JSON blob)

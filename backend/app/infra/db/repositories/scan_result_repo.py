@@ -832,6 +832,11 @@ def _map_row_to_domain(
         "ema_50_distance": result.ema_50_distance,
         "week_52_high_distance": result.week_52_high_distance,
         "week_52_low_distance": result.week_52_low_distance,
+        "option_pcr_volume_30_45dte": details.get("option_pcr_volume_30_45dte"),
+        "option_put_volume_30_45dte": details.get("option_put_volume_30_45dte"),
+        "option_call_volume_30_45dte": details.get("option_call_volume_30_45dte"),
+        "option_pcr_volume_30_45dte_expirations": details.get("option_pcr_volume_30_45dte_expirations"),
+        "option_pcr_volume_30_45dte_asof": details.get("option_pcr_volume_30_45dte_asof"),
     }
 
     # Setup Engine fields (extracted from details JSON blob)

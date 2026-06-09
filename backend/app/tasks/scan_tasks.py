@@ -155,6 +155,12 @@ def _run_post_scan_pipeline(scan_id: str, *, warm_chart_cache: bool = True) -> N
     try:
         compute_industry_peer_metrics(db, scan_id)
         _log_setup_engine_distribution(db, scan_id)
+        try:
+            from ..services.schwab_option_metrics_service import enrich_scan_results_with_option_pcr
+
+            enrich_scan_results_with_option_pcr(db, scan_id)
+        except Exception as e:
+            logger.warning("Option PCR enrichment failed for %s: %s", scan_id, e)
         scan = db.query(Scan).filter(Scan.scan_id == scan_id).first()
         if scan and scan.universe_key:
             cleanup_old_scans(db, scan.universe_key)

@@ -129,6 +129,10 @@ _JSON_FIELD_MAP: dict[str, tuple[str, ...]] = {
     # Setup Engine (string)
     "se_pattern_primary": ("setup_engine", "pattern_primary"),
     "se_pivot_type": ("setup_engine", "pivot_type"),
+    # Option-chain derived metrics
+    "option_pcr_volume_30_45dte": ("option_pcr_volume_30_45dte",),
+    "option_put_volume_30_45dte": ("option_put_volume_30_45dte",),
+    "option_call_volume_30_45dte": ("option_call_volume_30_45dte",),
 }
 
 # JSON fields requiring CAST(... AS FLOAT) for correct numeric sorting.
@@ -142,6 +146,8 @@ _JSON_SORT_NUMERIC: frozenset[str] = frozenset({
     "se_bb_width_pctile_252", "se_volume_vs_50d",
     "se_up_down_volume_ratio_10d", "se_quiet_days_10d", "se_rs",
     "se_rs_vs_spy_65d", "se_rs_vs_spy_trend_20d",
+    "option_pcr_volume_30_45dte", "option_put_volume_30_45dte",
+    "option_call_volume_30_45dte",
 })
 
 # Sort fields that must be fetched and sorted in Python (not in SQL).

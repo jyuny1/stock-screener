@@ -182,6 +182,13 @@ class ScanResultItem(BaseModel):
     # IPO date for age filtering
     ipo_date: Optional[str] = None  # Format: YYYY-MM-DD
 
+    # Option-chain derived metrics
+    option_pcr_volume_30_45dte: Optional[float] = None
+    option_put_volume_30_45dte: Optional[int] = None
+    option_call_volume_30_45dte: Optional[int] = None
+    option_pcr_volume_30_45dte_expirations: Optional[int] = None
+    option_pcr_volume_30_45dte_asof: Optional[str] = None
+
     # Beta and Beta-Adjusted RS metrics
     beta: Optional[float] = None
     beta_adj_rs: Optional[float] = None
@@ -320,6 +327,12 @@ class ScanResultItem(BaseModel):
             price_trend=ef.get("price_trend"),
             # IPO date
             ipo_date=ef.get("ipo_date"),
+            # Option-chain derived metrics
+            option_pcr_volume_30_45dte=ef.get("option_pcr_volume_30_45dte"),
+            option_put_volume_30_45dte=ef.get("option_put_volume_30_45dte"),
+            option_call_volume_30_45dte=ef.get("option_call_volume_30_45dte"),
+            option_pcr_volume_30_45dte_expirations=ef.get("option_pcr_volume_30_45dte_expirations"),
+            option_pcr_volume_30_45dte_asof=ef.get("option_pcr_volume_30_45dte_asof"),
             # Beta and Beta-Adjusted RS
             beta=ef.get("beta"),
             beta_adj_rs=ef.get("beta_adj_rs"),

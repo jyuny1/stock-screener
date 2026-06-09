@@ -82,6 +82,7 @@ const columnHelp = {
   eps_growth_qq: { zh: 'EPS成長', description: '近期 EPS 成長率。' },
   sales_growth_qq: { zh: '營收成長', description: '近期營收成長率。' },
   adr_percent: { zh: '平均日振幅', description: 'Average Daily Range 百分比，用於衡量日內波動。' },
+  option_pcr_volume_30_45dte: { zh: '30–45D PCR', description: 'Schwab option chain 中 30–45 DTE 的 Put 成交量加總 / Call 成交量加總。' },
   ma_alignment: { zh: '均線排列', description: '價格與主要均線是否呈多頭排列。' },
   vcp_detected: { zh: 'VCP型態', description: '是否偵測到波動收縮型態 VCP。' },
   vcp_score: { zh: 'VCP分', description: 'VCP 型態品質分數。' },
@@ -123,6 +124,7 @@ const columns = [
   { id: 'rs_trend', label: 'RS Trend', sortable: true, width: 110 },
   { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
   { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
+  { id: 'option_pcr_volume_30_45dte', label: 'PCR 30–45D', sortable: true, width: 80 },
   { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
   // MCap column header label is overridden per-render based on the USD/Local
   // toggle; keep the underlying sort key stable at 'market_cap' so the
@@ -351,6 +353,14 @@ const VirtualTableRow = memo(function VirtualTableRow({
         {row.adr_percent != null ? `${row.adr_percent.toFixed(1)}%` : '-'}
       </TableCell>
 
+      <TableCell
+        align="center"
+        title={row.option_pcr_volume_30_45dte_asof ? `As of ${row.option_pcr_volume_30_45dte_asof}` : undefined}
+        sx={{ fontFamily: 'monospace', width: 80, minWidth: 80 }}
+      >
+        {row.option_pcr_volume_30_45dte != null ? row.option_pcr_volume_30_45dte.toFixed(2) : '-'}
+      </TableCell>
+
       <TableCell align="center" sx={{ width: 35, minWidth: 35 }}>
         {row.ma_alignment ? (
           <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
@@ -386,6 +396,8 @@ const VirtualTableRow = memo(function VirtualTableRow({
          prevProps.row.rs_rating === nextProps.row.rs_rating &&
          prevProps.row.current_price === nextProps.row.current_price &&
          prevProps.row.price_change_1d === nextProps.row.price_change_1d &&
+         prevProps.row.option_pcr_volume_30_45dte === nextProps.row.option_pcr_volume_30_45dte &&
+         prevProps.row.option_pcr_volume_30_45dte_asof === nextProps.row.option_pcr_volume_30_45dte_asof &&
          prevProps.row.gics_sector === nextProps.row.gics_sector &&
          prevProps.row.ibd_industry_group === nextProps.row.ibd_industry_group &&
          prevProps.row.ibd_group_rank === nextProps.row.ibd_group_rank &&
