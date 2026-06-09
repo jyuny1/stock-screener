@@ -180,6 +180,10 @@ jobs:
           PY
 
       - name: Build static data from artifacts
+        env:
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
           rm -rf "$STATIC_DATA_DIR"

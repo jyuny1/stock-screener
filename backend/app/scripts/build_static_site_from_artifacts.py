@@ -9,12 +9,15 @@ not call external market-data providers.
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import json
 import math
 import os
 import subprocess
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
+from urllib import error, parse, request
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,12 @@ SCAN_BUNDLE_SCHEMA_VERSION = "static-scan-v1"
 SCAN_CHUNK_SIZE = 1000
 DEFAULT_MARKET = "US"
 DEFAULT_MARKET_DISPLAY = "United States"
+SCHWAB_MARKETDATA_BASE_URL = "https://api.schwabapi.com/marketdata/v1"
+SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+OPTION_PCR_MIN_DTE = 30
+OPTION_PCR_MAX_DTE = 45
+OPTION_PCR_MAX_SYMBOLS = 300
+OPTION_PCR_REQUEST_INTERVAL_SECONDS = 0.5
 
 
 def _utc_now() -> str:
@@ -44,6 +53,142 @@ def _git_push_hash() -> str | None:
         ).strip()
     except Exception:
         return None
+
+
+def _has_schwab_auth_material() -> bool:
+    if os.environ.get("SCHWAB_ACCESS_TOKEN"):
+        return True
+    return all(
+        os.environ.get(name)
+        for name in ("SCHWAB_CLIENT_ID", "SCHWAB_CLIENT_SECRET", "SCHWAB_REFRESH_TOKEN")
+    )
+
+
+def _schwab_access_token() -> str:
+    token = os.environ.get("SCHWAB_ACCESS_TOKEN")
+    if token:
+        return token
+    client_id = os.environ["SCHWAB_CLIENT_ID"]
+    client_secret = os.environ["SCHWAB_CLIENT_SECRET"]
+    refresh_token = os.environ["SCHWAB_REFRESH_TOKEN"]
+    basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    body = parse.urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode("utf-8")
+    req = request.Request(
+        SCHWAB_TOKEN_URL,
+        data=body,
+        headers={
+            "Authorization": f"Basic {basic}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+    with request.urlopen(req, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    access_token = str(payload.get("access_token") or "")
+    new_refresh_token = str(payload.get("refresh_token") or "")
+    if not access_token:
+        raise RuntimeError("Schwab token refresh response did not include access_token")
+    os.environ["SCHWAB_ACCESS_TOKEN"] = access_token
+    if new_refresh_token:
+        os.environ["SCHWAB_REFRESH_TOKEN"] = new_refresh_token
+    return access_token
+
+
+def _flatten_option_contracts(exp_date_map: Any) -> list[dict[str, Any]]:
+    contracts: list[dict[str, Any]] = []
+    if not isinstance(exp_date_map, dict):
+        return contracts
+    for strikes in exp_date_map.values():
+        if not isinstance(strikes, dict):
+            continue
+        for contract_list in strikes.values():
+            if isinstance(contract_list, list):
+                contracts.extend(c for c in contract_list if isinstance(c, dict))
+    return contracts
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None = None) -> dict[str, Any]:
+    now = today or datetime.now(timezone.utc)
+    from_date = (now.date() + timedelta(days=OPTION_PCR_MIN_DTE)).isoformat()
+    to_date = (now.date() + timedelta(days=OPTION_PCR_MAX_DTE)).isoformat()
+    query = parse.urlencode({
+        "symbol": symbol,
+        "contractType": "ALL",
+        "strategy": "SINGLE",
+        "fromDate": from_date,
+        "toDate": to_date,
+        "includeUnderlyingQuote": "false",
+        "optionType": "ALL",
+    })
+    req = request.Request(
+        f"{SCHWAB_MARKETDATA_BASE_URL}/chains?{query}",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    with request.urlopen(req, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    puts = _flatten_option_contracts(payload.get("putExpDateMap"))
+    calls = _flatten_option_contracts(payload.get("callExpDateMap"))
+    put_volume = sum(_int_value(contract.get("totalVolume")) for contract in puts)
+    call_volume = sum(_int_value(contract.get("totalVolume")) for contract in calls)
+    expirations = {
+        str(contract.get("expirationDate"))[:10]
+        for contract in [*puts, *calls]
+        if contract.get("expirationDate")
+    }
+    return {
+        "option_pcr_volume_30_45dte": (put_volume / call_volume) if call_volume > 0 else None,
+        "option_put_volume_30_45dte": put_volume,
+        "option_call_volume_30_45dte": call_volume,
+        "option_pcr_volume_30_45dte_expirations": len(expirations),
+        "option_pcr_volume_30_45dte_contracts": len(puts) + len(calls),
+        "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
+        "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
+        "option_pcr_volume_30_45dte_asof": datetime.now(timezone.utc).isoformat(),
+        "option_pcr_volume_30_45dte_provider": "schwab",
+    }
+
+
+def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
+    if not _has_schwab_auth_material():
+        print("Option PCR enrichment skipped: missing Schwab auth material")
+        return 0
+    access_token = _schwab_access_token()
+    updated = 0
+    top_rows = rows[:OPTION_PCR_MAX_SYMBOLS]
+    for index, row in enumerate(top_rows):
+        if row.get("option_pcr_volume_30_45dte") is not None:
+            continue
+        symbol = str(row.get("symbol") or "").upper().strip()
+        if not symbol:
+            continue
+        try:
+            row.update(_fetch_option_pcr(symbol, access_token=access_token))
+            updated += 1
+        except error.HTTPError as exc:
+            row.update({
+                "option_pcr_volume_30_45dte_error": f"HTTP {exc.code}",
+                "option_pcr_volume_30_45dte_provider": "schwab",
+                "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
+                "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
+            })
+        except Exception as exc:  # noqa: BLE001 - best-effort static enrichment
+            row.update({
+                "option_pcr_volume_30_45dte_error": str(exc)[:200],
+                "option_pcr_volume_30_45dte_provider": "schwab",
+                "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
+                "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
+            })
+        if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(top_rows) - 1:
+            time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
+    print(f"Option PCR enrichment complete: updated={updated} rows={len(top_rows)}")
+    return updated
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -284,6 +429,16 @@ def _scan_row(
         "rs_sparkline": rs_sparkline,
         "rs_sparkline_data": rs_sparkline,
         "rs_trend": metrics.get("rs_trend", _trend(rs_sparkline)),
+        "option_pcr_volume_30_45dte": metrics.get("option_pcr_volume_30_45dte"),
+        "option_put_volume_30_45dte": metrics.get("option_put_volume_30_45dte"),
+        "option_call_volume_30_45dte": metrics.get("option_call_volume_30_45dte"),
+        "option_pcr_volume_30_45dte_expirations": metrics.get("option_pcr_volume_30_45dte_expirations"),
+        "option_pcr_volume_30_45dte_contracts": metrics.get("option_pcr_volume_30_45dte_contracts"),
+        "option_pcr_volume_30_45dte_min_dte": metrics.get("option_pcr_volume_30_45dte_min_dte"),
+        "option_pcr_volume_30_45dte_max_dte": metrics.get("option_pcr_volume_30_45dte_max_dte"),
+        "option_pcr_volume_30_45dte_asof": metrics.get("option_pcr_volume_30_45dte_asof"),
+        "option_pcr_volume_30_45dte_provider": metrics.get("option_pcr_volume_30_45dte_provider"),
+        "option_pcr_volume_30_45dte_error": metrics.get("option_pcr_volume_30_45dte_error"),
     }
     return row
 
@@ -292,8 +447,10 @@ def _sort_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         rows,
         key=lambda row: (
-            row.get("composite_score") is None,
-            -(float(row.get("composite_score") or 0)),
+            row.get("adv_usd") is None,
+            -(float(row.get("adv_usd") or 0)),
+            row.get("rs_rating") is None,
+            -(float(row.get("rs_rating") or 0)),
             row.get("symbol") or "",
         ),
     )
@@ -362,7 +519,7 @@ def _build_scan(
         "scan_updated_at": scan_updated_at,
         "git_push_hash": git_push_hash,
         "run_id": "artifact-native-us",
-        "sort": {"field": "composite_score", "order": "desc"},
+        "sort": {"field": "adv_rs", "order": "desc"},
         "default_page_size": 50,
         "chunk_size": SCAN_CHUNK_SIZE,
         "rows_total": len(rows),
@@ -495,6 +652,7 @@ def build_static_site_from_artifacts(
             etf_by_symbol.get(symbol),
         ))
     rows = _sort_rows(rows)
+    _enrich_rows_with_option_pcr(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     scan_manifest = _build_scan(
