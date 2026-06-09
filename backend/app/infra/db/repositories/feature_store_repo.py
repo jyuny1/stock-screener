@@ -812,6 +812,11 @@ def _map_feature_to_scan_result(
         "option_pcr_volume_30_45dte": d.get("option_pcr_volume_30_45dte"),
         "option_put_volume_30_45dte": d.get("option_put_volume_30_45dte"),
         "option_call_volume_30_45dte": d.get("option_call_volume_30_45dte"),
+        "option_put_oi_30_45dte": d.get("option_put_oi_30_45dte"),
+        "option_call_oi_30_45dte": d.get("option_call_oi_30_45dte"),
+        "option_put_volume_30_45dte_history": d.get("option_put_volume_30_45dte_history"),
+        "option_put_oi_30_45dte_history": d.get("option_put_oi_30_45dte_history"),
+        "option_put_liquidity_history_dates": d.get("option_put_liquidity_history_dates"),
         "option_pcr_volume_30_45dte_expirations": d.get("option_pcr_volume_30_45dte_expirations"),
         "option_pcr_volume_30_45dte_asof": d.get("option_pcr_volume_30_45dte_asof"),
     }

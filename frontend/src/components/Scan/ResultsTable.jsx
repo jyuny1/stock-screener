@@ -83,6 +83,8 @@ const columnHelp = {
   sales_growth_qq: { zh: '營收成長', description: '近期營收成長率。' },
   adr_percent: { zh: '平均日振幅', description: 'Average Daily Range 百分比，用於衡量日內波動。' },
   option_pcr_volume_30_45dte: { zh: '30–45D PCR', description: 'Schwab option chain 中 30–45 DTE 的 Put 成交量加總 / Call 成交量加總。' },
+  option_put_volume_30_45dte: { zh: '30–45D Put Vol', description: 'Schwab option chain 中 30–45 DTE 的 Put 成交量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
+  option_put_oi_30_45dte: { zh: '30–45D Put OI', description: 'Schwab option chain 中 30–45 DTE 的 Put 未平倉量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
   ma_alignment: { zh: '均線排列', description: '價格與主要均線是否呈多頭排列。' },
   vcp_detected: { zh: 'VCP型態', description: '是否偵測到波動收縮型態 VCP。' },
   vcp_score: { zh: 'VCP分', description: 'VCP 型態品質分數。' },
@@ -125,6 +127,8 @@ const columns = [
   { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
   { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
   { id: 'option_pcr_volume_30_45dte', label: 'PCR 30–45D', sortable: true, width: 80 },
+  { id: 'option_put_volume_30_45dte', label: 'Put Vol', sortable: true, width: 90 },
+  { id: 'option_put_oi_30_45dte', label: 'Put OI', sortable: true, width: 90 },
   { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
   // MCap column header label is overridden per-render based on the USD/Local
   // toggle; keep the underlying sort key stable at 'market_cap' so the
@@ -167,6 +171,61 @@ const HIDDEN_SCAN_COLUMN_IDS = new Set([
   'passes_template',
   'rating',
 ]);
+
+const getOptionLiquidityTrend = (values) => {
+  if (!Array.isArray(values) || values.length < 2) return 0;
+  const first = Number(values[0] || 0);
+  const last = Number(values[values.length - 1] || 0);
+  if (!first && !last) return 0;
+  if (last > first * 1.05) return 1;
+  if (last < first * 0.95) return -1;
+  return 0;
+};
+
+const OptionLiquidityVisual = ({ value, history, dates, label }) => {
+  const cleanHistory = Array.isArray(history)
+    ? history.map((item) => Number(item || 0)).filter((item) => Number.isFinite(item))
+    : [];
+  const hasTrend = cleanHistory.length >= 7;
+  const compact = formatLargeNumber(value);
+  const barWidth = value != null ? Math.min(100, Math.max(8, Math.log10(Number(value) + 1) * 18)) : 0;
+  const tooltip = hasTrend
+    ? `${label} 7D trend (${dates?.[0] || '-'} → ${dates?.[dates.length - 1] || '-'})`
+    : `${label}: ${compact}. 7D trend will appear after ${Math.max(0, 7 - cleanHistory.length)} more snapshot(s).`;
+
+  if (value == null && !hasTrend) {
+    return <Box sx={{ color: 'text.disabled', fontSize: 10 }}>-</Box>;
+  }
+
+  if (hasTrend) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
+        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1 }}>
+          {compact}
+        </Typography>
+        <RSSparkline
+          data={cleanHistory}
+          trend={getOptionLiquidityTrend(cleanHistory)}
+          width={76}
+          height={18}
+        />
+      </Box>
+    );
+  }
+
+  return (
+    <Tooltip title={tooltip} arrow placement="top">
+      <Box sx={{ width: 76, mx: 'auto', cursor: 'help' }}>
+        <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', fontSize: 10, lineHeight: 1.1 }}>
+          {compact}
+        </Typography>
+        <Box sx={{ mt: 0.25, height: 4, bgcolor: 'action.hover', borderRadius: 999, overflow: 'hidden' }}>
+          <Box sx={{ height: '100%', width: `${barWidth}%`, bgcolor: 'info.main', borderRadius: 999 }} />
+        </Box>
+      </Box>
+    </Tooltip>
+  );
+};
 
 const getStatusChipProps = (row) => {
   const isInsufficientHistoryRow =
@@ -361,6 +420,24 @@ const VirtualTableRow = memo(function VirtualTableRow({
         {row.option_pcr_volume_30_45dte != null ? row.option_pcr_volume_30_45dte.toFixed(2) : '-'}
       </TableCell>
 
+      <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
+        <OptionLiquidityVisual
+          label="Put Vol 30–45D"
+          value={row.option_put_volume_30_45dte}
+          history={row.option_put_volume_30_45dte_history}
+          dates={row.option_put_liquidity_history_dates}
+        />
+      </TableCell>
+
+      <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
+        <OptionLiquidityVisual
+          label="Put OI 30–45D"
+          value={row.option_put_oi_30_45dte}
+          history={row.option_put_oi_30_45dte_history}
+          dates={row.option_put_liquidity_history_dates}
+        />
+      </TableCell>
+
       <TableCell align="center" sx={{ width: 35, minWidth: 35 }}>
         {row.ma_alignment ? (
           <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
@@ -398,6 +475,10 @@ const VirtualTableRow = memo(function VirtualTableRow({
          prevProps.row.price_change_1d === nextProps.row.price_change_1d &&
          prevProps.row.option_pcr_volume_30_45dte === nextProps.row.option_pcr_volume_30_45dte &&
          prevProps.row.option_pcr_volume_30_45dte_asof === nextProps.row.option_pcr_volume_30_45dte_asof &&
+         prevProps.row.option_put_volume_30_45dte === nextProps.row.option_put_volume_30_45dte &&
+         prevProps.row.option_put_oi_30_45dte === nextProps.row.option_put_oi_30_45dte &&
+         (prevProps.row.option_put_volume_30_45dte_history || []).join('|') === (nextProps.row.option_put_volume_30_45dte_history || []).join('|') &&
+         (prevProps.row.option_put_oi_30_45dte_history || []).join('|') === (nextProps.row.option_put_oi_30_45dte_history || []).join('|') &&
          prevProps.row.gics_sector === nextProps.row.gics_sector &&
          prevProps.row.ibd_industry_group === nextProps.row.ibd_industry_group &&
          prevProps.row.ibd_group_rank === nextProps.row.ibd_group_rank &&

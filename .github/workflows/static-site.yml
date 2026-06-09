@@ -184,6 +184,7 @@ jobs:
           SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
           SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
           SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
         run: |
           set -euo pipefail
           rm -rf "$STATIC_DATA_DIR"

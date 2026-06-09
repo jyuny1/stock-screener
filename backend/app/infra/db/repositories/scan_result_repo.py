@@ -835,6 +835,11 @@ def _map_row_to_domain(
         "option_pcr_volume_30_45dte": details.get("option_pcr_volume_30_45dte"),
         "option_put_volume_30_45dte": details.get("option_put_volume_30_45dte"),
         "option_call_volume_30_45dte": details.get("option_call_volume_30_45dte"),
+        "option_put_oi_30_45dte": details.get("option_put_oi_30_45dte"),
+        "option_call_oi_30_45dte": details.get("option_call_oi_30_45dte"),
+        "option_put_volume_30_45dte_history": details.get("option_put_volume_30_45dte_history"),
+        "option_put_oi_30_45dte_history": details.get("option_put_oi_30_45dte_history"),
+        "option_put_liquidity_history_dates": details.get("option_put_liquidity_history_dates"),
         "option_pcr_volume_30_45dte_expirations": details.get("option_pcr_volume_30_45dte_expirations"),
         "option_pcr_volume_30_45dte_asof": details.get("option_pcr_volume_30_45dte_asof"),
     }

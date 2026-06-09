@@ -157,6 +157,8 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
         "option_pcr_volume_30_45dte": (put_volume / call_volume) if call_volume > 0 else None,
         "option_put_volume_30_45dte": put_volume,
         "option_call_volume_30_45dte": call_volume,
+        "option_put_oi_30_45dte": sum(_int_value(contract.get("openInterest")) for contract in puts),
+        "option_call_oi_30_45dte": sum(_int_value(contract.get("openInterest")) for contract in calls),
         "option_pcr_volume_30_45dte_expirations": len(expirations),
         "option_pcr_volume_30_45dte_contracts": len(puts) + len(calls),
         "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
@@ -208,6 +210,71 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
             time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
     print(f"Option PCR enrichment complete: updated={updated} rows={len(top_rows)}")
     return updated
+
+
+def _read_previous_option_history() -> dict[str, list[dict[str, Any]]]:
+    base_url = (os.environ.get("STATIC_DATA_BASE_URL") or "").rstrip("/")
+    if not base_url:
+        return {}
+    url = f"{base_url}/markets/us/options/put-liquidity-history.json"
+    try:
+        req = request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with request.urlopen(req, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - first run or unavailable history is expected
+        print(f"Option put liquidity history unavailable: {exc}")
+        return {}
+    rows = payload.get("rows") or {}
+    if not isinstance(rows, dict):
+        return {}
+    return {
+        str(symbol).upper(): entries
+        for symbol, entries in rows.items()
+        if isinstance(entries, list)
+    }
+
+
+def _merge_option_history(
+    rows: list[dict[str, Any]],
+    *,
+    output_dir: Path,
+    generated_at: str,
+    as_of_date: str,
+    window_days: int = 7,
+) -> dict[str, Any]:
+    history = _read_previous_option_history()
+    today_key = str(as_of_date)
+    for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+        symbol = str(row.get("symbol") or "").upper().strip()
+        if not symbol or row.get("option_put_volume_30_45dte") is None:
+            continue
+        entries = [entry for entry in history.get(symbol, []) if isinstance(entry, dict) and entry.get("date") != today_key]
+        entries.append({
+            "date": today_key,
+            "put_volume": row.get("option_put_volume_30_45dte"),
+            "put_oi": row.get("option_put_oi_30_45dte"),
+            "pcr": row.get("option_pcr_volume_30_45dte"),
+            "asof": row.get("option_pcr_volume_30_45dte_asof"),
+        })
+        entries = sorted(entries, key=lambda item: str(item.get("date") or ""))[-window_days:]
+        history[symbol] = entries
+
+    for row in rows:
+        symbol = str(row.get("symbol") or "").upper().strip()
+        entries = history.get(symbol, [])[-window_days:]
+        row["option_put_volume_30_45dte_history"] = [entry.get("put_volume") for entry in entries]
+        row["option_put_oi_30_45dte_history"] = [entry.get("put_oi") for entry in entries]
+        row["option_put_liquidity_history_dates"] = [entry.get("date") for entry in entries]
+
+    payload = {
+        "schema_version": "option-put-liquidity-history-v1",
+        "generated_at": generated_at,
+        "as_of_date": as_of_date,
+        "window_days": window_days,
+        "rows": history,
+    }
+    _write_json(output_dir / "markets/us/options/put-liquidity-history.json", payload)
+    return payload
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -451,6 +518,8 @@ def _scan_row(
         "option_pcr_volume_30_45dte": metrics.get("option_pcr_volume_30_45dte"),
         "option_put_volume_30_45dte": metrics.get("option_put_volume_30_45dte"),
         "option_call_volume_30_45dte": metrics.get("option_call_volume_30_45dte"),
+        "option_put_oi_30_45dte": metrics.get("option_put_oi_30_45dte"),
+        "option_call_oi_30_45dte": metrics.get("option_call_oi_30_45dte"),
         "option_pcr_volume_30_45dte_expirations": metrics.get("option_pcr_volume_30_45dte_expirations"),
         "option_pcr_volume_30_45dte_contracts": metrics.get("option_pcr_volume_30_45dte_contracts"),
         "option_pcr_volume_30_45dte_min_dte": metrics.get("option_pcr_volume_30_45dte_min_dte"),
@@ -674,6 +743,7 @@ def build_static_site_from_artifacts(
     _enrich_rows_with_option_pcr(rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=as_of_date)
     scan_manifest = _build_scan(
         output_dir,
         generated_at=generated_at,
@@ -735,7 +805,10 @@ def build_static_site_from_artifacts(
             "breadth": {"path": "markets/us/breadth.json"},
             "groups": {"path": "markets/us/groups.json"},
         },
-        "assets": {"charts": {"path": "markets/us/charts/manifest.json", "limit": 0, "symbols_total": 0}},
+        "assets": {
+            "charts": {"path": "markets/us/charts/manifest.json", "limit": 0, "symbols_total": 0},
+            "option_put_liquidity_history": {"path": "markets/us/options/put-liquidity-history.json", "window_days": 7},
+        },
         "freshness": home_payload["freshness"],
     }
     manifest = {

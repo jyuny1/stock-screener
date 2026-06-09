@@ -186,6 +186,11 @@ class ScanResultItem(BaseModel):
     option_pcr_volume_30_45dte: Optional[float] = None
     option_put_volume_30_45dte: Optional[int] = None
     option_call_volume_30_45dte: Optional[int] = None
+    option_put_oi_30_45dte: Optional[int] = None
+    option_call_oi_30_45dte: Optional[int] = None
+    option_put_volume_30_45dte_history: Optional[List[float]] = None
+    option_put_oi_30_45dte_history: Optional[List[float]] = None
+    option_put_liquidity_history_dates: Optional[List[str]] = None
     option_pcr_volume_30_45dte_expirations: Optional[int] = None
     option_pcr_volume_30_45dte_asof: Optional[str] = None
 
@@ -331,6 +336,11 @@ class ScanResultItem(BaseModel):
             option_pcr_volume_30_45dte=ef.get("option_pcr_volume_30_45dte"),
             option_put_volume_30_45dte=ef.get("option_put_volume_30_45dte"),
             option_call_volume_30_45dte=ef.get("option_call_volume_30_45dte"),
+            option_put_oi_30_45dte=ef.get("option_put_oi_30_45dte"),
+            option_call_oi_30_45dte=ef.get("option_call_oi_30_45dte"),
+            option_put_volume_30_45dte_history=ef.get("option_put_volume_30_45dte_history"),
+            option_put_oi_30_45dte_history=ef.get("option_put_oi_30_45dte_history"),
+            option_put_liquidity_history_dates=ef.get("option_put_liquidity_history_dates"),
             option_pcr_volume_30_45dte_expirations=ef.get("option_pcr_volume_30_45dte_expirations"),
             option_pcr_volume_30_45dte_asof=ef.get("option_pcr_volume_30_45dte_asof"),
             # Beta and Beta-Adjusted RS

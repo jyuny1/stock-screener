@@ -31,6 +31,8 @@ class OptionVolumePcrMetric:
     max_dte: int
     put_volume: int
     call_volume: int
+    put_oi: int
+    call_oi: int
     pcr: float | None
     expirations: int
     contract_count: int
@@ -42,6 +44,8 @@ class OptionVolumePcrMetric:
             "option_pcr_volume_30_45dte": self.pcr,
             "option_put_volume_30_45dte": self.put_volume,
             "option_call_volume_30_45dte": self.call_volume,
+            "option_put_oi_30_45dte": self.put_oi,
+            "option_call_oi_30_45dte": self.call_oi,
             "option_pcr_volume_30_45dte_expirations": self.expirations,
             "option_pcr_volume_30_45dte_contracts": self.contract_count,
             "option_pcr_volume_30_45dte_min_dte": self.min_dte,
@@ -105,6 +109,8 @@ class SchwabOptionMetricsService:
         call_contracts = self._flatten_contracts(payload.get("callExpDateMap"))
         put_volume = sum(_safe_int(c.get("totalVolume")) for c in put_contracts)
         call_volume = sum(_safe_int(c.get("totalVolume")) for c in call_contracts)
+        put_oi = sum(_safe_int(c.get("openInterest")) for c in put_contracts)
+        call_oi = sum(_safe_int(c.get("openInterest")) for c in call_contracts)
         expiration_keys = set()
         for contract in [*put_contracts, *call_contracts]:
             exp = contract.get("expirationDate")
@@ -117,6 +123,8 @@ class SchwabOptionMetricsService:
             max_dte=max_dte,
             put_volume=put_volume,
             call_volume=call_volume,
+            put_oi=put_oi,
+            call_oi=call_oi,
             pcr=(put_volume / call_volume) if call_volume > 0 else None,
             expirations=len(expiration_keys),
             contract_count=len(put_contracts) + len(call_contracts),
