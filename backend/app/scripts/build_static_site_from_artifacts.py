@@ -55,19 +55,30 @@ def _git_push_hash() -> str | None:
         return None
 
 
-def _has_schwab_auth_material() -> bool:
+def _require_schwab_auth_material() -> None:
     if os.environ.get("SCHWAB_ACCESS_TOKEN"):
-        return True
-    return all(
-        os.environ.get(name)
+        return
+    missing = [
+        name
         for name in ("SCHWAB_CLIENT_ID", "SCHWAB_CLIENT_SECRET", "SCHWAB_REFRESH_TOKEN")
-    )
+        if not os.environ.get(name)
+    ]
+    if missing:
+        raise RuntimeError(
+            "Option PCR enrichment requires Schwab auth. Missing environment variables: "
+            + ", ".join(missing)
+        )
 
 
 def _schwab_access_token() -> str:
     token = os.environ.get("SCHWAB_ACCESS_TOKEN")
     if token:
         return token
+    return _refresh_schwab_access_token()
+
+
+def _refresh_schwab_access_token() -> str:
+    _require_schwab_auth_material()
     client_id = os.environ["SCHWAB_CLIENT_ID"]
     client_secret = os.environ["SCHWAB_CLIENT_SECRET"]
     refresh_token = os.environ["SCHWAB_REFRESH_TOKEN"]
@@ -156,9 +167,7 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
 
 
 def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
-    if not _has_schwab_auth_material():
-        print("Option PCR enrichment skipped: missing Schwab auth material")
-        return 0
+    _require_schwab_auth_material()
     access_token = _schwab_access_token()
     updated = 0
     top_rows = rows[:OPTION_PCR_MAX_SYMBOLS]
@@ -172,6 +181,16 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
             row.update(_fetch_option_pcr(symbol, access_token=access_token))
             updated += 1
         except error.HTTPError as exc:
+            if exc.code in (401, 403):
+                access_token = _refresh_schwab_access_token()
+                try:
+                    row.update(_fetch_option_pcr(symbol, access_token=access_token))
+                    updated += 1
+                    if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(top_rows) - 1:
+                        time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
+                    continue
+                except error.HTTPError as retry_exc:
+                    exc = retry_exc
             row.update({
                 "option_pcr_volume_30_45dte_error": f"HTTP {exc.code}",
                 "option_pcr_volume_30_45dte_provider": "schwab",
