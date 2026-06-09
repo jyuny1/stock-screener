@@ -76,7 +76,13 @@ class SchwabOptionMetricsService:
         if token:
             self._access_token = token
             return token
+        logger.info(
+            "Schwab access token missing; refreshing from SCHWAB_REFRESH_TOKEN "
+            "before option PCR enrichment"
+        )
         token_pair = SchwabTokenService.from_env().refresh_from_env()
+        os.environ["SCHWAB_ACCESS_TOKEN"] = token_pair.access_token
+        os.environ["SCHWAB_REFRESH_TOKEN"] = token_pair.new_refresh_token
         self._access_token = token_pair.access_token
         return self._access_token
 
@@ -160,13 +166,11 @@ def enrich_scan_results_with_option_pcr(
     """Best-effort enrichment of US scan rows with 30-45 DTE volume PCR."""
     if not settings.scan_option_pcr_enabled:
         return 0
-    has_static_token = bool(os.environ.get("SCHWAB_ACCESS_TOKEN"))
-    has_refresh_creds = all(
-        os.environ.get(name)
-        for name in ("SCHWAB_CLIENT_ID", "SCHWAB_CLIENT_SECRET", "SCHWAB_REFRESH_TOKEN")
-    )
-    if not has_static_token and not has_refresh_creds:
-        logger.info("Option PCR enrichment skipped for scan %s: missing Schwab credentials", scan_id)
+    if metrics_service is None and not _has_schwab_auth_material():
+        logger.info(
+            "Option PCR enrichment skipped for scan %s: missing SCHWAB_ACCESS_TOKEN or refresh credentials",
+            scan_id,
+        )
         return 0
 
     min_dte = settings.scan_option_pcr_min_dte
@@ -214,6 +218,15 @@ def enrich_scan_results_with_option_pcr(
     db.commit()
     logger.info("Option PCR enrichment complete for scan %s: updated=%d rows=%d", scan_id, updated, len(rows))
     return updated
+
+
+def _has_schwab_auth_material() -> bool:
+    if os.environ.get("SCHWAB_ACCESS_TOKEN"):
+        return True
+    return all(
+        os.environ.get(name)
+        for name in ("SCHWAB_CLIENT_ID", "SCHWAB_CLIENT_SECRET", "SCHWAB_REFRESH_TOKEN")
+    )
 
 
 def _safe_int(value: Any) -> int:
