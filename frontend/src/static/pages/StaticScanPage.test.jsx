@@ -121,6 +121,7 @@ describe('StaticScanPage', () => {
             universe_updated_at: '2026-04-01T00:00:00Z',
             price_updated_at: '2026-03-31T22:15:00Z',
             scan_updated_at: '2026-03-31T23:30:00Z',
+            git_push_hash: 'abcdef1234567890',
             run_id: 9,
             sort: { field: 'composite_score', order: 'desc' },
             default_page_size: 50,
@@ -174,7 +175,7 @@ describe('StaticScanPage', () => {
     renderPage();
 
     expect(await screen.findByText(/Loading full scan dataset: [01] \/ 2 rows/i)).toBeInTheDocument();
-    expect(screen.getByText('股票清單更新：2026-04-01-08:00:00 | 股票價格更新：2026-04-01-06:15:00 | 股票指標更新: 2026-04-01-07:30:00')).toBeInTheDocument();
+    expect(screen.getByText('股票清單更新：2026-04-01-08:00:00 | 股票價格更新：2026-04-01-06:15:00 | 股票指標更新: 2026-04-01-07:30:00 | update: abcdef12')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId('results-table-rows')).toHaveTextContent('NVDA');
     });
@@ -246,7 +247,7 @@ describe('StaticScanPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('股票清單更新：- | 股票價格更新：- | 股票指標更新: -')).toBeInTheDocument();
+    expect(await screen.findByText('股票清單更新：- | 股票價格更新：- | 股票指標更新: - | update: -')).toBeInTheDocument();
   });
 
   it('passes company_name through to the shared results table before and after hydration', async () => {

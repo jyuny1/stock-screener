@@ -30,6 +30,11 @@ import { useStaticMarket } from '../StaticMarketContext';
 const HYDRATION_BATCH_SIZE = 2;
 const TAIWAN_TIME_ZONE = 'Asia/Taipei';
 
+function formatGitHash(value) {
+  if (!value) return '-';
+  return String(value).slice(0, 8);
+}
+
 function formatTaiwanTimestamp(value) {
   if (!value) return '-';
   const date = new Date(value);
@@ -278,6 +283,9 @@ function StaticScanPage() {
   const universeUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.universe_updated_at);
   const priceUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.price_updated_at);
   const scanUpdatedAt = formatTaiwanTimestamp(scanManifestQuery.data.scan_updated_at);
+  const gitPushHash = formatGitHash(
+    scanManifestQuery.data.git_push_hash ?? manifestQuery.data?.git_push_hash
+  );
 
   return (
     <Box>
@@ -285,7 +293,7 @@ function StaticScanPage() {
         Daily Scan
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: '12px' }}>
-        股票清單更新：{universeUpdatedAt} | 股票價格更新：{priceUpdatedAt} | 股票指標更新: {scanUpdatedAt}
+        股票清單更新：{universeUpdatedAt} | 股票價格更新：{priceUpdatedAt} | 股票指標更新: {scanUpdatedAt} | update: {gitPushHash}
       </Typography>
 
       <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid', borderColor: 'divider' }}>

@@ -53,6 +53,16 @@ STATIC_CHART_LIMIT = 200
 STATIC_CHART_PERIOD = "6mo"
 STATIC_CHART_PERIOD_DAYS = 180
 STATIC_CHART_LOOKUP_BATCH_SIZE = 250
+
+
+def _git_push_hash() -> str | None:
+    for name in ("GIT_PUSH", "GITHUB_SHA", "CF_PAGES_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA"):
+        value = os.environ.get(name)
+        if value:
+            return value
+    return None
+
+
 # Default minVolume thresholds are expressed in local-currency daily dollar
 # volume (avg_volume × current_price), not share count — the ``volume`` field
 # on each scan row is sourced from ``avg_dollar_volume`` in the local listing
@@ -447,6 +457,7 @@ class StaticSiteExportService:
             "market": market,
             "display_name": _static_market_display(market),
             "as_of_date": latest_run.as_of_date.isoformat(),
+            "git_push_hash": _git_push_hash(),
             "features": {
                 "scan": True,
                 "breadth": bool(breadth_payload.get("available", True)),
@@ -515,6 +526,7 @@ class StaticSiteExportService:
             "schema_version": STATIC_SITE_SCHEMA_VERSION,
             "generated_at": generated_at,
             "as_of_date": default_entry["as_of_date"],
+            "git_push_hash": default_entry.get("git_push_hash"),
             "default_market": default_market,
             "supported_markets": ordered_markets,
             "features": dict(default_entry["features"]),
@@ -722,6 +734,7 @@ class StaticSiteExportService:
             )
 
         run_published_at = _coerce_datetime(run.published_at) or generated_at
+        git_push_hash = _git_push_hash()
         manifest = {
             "schema_version": SCAN_BUNDLE_SCHEMA_VERSION,
             "generated_at": generated_at,
@@ -729,6 +742,7 @@ class StaticSiteExportService:
             "universe_updated_at": run_published_at,
             "price_updated_at": run_published_at,
             "scan_updated_at": run_published_at,
+            "git_push_hash": git_push_hash,
             "run_id": run.id,
             "sort": {"field": "composite_score", "order": "desc"},
             "default_page_size": 50,

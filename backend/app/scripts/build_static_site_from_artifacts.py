@@ -12,6 +12,8 @@ import argparse
 import gzip
 import json
 import math
+import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,21 @@ DEFAULT_MARKET_DISPLAY = "United States"
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _git_push_hash() -> str | None:
+    for name in ("GIT_PUSH", "GITHUB_SHA", "CF_PAGES_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA"):
+        value = os.environ.get(name)
+        if value:
+            return value
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return None
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -304,6 +321,7 @@ def _build_scan(
     universe_updated_at: str | None,
     price_updated_at: str | None,
     scan_updated_at: str | None,
+    git_push_hash: str | None,
     rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     scan_dir = output_dir / "markets" / "us" / "scan"
@@ -324,6 +342,7 @@ def _build_scan(
             "universe_updated_at": universe_updated_at,
             "price_updated_at": price_updated_at,
             "scan_updated_at": scan_updated_at,
+            "git_push_hash": git_push_hash,
             "run_id": "artifact-native-us",
             "chunk_index": chunk_num,
             "rows": chunk,
@@ -341,6 +360,7 @@ def _build_scan(
         "universe_updated_at": universe_updated_at,
         "price_updated_at": price_updated_at,
         "scan_updated_at": scan_updated_at,
+        "git_push_hash": git_push_hash,
         "run_id": "artifact-native-us",
         "sort": {"field": "composite_score", "order": "desc"},
         "default_page_size": 50,
@@ -376,6 +396,7 @@ def _build_home(
     universe_updated_at: str | None,
     price_updated_at: str | None,
     scan_updated_at: str | None,
+    git_push_hash: str | None,
     rows: list[dict[str, Any]],
     coverage: dict[str, Any],
 ) -> dict[str, Any]:
@@ -406,6 +427,7 @@ def _build_home(
         "universe_updated_at": universe_updated_at,
         "price_updated_at": price_updated_at,
         "scan_updated_at": scan_updated_at,
+        "git_push_hash": git_push_hash,
         "freshness": {
             "universe_as_of_date": universe_as_of_date,
             "price_as_of_date": price_as_of_date,
@@ -452,6 +474,7 @@ def build_static_site_from_artifacts(
     universe_updated_at = str(weekly.get("generated_at")) if weekly.get("generated_at") else None
     price_updated_at = str(daily.get("generated_at")) if daily and daily.get("generated_at") else None
     scan_updated_at = str(metrics_bundle.get("generated_at")) if metrics_bundle and metrics_bundle.get("generated_at") else None
+    git_push_hash = _git_push_hash()
     as_of_date = universe_as_of_date
     coverage = dict((weekly.get("coverage") or {}))
     coverage["source_revision"] = weekly.get("source_revision")
@@ -484,6 +507,7 @@ def build_static_site_from_artifacts(
         universe_updated_at=universe_updated_at,
         price_updated_at=price_updated_at,
         scan_updated_at=scan_updated_at,
+        git_push_hash=git_push_hash,
         rows=rows,
     )
 
@@ -508,6 +532,7 @@ def build_static_site_from_artifacts(
         universe_updated_at=universe_updated_at,
         price_updated_at=price_updated_at,
         scan_updated_at=scan_updated_at,
+        git_push_hash=git_push_hash,
         rows=rows,
         coverage=coverage,
     )
@@ -525,6 +550,7 @@ def build_static_site_from_artifacts(
         "universe_updated_at": universe_updated_at,
         "price_updated_at": price_updated_at,
         "scan_updated_at": scan_updated_at,
+        "git_push_hash": git_push_hash,
         "features": {"scan": True, "breadth": False, "groups": False, "charts": False},
         "pages": {
             "home": {"path": "markets/us/home.json"},
@@ -545,6 +571,7 @@ def build_static_site_from_artifacts(
         "universe_updated_at": universe_updated_at,
         "price_updated_at": price_updated_at,
         "scan_updated_at": scan_updated_at,
+        "git_push_hash": git_push_hash,
         "freshness": home_payload["freshness"],
         "default_market": DEFAULT_MARKET,
         "supported_markets": [DEFAULT_MARKET],
