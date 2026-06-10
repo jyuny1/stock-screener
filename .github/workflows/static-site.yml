@@ -24,6 +24,7 @@ concurrency:
 permissions:
   contents: write
   deployments: write
+  actions: write
 
 jobs:
   publish-us:
@@ -178,6 +179,40 @@ jobs:
               'scan_coverage': scan.get('symbol_coverage'),
           })
           PY
+
+      - name: Refresh Schwab token and persist rotation
+        env:
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in SCHWAB_CLIENT_ID SCHWAB_CLIENT_SECRET SCHWAB_REFRESH_TOKEN GH_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "Skipping Schwab token rotation; missing ${name}." >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 0
+          fi
+
+          if ! (cd backend && python -m app.scripts.refresh_schwab_oauth_token \
+            --access-token-file /tmp/schwab-access-token.txt \
+            --refresh-token-file /tmp/schwab-new-refresh-token.txt); then
+            echo "Schwab token rotation failed; static site will continue without fresh option PCR enrichment." >&2
+            exit 0
+          fi
+
+          echo "::add-mask::$(cat /tmp/schwab-access-token.txt)"
+          echo "::add-mask::$(cat /tmp/schwab-new-refresh-token.txt)"
+          echo "SCHWAB_ACCESS_TOKEN=$(cat /tmp/schwab-access-token.txt)" >> "$GITHUB_ENV"
+          echo "SCHWAB_REFRESH_TOKEN=$(cat /tmp/schwab-new-refresh-token.txt)" >> "$GITHUB_ENV"
+          cat /tmp/schwab-new-refresh-token.txt | gh secret set SCHWAB_REFRESH_TOKEN \
+            --repo "${{ github.repository }}" \
+            --app actions
 
       - name: Build static data from artifacts
         env:

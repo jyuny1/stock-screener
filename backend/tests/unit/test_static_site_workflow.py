@@ -4,7 +4,10 @@ import gzip
 import json
 from pathlib import Path
 
-from app.scripts.build_static_site_from_artifacts import build_static_site_from_artifacts
+from app.scripts.build_static_site_from_artifacts import (
+    _enrich_rows_with_option_pcr,
+    build_static_site_from_artifacts,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -33,7 +36,30 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
     assert "pip install awscli" not in content
     assert "cloudflare/pages-action@v1" in content
     assert "deployments: write" in content
+    assert "actions: write" in content
     assert "group: static-site-us" in content
+    assert "Refresh Schwab token and persist rotation" in content
+    assert "refresh_schwab_oauth_token" in content
+    assert "SCHWAB_SECRET_WRITE_TOKEN" in content
+    assert "Schwab token rotation failed; static site will continue" in content
+
+
+def test_option_pcr_enrichment_skips_when_schwab_refresh_fails(monkeypatch) -> None:
+    rows = [{"symbol": "AAPL"}, {"symbol": "MSFT", "option_pcr_volume_30_45dte": 0.8}]
+
+    monkeypatch.setenv("SCHWAB_CLIENT_ID", "client")
+    monkeypatch.setenv("SCHWAB_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("SCHWAB_REFRESH_TOKEN", "expired")
+    monkeypatch.delenv("SCHWAB_ACCESS_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "app.scripts.build_static_site_from_artifacts._refresh_schwab_access_token",
+        lambda: (_ for _ in ()).throw(RuntimeError("HTTP Error 400: Bad Request")),
+    )
+
+    assert _enrich_rows_with_option_pcr(rows) == 0
+    assert rows[0]["option_pcr_volume_30_45dte_error"].startswith("Option PCR enrichment skipped")
+    assert rows[0]["option_pcr_volume_30_45dte_provider"] == "schwab"
+    assert rows[1]["option_pcr_volume_30_45dte"] == 0.8
 
 
 def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path) -> None:
