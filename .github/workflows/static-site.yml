@@ -18,7 +18,9 @@ on:
         default: ''
 
 concurrency:
-  group: static-site-us
+  # Share the Schwab token rotation lock with optionable-symbols so two jobs do
+  # not consume the same single-use refresh token concurrently.
+  group: schwab-token-refresh
   cancel-in-progress: false
 
 permissions:

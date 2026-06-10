@@ -20,6 +20,18 @@ def test_daily_price_workflow_refreshes_all_symbols_not_only_missing() -> None:
     assert "--fetch-mode missing" not in content
 
 
+def test_static_pipeline_daily_runs_after_market_close_for_option_volume_pcr() -> None:
+    content = (ROOT / ".github" / "workflows" / "static-pipeline-daily.yml").read_text()
+
+    assert "cron: '0 22,23 * * 1-5'" in content
+    assert 'et_hour" = "18"' in content
+    assert 'et_hour" = "19"' in content
+    assert 'et_hour" = "08"' not in content
+    assert 'et_hour" = "09"' not in content
+    assert "option-chain volume PCR" in content
+    assert "target is Monday-Friday 18:00 America/New_York" in content
+
+
 def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> None:
     content = (ROOT / ".github" / "workflows" / "static-site.yml").read_text()
 
@@ -37,7 +49,8 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
     assert "cloudflare/pages-action@v1" in content
     assert "deployments: write" in content
     assert "actions: write" in content
-    assert "group: static-site-us" in content
+    assert "group: schwab-token-refresh" in content
+    assert "Share the Schwab token rotation lock" in content
     assert "Refresh Schwab token and persist rotation" in content
     assert "refresh_schwab_oauth_token" in content
     assert "SCHWAB_SECRET_WRITE_TOKEN" in content
