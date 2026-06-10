@@ -168,11 +168,29 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
     }
 
 
+def _option_pcr_error_fields(message: str) -> dict[str, Any]:
+    return {
+        "option_pcr_volume_30_45dte_error": message[:200],
+        "option_pcr_volume_30_45dte_provider": "schwab",
+        "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
+        "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
+    }
+
+
 def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
-    _require_schwab_auth_material()
-    access_token = _schwab_access_token()
-    updated = 0
     top_rows = rows[:OPTION_PCR_MAX_SYMBOLS]
+    try:
+        _require_schwab_auth_material()
+        access_token = _schwab_access_token()
+    except Exception as exc:  # noqa: BLE001 - static export must not fail on optional enrichment
+        message = f"Option PCR enrichment skipped: {exc}"
+        for row in top_rows:
+            if row.get("option_pcr_volume_30_45dte") is None:
+                row.update(_option_pcr_error_fields(message))
+        print(f"{message} rows={len(top_rows)}")
+        return 0
+
+    updated = 0
     for index, row in enumerate(top_rows):
         if row.get("option_pcr_volume_30_45dte") is not None:
             continue
@@ -184,8 +202,8 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
             updated += 1
         except error.HTTPError as exc:
             if exc.code in (401, 403):
-                access_token = _refresh_schwab_access_token()
                 try:
+                    access_token = _refresh_schwab_access_token()
                     row.update(_fetch_option_pcr(symbol, access_token=access_token))
                     updated += 1
                     if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(top_rows) - 1:
@@ -193,19 +211,12 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
                     continue
                 except error.HTTPError as retry_exc:
                     exc = retry_exc
-            row.update({
-                "option_pcr_volume_30_45dte_error": f"HTTP {exc.code}",
-                "option_pcr_volume_30_45dte_provider": "schwab",
-                "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
-                "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
-            })
+                except Exception as refresh_exc:  # noqa: BLE001 - per-row enrichment is optional
+                    row.update(_option_pcr_error_fields(str(refresh_exc)))
+                    continue
+            row.update(_option_pcr_error_fields(f"HTTP {exc.code}"))
         except Exception as exc:  # noqa: BLE001 - best-effort static enrichment
-            row.update({
-                "option_pcr_volume_30_45dte_error": str(exc)[:200],
-                "option_pcr_volume_30_45dte_provider": "schwab",
-                "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
-                "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
-            })
+            row.update(_option_pcr_error_fields(str(exc)))
         if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(top_rows) - 1:
             time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
     print(f"Option PCR enrichment complete: updated={updated} rows={len(top_rows)}")
