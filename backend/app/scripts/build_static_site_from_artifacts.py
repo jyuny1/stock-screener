@@ -174,15 +174,23 @@ def _calculated_dte(snapshot_date: str | None, expiration_date: str | None) -> i
     return (expiration - snapshot).days
 
 
-def _normalize_put_contract(symbol: str, contract: dict[str, Any], *, asof: str, snapshot_date: str) -> dict[str, Any]:
+def _normalize_option_contract(
+    symbol: str,
+    contract: dict[str, Any],
+    *,
+    option_type: str,
+    asof: str,
+    snapshot_date: str,
+) -> dict[str, Any]:
     expiration_date = _date_key(_first_contract_text(contract, "expirationDate", "expiration"))
     schwab_dte = _first_contract_number(contract, "daysToExpiration", "dte")
     dte_at_snapshot = _calculated_dte(snapshot_date, expiration_date)
-    in_the_money = contract.get("isInTheMoney", contract.get("inTheMoney"))
-    return {
+    volume = _int_value(contract.get("totalVolume", contract.get("volume")))
+    open_interest = _int_value(contract.get("openInterest"))
+    normalized = {
         "symbol": symbol,
         "underlying_symbol": symbol,
-        "option_type": "PUT",
+        "option_type": option_type.upper(),
         "contract_symbol": _first_contract_text(contract, "symbol", "contractSymbol"),
         "expiration": expiration_date,
         "expiration_date": expiration_date,
@@ -194,13 +202,16 @@ def _normalize_put_contract(symbol: str, contract: dict[str, Any], *, asof: str,
         "ask": _first_contract_number(contract, "askPrice", "ask"),
         "last": _first_contract_number(contract, "lastPrice", "last"),
         "mark": _first_contract_number(contract, "markPrice", "mark"),
-        "put_volume": _int_value(contract.get("totalVolume", contract.get("volume"))),
-        "put_oi": _int_value(contract.get("openInterest")),
+        "volume": volume,
+        "open_interest": open_interest,
+        "iv": _first_contract_number(contract, "volatility", "impliedVolatility", "iv"),
         "delta": _first_contract_number(contract, "delta"),
-        "volatility": _first_contract_number(contract, "volatility"),
-        "in_the_money": in_the_money if isinstance(in_the_money, bool) else None,
         "asof": asof,
     }
+    if normalized["option_type"] == "PUT":
+        normalized["put_volume"] = volume
+        normalized["put_oi"] = open_interest
+    return normalized
 
 
 def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None = None) -> dict[str, Any]:
@@ -234,8 +245,12 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
     asof = datetime.now(timezone.utc).isoformat()
     snapshot_date = now.date().isoformat()
     put_contracts = [
-        _normalize_put_contract(symbol, contract, asof=asof, snapshot_date=snapshot_date)
+        _normalize_option_contract(symbol, contract, option_type="PUT", asof=asof, snapshot_date=snapshot_date)
         for contract in puts
+    ]
+    call_contracts = [
+        _normalize_option_contract(symbol, contract, option_type="CALL", asof=asof, snapshot_date=snapshot_date)
+        for contract in calls
     ]
     return {
         "option_pcr_volume_14_28dte": (put_volume / call_volume) if call_volume > 0 else None,
@@ -250,7 +265,9 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
         "option_pcr_volume_14_28dte_asof": asof,
         "option_pcr_volume_14_28dte_provider": "schwab",
         "option_put_contracts_14_28dte_count": len(put_contracts),
+        "option_call_contracts_14_28dte_count": len(call_contracts),
         "_option_put_contracts_14_28dte": put_contracts,
+        "_option_contracts_14_28dte": [*put_contracts, *call_contracts],
     }
 
 
@@ -429,11 +446,12 @@ def _contract_history_entry(contract: dict[str, Any], *, date_key: str) -> dict[
         "ask": contract.get("ask"),
         "last": contract.get("last"),
         "mark": contract.get("mark"),
+        "volume": contract.get("volume"),
+        "open_interest": contract.get("open_interest"),
         "put_volume": contract.get("put_volume"),
         "put_oi": contract.get("put_oi"),
+        "iv": contract.get("iv"),
         "delta": contract.get("delta"),
-        "volatility": contract.get("volatility"),
-        "in_the_money": contract.get("in_the_money"),
     }
 
 
@@ -520,15 +538,15 @@ def _write_option_contract_d1_import_sql(
     as_of_date: str,
     retention_days: int = 90,
 ) -> dict[str, Any]:
-    sql_path = output_dir / "markets/us/options/put-contract-liquidity-d1.sql"
+    sql_path = output_dir / "markets/us/options/option-contract-liquidity-d1.sql"
     sql_path.parent.mkdir(parents=True, exist_ok=True)
     today_key = str(as_of_date)[:10]
     cutoff = (datetime.fromisoformat(today_key).date() - timedelta(days=retention_days - 1)).isoformat()
     statements = [
-        "CREATE TABLE IF NOT EXISTS option_put_contract_liquidity_snapshots (\n"
+        "CREATE TABLE IF NOT EXISTS option_contract_liquidity_snapshots (\n"
         "    snapshot_date TEXT NOT NULL,\n"
         "    underlying_symbol TEXT NOT NULL,\n"
-        "    option_type TEXT NOT NULL DEFAULT 'PUT',\n"
+        "    option_type TEXT NOT NULL,\n"
         "    contract_symbol TEXT NOT NULL,\n"
         "    expiration_date TEXT NOT NULL,\n"
         "    strike REAL NOT NULL,\n"
@@ -538,23 +556,23 @@ def _write_option_contract_d1_import_sql(
         "    ask REAL,\n"
         "    last REAL,\n"
         "    mark REAL,\n"
-        "    put_volume INTEGER NOT NULL DEFAULT 0,\n"
-        "    put_oi INTEGER NOT NULL DEFAULT 0,\n"
+        "    volume INTEGER NOT NULL DEFAULT 0,\n"
+        "    open_interest INTEGER NOT NULL DEFAULT 0,\n"
+        "    iv REAL,\n"
         "    delta REAL,\n"
-        "    volatility REAL,\n"
-        "    in_the_money INTEGER,\n"
         "    asof TEXT,\n"
         "    provider TEXT NOT NULL DEFAULT 'schwab',\n"
         "    created_at TEXT NOT NULL,\n"
         "    PRIMARY KEY (snapshot_date, contract_symbol)\n"
         ")",
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-        "CREATE INDEX IF NOT EXISTS idx_put_liq_symbol_date_dte ON option_put_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)",
-        "CREATE INDEX IF NOT EXISTS idx_put_liq_contract_date ON option_put_contract_liquidity_snapshots(contract_symbol, snapshot_date)",
-        "CREATE INDEX IF NOT EXISTS idx_put_liq_expiration ON option_put_contract_liquidity_snapshots(expiration_date, strike)",
-        f"DELETE FROM option_put_contract_liquidity_snapshots WHERE snapshot_date < {_sql_literal(cutoff)}",
+        "CREATE INDEX IF NOT EXISTS idx_opt_liq_symbol_date_dte ON option_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)",
+        "CREATE INDEX IF NOT EXISTS idx_opt_liq_contract_date ON option_contract_liquidity_snapshots(contract_symbol, snapshot_date)",
+        "CREATE INDEX IF NOT EXISTS idx_opt_liq_expiration ON option_contract_liquidity_snapshots(expiration_date, strike, option_type)",
+        "CREATE INDEX IF NOT EXISTS idx_opt_liq_type_date ON option_contract_liquidity_snapshots(option_type, snapshot_date)",
+        f"DELETE FROM option_contract_liquidity_snapshots WHERE snapshot_date < {_sql_literal(cutoff)}",
         "INSERT OR REPLACE INTO metadata(key, value) VALUES "
-        f"('schema_version', 'option-put-contract-liquidity-d1-v2'), "
+        f"('schema_version', 'option-contract-liquidity-d1-v3'), "
         f"('generated_at', {_sql_literal(generated_at)}), "
         f"('as_of_date', {_sql_literal(today_key)}), "
         f"('min_dte', {_sql_literal(str(OPTION_PCR_MIN_DTE))}), "
@@ -564,7 +582,7 @@ def _write_option_contract_d1_import_sql(
     inserted = 0
     for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
         symbol = str(row.get("symbol") or "").upper().strip()
-        contracts = row.get("_option_put_contracts_14_28dte")
+        contracts = row.get("_option_contracts_14_28dte")
         if not symbol or not isinstance(contracts, list):
             continue
         for contract in contracts:
@@ -572,7 +590,8 @@ def _write_option_contract_d1_import_sql(
                 continue
             expiration_date = _date_key(contract.get("expiration_date") or contract.get("expiration"))
             strike = contract.get("strike")
-            if expiration_date is None or strike is None:
+            option_type = str(contract.get("option_type") or "").upper()
+            if expiration_date is None or strike is None or option_type not in {"PUT", "CALL"}:
                 continue
             contract_symbol = str(contract.get("contract_symbol") or _contract_history_key(contract))
             dte_at_snapshot = _calculated_dte(today_key, expiration_date)
@@ -581,7 +600,7 @@ def _write_option_contract_d1_import_sql(
             values = [
                 today_key,
                 symbol,
-                "PUT",
+                option_type,
                 contract_symbol,
                 expiration_date,
                 strike,
@@ -591,20 +610,19 @@ def _write_option_contract_d1_import_sql(
                 contract.get("ask"),
                 contract.get("last"),
                 contract.get("mark"),
-                _int_value(contract.get("put_volume")),
-                _int_value(contract.get("put_oi")),
+                _int_value(contract.get("volume", contract.get("put_volume"))),
+                _int_value(contract.get("open_interest", contract.get("put_oi"))),
+                contract.get("iv", contract.get("volatility")),
                 contract.get("delta"),
-                contract.get("volatility"),
-                contract.get("in_the_money"),
                 contract.get("asof"),
                 "schwab",
                 generated_at,
             ]
             statements.append(
-                "INSERT OR REPLACE INTO option_put_contract_liquidity_snapshots ("
+                "INSERT OR REPLACE INTO option_contract_liquidity_snapshots ("
                 "snapshot_date, underlying_symbol, option_type, contract_symbol, expiration_date, strike, "
-                "dte_at_snapshot, schwab_dte, bid, ask, last, mark, put_volume, put_oi, delta, volatility, "
-                "in_the_money, asof, provider, created_at"
+                "dte_at_snapshot, schwab_dte, bid, ask, last, mark, volume, open_interest, iv, delta, "
+                "asof, provider, created_at"
                 ") VALUES ("
                 + ", ".join(_sql_literal(value) for value in values)
                 + ")"
@@ -618,7 +636,7 @@ def _download_previous_option_contract_sqlite(db_path: Path) -> bool:
     base_url = (os.environ.get("STATIC_DATA_BASE_URL") or "").rstrip("/")
     if not base_url:
         return False
-    url = f"{base_url}/markets/us/options/put-contract-liquidity.sqlite"
+    url = f"{base_url}/markets/us/options/option-contract-liquidity.sqlite"
     try:
         req = request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/octet-stream"})
         with request.urlopen(req, timeout=30) as response:
@@ -644,7 +662,7 @@ def _merge_option_contract_sqlite(
     as_of_date: str,
     retention_days: int = 90,
 ) -> dict[str, Any]:
-    db_path = output_dir / "markets/us/options/put-contract-liquidity.sqlite"
+    db_path = output_dir / "markets/us/options/option-contract-liquidity.sqlite"
     if not db_path.exists():
         _download_previous_option_contract_sqlite(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -655,10 +673,10 @@ def _merge_option_contract_sqlite(
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS option_put_contract_liquidity_snapshots (
+            CREATE TABLE IF NOT EXISTS option_contract_liquidity_snapshots (
                 snapshot_date TEXT NOT NULL,
                 underlying_symbol TEXT NOT NULL,
-                option_type TEXT NOT NULL DEFAULT 'PUT',
+                option_type TEXT NOT NULL,
                 contract_symbol TEXT NOT NULL,
                 expiration_date TEXT NOT NULL,
                 strike REAL NOT NULL,
@@ -668,11 +686,10 @@ def _merge_option_contract_sqlite(
                 ask REAL,
                 last REAL,
                 mark REAL,
-                put_volume INTEGER NOT NULL DEFAULT 0,
-                put_oi INTEGER NOT NULL DEFAULT 0,
+                volume INTEGER NOT NULL DEFAULT 0,
+                open_interest INTEGER NOT NULL DEFAULT 0,
+                iv REAL,
                 delta REAL,
-                volatility REAL,
-                in_the_money INTEGER,
                 asof TEXT,
                 provider TEXT NOT NULL DEFAULT 'schwab',
                 created_at TEXT NOT NULL,
@@ -688,15 +705,16 @@ def _merge_option_contract_sqlite(
             )
             """
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_put_liq_symbol_date_dte ON option_put_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_put_liq_contract_date ON option_put_contract_liquidity_snapshots(contract_symbol, snapshot_date)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_put_liq_expiration ON option_put_contract_liquidity_snapshots(expiration_date, strike)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_symbol_date_dte ON option_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_contract_date ON option_contract_liquidity_snapshots(contract_symbol, snapshot_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_expiration ON option_contract_liquidity_snapshots(expiration_date, strike, option_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_type_date ON option_contract_liquidity_snapshots(option_type, snapshot_date)")
 
         today_key = str(as_of_date)[:10]
         inserted = 0
         for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
             symbol = str(row.get("symbol") or "").upper().strip()
-            contracts = row.get("_option_put_contracts_14_28dte")
+            contracts = row.get("_option_contracts_14_28dte")
             if not symbol or not isinstance(contracts, list):
                 continue
             for contract in contracts:
@@ -704,7 +722,8 @@ def _merge_option_contract_sqlite(
                     continue
                 expiration_date = _date_key(contract.get("expiration_date") or contract.get("expiration"))
                 strike = contract.get("strike")
-                if expiration_date is None or strike is None:
+                option_type = str(contract.get("option_type") or "").upper()
+                if expiration_date is None or strike is None or option_type not in {"PUT", "CALL"}:
                     continue
                 contract_symbol = contract.get("contract_symbol") or _contract_history_key(contract)
                 dte_at_snapshot = _calculated_dte(today_key, expiration_date)
@@ -712,17 +731,17 @@ def _merge_option_contract_sqlite(
                     continue
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO option_put_contract_liquidity_snapshots (
+                    INSERT OR REPLACE INTO option_contract_liquidity_snapshots (
                         snapshot_date, underlying_symbol, option_type, contract_symbol,
                         expiration_date, strike, dte_at_snapshot, schwab_dte,
-                        bid, ask, last, mark, put_volume, put_oi, delta, volatility,
-                        in_the_money, asof, provider, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        bid, ask, last, mark, volume, open_interest, iv, delta,
+                        asof, provider, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today_key,
                         symbol,
-                        "PUT",
+                        option_type,
                         contract_symbol,
                         expiration_date,
                         _sqlite_value(strike),
@@ -732,11 +751,10 @@ def _merge_option_contract_sqlite(
                         _sqlite_value(contract.get("ask")),
                         _sqlite_value(contract.get("last")),
                         _sqlite_value(contract.get("mark")),
-                        _int_value(contract.get("put_volume")),
-                        _int_value(contract.get("put_oi")),
+                        _int_value(contract.get("volume", contract.get("put_volume"))),
+                        _int_value(contract.get("open_interest", contract.get("put_oi"))),
+                        _sqlite_value(contract.get("iv", contract.get("volatility"))),
                         _sqlite_value(contract.get("delta")),
-                        _sqlite_value(contract.get("volatility")),
-                        _sqlite_value(contract.get("in_the_money")),
                         contract.get("asof"),
                         "schwab",
                         generated_at,
@@ -746,11 +764,11 @@ def _merge_option_contract_sqlite(
 
         cutoff = (datetime.fromisoformat(today_key).date() - timedelta(days=retention_days - 1)).isoformat()
         deleted = conn.execute(
-            "DELETE FROM option_put_contract_liquidity_snapshots WHERE snapshot_date < ?",
+            "DELETE FROM option_contract_liquidity_snapshots WHERE snapshot_date < ?",
             (cutoff,),
         ).rowcount
         metadata = {
-            "schema_version": "option-put-contract-liquidity-sqlite-v2",
+            "schema_version": "option-contract-liquidity-sqlite-v3",
             "generated_at": generated_at,
             "as_of_date": today_key,
             "min_dte": str(OPTION_PCR_MIN_DTE),
@@ -764,7 +782,7 @@ def _merge_option_contract_sqlite(
         conn.commit()
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.execute("VACUUM")
-        total_rows = conn.execute("SELECT COUNT(*) FROM option_put_contract_liquidity_snapshots").fetchone()[0]
+        total_rows = conn.execute("SELECT COUNT(*) FROM option_contract_liquidity_snapshots").fetchone()[0]
     finally:
         conn.close()
         for suffix in ("-wal", "-shm"):
@@ -1318,8 +1336,8 @@ def build_static_site_from_artifacts(
             "option_put_liquidity_history": {"path": "markets/us/options/put-liquidity-history.json", "window_days": 7},
             "option_put_contract_liquidity_latest": {"path": "markets/us/options/put-contract-liquidity-latest.json"},
             "option_put_contract_liquidity_history": {"path": "markets/us/options/put-contract-liquidity-history.json", "window_days": 90},
-            "option_put_contract_liquidity_sqlite": {"path": "markets/us/options/put-contract-liquidity.sqlite", "retention_days": 90},
-            "option_put_contract_liquidity_d1_import": {"path": "markets/us/options/put-contract-liquidity-d1.sql", "retention_days": 90},
+            "option_contract_liquidity_sqlite": {"path": "markets/us/options/option-contract-liquidity.sqlite", "retention_days": 90},
+            "option_contract_liquidity_d1_import": {"path": "markets/us/options/option-contract-liquidity-d1.sql", "retention_days": 90},
         },
         "freshness": home_payload["freshness"],
     }

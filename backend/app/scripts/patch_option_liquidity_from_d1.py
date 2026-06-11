@@ -65,11 +65,23 @@ def _normalize_aggregate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         symbol = (_as_text(row.get("symbol")) or "").upper()
         if not date or not symbol:
             continue
+        call_volume = _as_int(row.get("call_volume"))
+        put_volume = _as_int(row.get("put_volume"))
+        pcr_raw = row.get("pcr")
+        try:
+            pcr = float(pcr_raw) if pcr_raw is not None else (put_volume / call_volume if call_volume > 0 else None)
+        except (TypeError, ValueError, ZeroDivisionError):
+            pcr = None
         normalized.append({
             "date": date[:10],
             "symbol": symbol,
-            "put_volume": _as_int(row.get("put_volume")),
+            "put_volume": put_volume,
+            "call_volume": call_volume,
             "put_oi": _as_int(row.get("put_oi")),
+            "call_oi": _as_int(row.get("call_oi")),
+            "pcr": pcr,
+            "put_contract_count": _as_int(row.get("put_contract_count")),
+            "call_contract_count": _as_int(row.get("call_contract_count")),
             "contract_count": _as_int(row.get("contract_count")),
             "asof": _as_text(row.get("asof")),
         })
@@ -92,11 +104,17 @@ def _patch_row(row: dict[str, Any], aggregate: dict[str, Any] | None, history: l
     changed = False
     if aggregate is not None:
         updates = {
+            "option_pcr_volume_14_28dte": aggregate.get("pcr"),
             "option_put_volume_14_28dte": aggregate["put_volume"],
+            "option_call_volume_14_28dte": aggregate["call_volume"],
             "option_put_oi_14_28dte": aggregate["put_oi"],
-            "option_put_contracts_14_28dte_count": aggregate["contract_count"],
+            "option_call_oi_14_28dte": aggregate["call_oi"],
+            "option_put_contracts_14_28dte_count": aggregate["put_contract_count"],
+            "option_call_contracts_14_28dte_count": aggregate["call_contract_count"],
+            "option_contracts_14_28dte_count": aggregate["contract_count"],
             "option_put_liquidity_14_28dte_source": "cloudflare-d1",
             "option_put_liquidity_14_28dte_asof": aggregate.get("asof"),
+            "option_pcr_volume_14_28dte_asof": aggregate.get("asof"),
         }
         for key, value in updates.items():
             if row.get(key) != value:
@@ -105,11 +123,17 @@ def _patch_row(row: dict[str, Any], aggregate: dict[str, Any] | None, history: l
 
     if history:
         volume_history = [entry["put_volume"] for entry in history]
+        call_volume_history = [entry["call_volume"] for entry in history]
         oi_history = [entry["put_oi"] for entry in history]
+        call_oi_history = [entry["call_oi"] for entry in history]
+        pcr_history = [entry.get("pcr") for entry in history]
         dates = [entry["date"] for entry in history]
         for key, value in (
             ("option_put_volume_14_28dte_history", volume_history),
+            ("option_call_volume_14_28dte_history", call_volume_history),
             ("option_put_oi_14_28dte_history", oi_history),
+            ("option_call_oi_14_28dte_history", call_oi_history),
+            ("option_pcr_volume_14_28dte_history", pcr_history),
             ("option_put_liquidity_history_dates", dates),
         ):
             if row.get(key) != value:
@@ -177,7 +201,12 @@ def patch_static_data(static_data_dir: Path, aggregate_rows: list[dict[str, Any]
                 {
                     "date": entry["date"],
                     "put_volume": entry["put_volume"],
+                    "call_volume": entry["call_volume"],
                     "put_oi": entry["put_oi"],
+                    "call_oi": entry["call_oi"],
+                    "pcr": entry.get("pcr"),
+                    "put_contract_count": entry["put_contract_count"],
+                    "call_contract_count": entry["call_contract_count"],
                     "contract_count": entry["contract_count"],
                     "asof": entry.get("asof"),
                     "source": "cloudflare-d1",

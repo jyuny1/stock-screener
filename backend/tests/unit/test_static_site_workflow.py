@@ -170,8 +170,8 @@ def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path)
     assert (output_dir / "markets/us/breadth.json").exists()
     assert (output_dir / "markets/us/groups.json").exists()
     assert (output_dir / "markets/us/charts/manifest.json").exists()
-    assert (output_dir / "markets/us/options/put-contract-liquidity.sqlite").exists()
-    assert (output_dir / "markets/us/options/put-contract-liquidity-d1.sql").exists()
-    assert manifest["assets"]["option_put_contract_liquidity_sqlite"]["retention_days"] == 90
-    assert manifest["assets"]["option_put_contract_liquidity_d1_import"]["retention_days"] == 90
+    assert (output_dir / "markets/us/options/option-contract-liquidity.sqlite").exists()
+    assert (output_dir / "markets/us/options/option-contract-liquidity-d1.sql").exists()
+    assert manifest["assets"]["option_contract_liquidity_sqlite"]["retention_days"] == 90
+    assert manifest["assets"]["option_contract_liquidity_d1_import"]["retention_days"] == 90
     assert summary["rows_total"] == 2

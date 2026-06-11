@@ -190,8 +190,13 @@ class ScanResultItem(BaseModel):
     option_call_oi_14_28dte: Optional[int] = None
     option_put_contracts_14_28dte: Optional[List[Dict[str, Any]]] = None
     option_put_contracts_14_28dte_count: Optional[int] = None
+    option_call_contracts_14_28dte_count: Optional[int] = None
+    option_contracts_14_28dte_count: Optional[int] = None
+    option_pcr_volume_14_28dte_history: Optional[List[float]] = None
     option_put_volume_14_28dte_history: Optional[List[float]] = None
+    option_call_volume_14_28dte_history: Optional[List[float]] = None
     option_put_oi_14_28dte_history: Optional[List[float]] = None
+    option_call_oi_14_28dte_history: Optional[List[float]] = None
     option_put_liquidity_history_dates: Optional[List[str]] = None
     option_pcr_volume_14_28dte_expirations: Optional[int] = None
     option_pcr_volume_14_28dte_asof: Optional[str] = None
@@ -342,8 +347,13 @@ class ScanResultItem(BaseModel):
             option_call_oi_14_28dte=ef.get("option_call_oi_14_28dte"),
             option_put_contracts_14_28dte=ef.get("option_put_contracts_14_28dte"),
             option_put_contracts_14_28dte_count=ef.get("option_put_contracts_14_28dte_count"),
+            option_call_contracts_14_28dte_count=ef.get("option_call_contracts_14_28dte_count"),
+            option_contracts_14_28dte_count=ef.get("option_contracts_14_28dte_count"),
+            option_pcr_volume_14_28dte_history=ef.get("option_pcr_volume_14_28dte_history"),
             option_put_volume_14_28dte_history=ef.get("option_put_volume_14_28dte_history"),
+            option_call_volume_14_28dte_history=ef.get("option_call_volume_14_28dte_history"),
             option_put_oi_14_28dte_history=ef.get("option_put_oi_14_28dte_history"),
+            option_call_oi_14_28dte_history=ef.get("option_call_oi_14_28dte_history"),
             option_put_liquidity_history_dates=ef.get("option_put_liquidity_history_dates"),
             option_pcr_volume_14_28dte_expirations=ef.get("option_pcr_volume_14_28dte_expirations"),
             option_pcr_volume_14_28dte_asof=ef.get("option_pcr_volume_14_28dte_asof"),

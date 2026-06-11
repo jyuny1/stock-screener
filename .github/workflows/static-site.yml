@@ -216,7 +216,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --app actions
 
-      - name: Build static data and fetch option chain Put Volume
+      - name: Build static data and fetch option chain liquidity
         env:
           SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
           SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
@@ -252,18 +252,18 @@ jobs:
           done
           exit "$missing"
 
-      - name: Import fetched option chain put volume into D1
+      - name: Import fetched option chain liquidity into D1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
         run: |
           set -euo pipefail
-          sql_file="frontend/public/static-data/markets/us/options/put-contract-liquidity-d1.sql"
+          sql_file="frontend/public/static-data/markets/us/options/option-contract-liquidity-d1.sql"
           test -s "$sql_file"
           npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --file "$sql_file"
 
-      - name: Recalculate Put Volume aggregates from D1
+      - name: Recalculate option volume and PCR aggregates from D1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -275,11 +275,21 @@ jobs:
           SELECT
             snapshot_date AS date,
             underlying_symbol AS symbol,
-            SUM(put_volume) AS put_volume,
-            SUM(put_oi) AS put_oi,
+            SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END) AS put_volume,
+            SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) AS call_volume,
+            SUM(CASE WHEN option_type = 'PUT' THEN open_interest ELSE 0 END) AS put_oi,
+            SUM(CASE WHEN option_type = 'CALL' THEN open_interest ELSE 0 END) AS call_oi,
+            CASE
+              WHEN SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) > 0
+              THEN 1.0 * SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END)
+                   / SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END)
+              ELSE NULL
+            END AS pcr,
+            SUM(CASE WHEN option_type = 'PUT' THEN 1 ELSE 0 END) AS put_contract_count,
+            SUM(CASE WHEN option_type = 'CALL' THEN 1 ELSE 0 END) AS call_contract_count,
             COUNT(*) AS contract_count,
             MAX(asof) AS asof
-          FROM option_put_contract_liquidity_snapshots
+          FROM option_contract_liquidity_snapshots
           WHERE dte_at_snapshot BETWEEN 14 AND 28
           GROUP BY snapshot_date, underlying_symbol
           ORDER BY snapshot_date, underlying_symbol

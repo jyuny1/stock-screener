@@ -42,8 +42,7 @@ class OptionPutContractLiquidity:
     put_volume: int
     put_oi: int
     delta: float | None
-    volatility: float | None
-    in_the_money: bool | None
+    iv: float | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -64,8 +63,7 @@ class OptionPutContractLiquidity:
             "put_volume": self.put_volume,
             "put_oi": self.put_oi,
             "delta": self.delta,
-            "volatility": self.volatility,
-            "in_the_money": self.in_the_money,
+            "iv": self.iv,
         }
 
 
@@ -379,6 +377,5 @@ def _normalize_put_contract(symbol: str, contract: dict[str, Any], *, snapshot_d
         put_volume=_safe_int(contract.get("totalVolume", contract.get("volume"))),
         put_oi=_safe_int(contract.get("openInterest")),
         delta=_first_float(contract, "delta"),
-        volatility=_first_float(contract, "volatility"),
-        in_the_money=_safe_bool(contract.get("isInTheMoney", contract.get("inTheMoney"))),
+        iv=_first_float(contract, "volatility", "impliedVolatility", "iv"),
     )
