@@ -24,8 +24,12 @@ describe('historical two-layer model', () => {
     expect(row?.expiryBelowStrikeProb).toBeCloseTo(2 / 3, 8);
     expect(row?.touchedStrikeProb).toBeCloseTo(2 / 3, 8);
     expect(row?.expiryBelowBreakevenProb).toBe(0);
-    expect(row?.avgExpiryLoss).toBeCloseTo((1 + (90 - (100 * 80 / 89))) / 3, 8);
-    expect(row?.premiumEdge).toBeCloseTo(1 - ((1 + (90 - (100 * 80 / 89))) / 3), 8);
+    const expectedAvgLoss = (1 + (90 - (100 * 80 / 89))) / 3;
+    const expectedPremiumEdge = 1 - expectedAvgLoss;
+    expect(row?.avgExpiryLoss).toBeCloseTo(expectedAvgLoss, 8);
+    expect(row?.premiumEdge).toBeCloseTo(expectedPremiumEdge, 8);
+    expect(row?.annualizedYield).toBeCloseTo((1 / 90) * (365 / 2), 8);
+    expect(row?.annualizedPremiumEdge).toBeCloseTo((expectedPremiumEdge / 90) * (365 / 2), 8);
     expect(row?.verdict).toBe('better_compensation');
   });
 
@@ -51,6 +55,8 @@ describe('historical two-layer model', () => {
     expect(result.rows[0]?.sampleSize).toBe(0);
     expect(result.rows[0]?.avgExpiryLoss).toBeNull();
     expect(result.rows[0]?.premiumEdge).toBeNull();
+    expect(result.rows[0]?.annualizedYield).toBeCloseTo((1 / 90) * (365 / 45), 8);
+    expect(result.rows[0]?.annualizedPremiumEdge).toBeNull();
     expect(result.rows[0]?.verdict).toBe('insufficient_history');
   });
 

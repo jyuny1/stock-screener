@@ -8,7 +8,7 @@ import { DEFAULT_LOOKBACK_DAYS, evaluateInput, type EvaluateConfig, type Evaluat
 import { fetchSchwabEvaluateInput } from './schwab.js';
 
 type FlagValue = string | boolean;
-type SortField = 'premium_edge' | 'premium_edge_pct' | 'below_be' | 'below_k' | 'touch_k' | 'dte' | 'strike' | 'expiration';
+type SortField = 'premium_edge' | 'premium_edge_pct' | 'annualized_yield' | 'annualized_premium_edge' | 'below_be' | 'below_k' | 'touch_k' | 'dte' | 'strike' | 'expiration';
 type Order = 'asc' | 'desc';
 
 const DEFAULT_MIN_DTE = 14;
@@ -40,7 +40,9 @@ Evaluation options:
   --lookback-days N               Historical calculation lookback in days (default: 365)
   --min-bid N                     Minimum bid credit filter
   --otm-only                      Keep only strikes below S0
-  --sort FIELD                    premium_edge, premium_edge_pct, below_be, below_k, touch_k, dte, strike, expiration
+  --sort FIELD                    premium_edge, premium_edge_pct, annualized_yield,
+                                  annualized_premium_edge, below_be, below_k, touch_k,
+                                  dte, strike, expiration
   --order asc|desc                Sort order (default: desc)
   --limit N                       Keep first N sorted rows
   --output FILE                   Write output to a file instead of stdout
@@ -170,12 +172,14 @@ const parseSortField = (flags: Map<string, FlagValue>): SortField => {
   const aliases: Record<string, SortField> = {
     seller_ev: 'premium_edge',
     seller_ev_pct: 'premium_edge_pct',
+    ann_yield: 'annualized_yield',
+    ann_edge: 'annualized_premium_edge',
     hist_loss_prob: 'below_be',
     hist_itm_prob: 'below_k',
     hist_touch_prob: 'touch_k',
   };
   const normalized = aliases[sort] ?? sort;
-  const allowed = new Set<SortField>(['premium_edge', 'premium_edge_pct', 'below_be', 'below_k', 'touch_k', 'dte', 'strike', 'expiration']);
+  const allowed = new Set<SortField>(['premium_edge', 'premium_edge_pct', 'annualized_yield', 'annualized_premium_edge', 'below_be', 'below_k', 'touch_k', 'dte', 'strike', 'expiration']);
   if (allowed.has(normalized as SortField)) return normalized as SortField;
   throw new Error(`unsupported --sort field: ${sort}`);
 };
@@ -192,6 +196,8 @@ const buildEvaluateConfig = (flags: Map<string, FlagValue>): EvaluateConfig => (
 const rowSortValue = (row: OptionRiskRow, field: SortField): string | number | null => {
   if (field === 'premium_edge') return row.premiumEdge;
   if (field === 'premium_edge_pct') return row.premiumEdgePctOfStrike;
+  if (field === 'annualized_yield') return row.annualizedYield;
+  if (field === 'annualized_premium_edge') return row.annualizedPremiumEdge;
   if (field === 'below_be') return row.expiryBelowBreakevenProb;
   if (field === 'below_k') return row.expiryBelowStrikeProb;
   if (field === 'touch_k') return row.touchedStrikeProb;

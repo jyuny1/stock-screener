@@ -82,9 +82,9 @@ const columnHelp = {
   eps_growth_qq: { zh: 'EPS成長', description: '近期 EPS 成長率。' },
   sales_growth_qq: { zh: '營收成長', description: '近期營收成長率。' },
   adr_percent: { zh: '平均日振幅', description: 'Average Daily Range 百分比，用於衡量日內波動。' },
-  option_pcr_volume_30_45dte: { zh: '30–45D PCR', description: 'Schwab option chain 中 30–45 DTE 的 Put 成交量加總 / Call 成交量加總。' },
-  option_put_volume_30_45dte: { zh: '30–45D Put Vol', description: 'Schwab option chain 中 30–45 DTE 的 Put 成交量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
-  option_put_oi_30_45dte: { zh: '30–45D Put OI', description: 'Schwab option chain 中 30–45 DTE 的 Put 未平倉量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
+  option_pcr_volume_30_45dte: { zh: 'PCR', description: 'Schwab option chain 中 14–28 DTE 的 Put 成交量加總 / Call 成交量加總。' },
+  option_put_volume_30_45dte: { zh: 'Put Vol', description: 'Schwab option chain 中 14–28 DTE 的 Put 成交量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
+  option_put_oi_30_45dte: { zh: 'Put OI', description: 'Schwab option chain 中 14–28 DTE 的 Put 未平倉量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
   ma_alignment: { zh: '均線排列', description: '價格與主要均線是否呈多頭排列。' },
   vcp_detected: { zh: 'VCP型態', description: '是否偵測到波動收縮型態 VCP。' },
   vcp_score: { zh: 'VCP分', description: 'VCP 型態品質分數。' },
@@ -126,7 +126,7 @@ const columns = [
   { id: 'rs_trend', label: 'RS Trend', sortable: true, width: 110 },
   { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
   { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
-  { id: 'option_pcr_volume_30_45dte', label: 'PCR 30–45D', sortable: true, width: 80 },
+  { id: 'option_pcr_volume_30_45dte', label: 'PCR', sortable: true, width: 80 },
   { id: 'option_put_volume_30_45dte', label: 'Put Vol', sortable: true, width: 90 },
   { id: 'option_put_oi_30_45dte', label: 'Put OI', sortable: true, width: 90 },
   { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
@@ -422,7 +422,7 @@ const VirtualTableRow = memo(function VirtualTableRow({
 
       <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
         <OptionLiquidityVisual
-          label="Put Vol 30–45D"
+          label="Put Vol 14–28D"
           value={row.option_put_volume_30_45dte}
           history={row.option_put_volume_30_45dte_history}
           dates={row.option_put_liquidity_history_dates}
@@ -431,7 +431,7 @@ const VirtualTableRow = memo(function VirtualTableRow({
 
       <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
         <OptionLiquidityVisual
-          label="Put OI 30–45D"
+          label="Put OI 14–28D"
           value={row.option_put_oi_30_45dte}
           history={row.option_put_oi_30_45dte_history}
           dates={row.option_put_liquidity_history_dates}

@@ -3,13 +3,13 @@ from datetime import date
 from app.services.schwab_option_metrics_service import SchwabOptionMetricsService
 
 
-def test_compute_volume_pcr_30_45dte_from_chain_payload():
+def test_compute_volume_pcr_14_28dte_from_chain_payload():
     service = SchwabOptionMetricsService(access_token="token")
 
     def fake_get_chains(symbol, *, from_date, to_date):
         assert symbol == "SPY"
-        assert from_date == date(2026, 7, 9)
-        assert to_date == date(2026, 7, 24)
+        assert from_date == date(2026, 6, 23)
+        assert to_date == date(2026, 7, 7)
         return {
             "putExpDateMap": {
                 "2026-07-17:38": {
@@ -27,7 +27,7 @@ def test_compute_volume_pcr_30_45dte_from_chain_payload():
 
     service._get_chains = fake_get_chains
 
-    metric = service.compute_volume_pcr("spy", min_dte=30, max_dte=45, today=date(2026, 6, 9))
+    metric = service.compute_volume_pcr("spy", min_dte=14, max_dte=28, today=date(2026, 6, 9))
 
     assert metric.symbol == "SPY"
     assert metric.put_volume == 25

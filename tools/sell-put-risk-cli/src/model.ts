@@ -133,6 +133,8 @@ export interface OptionRiskRow {
   avgExpiryLoss: number | null;
   premiumEdge: number | null;
   premiumEdgePctOfStrike: number | null;
+  annualizedYield: number | null;
+  annualizedPremiumEdge: number | null;
   oneYearWeeklyHigh: number | null;
   oneYearWeeklyLow: number | null;
   weeklyMaxDrawdown: number | null;
@@ -399,6 +401,8 @@ export const evaluateContract = (
   const breakeven = strike - bid;
   const strikeRatio = strike / s0;
   const breakevenRatio = breakeven / s0;
+  const annualizationFactor = 365 / contract.daysToExpiration;
+  const annualizedYield = (bid / strike) * annualizationFactor;
   const sampleSize = windows.length;
 
   const base = {
@@ -439,6 +443,8 @@ export const evaluateContract = (
       avgExpiryLoss: null,
       premiumEdge: null,
       premiumEdgePctOfStrike: null,
+      annualizedYield,
+      annualizedPremiumEdge: null,
       verdict: 'insufficient_history',
     };
   }
@@ -472,6 +478,8 @@ export const evaluateContract = (
     avgExpiryLoss,
     premiumEdge,
     premiumEdgePctOfStrike: premiumEdge / strike,
+    annualizedYield,
+    annualizedPremiumEdge: (premiumEdge / strike) * annualizationFactor,
     verdict,
   };
 };

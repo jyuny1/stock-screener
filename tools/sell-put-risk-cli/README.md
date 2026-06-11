@@ -89,10 +89,14 @@ The table/CSV/JSON output includes the minimum fields from the model document:
 - `AvgLoss` / `avgExpiryLoss`: average expiry loss before premium
 - `PremiumEdge` / `premiumEdge`: `Bid - AvgLoss`
 - `Edge/K` / `premiumEdgePctOfStrike`: `PremiumEdge / Strike`
+- `AnnYield` / `annualizedYield`: `Bid / Strike * 365 / DTE`
+- `AnnEdge` / `annualizedPremiumEdge`: `PremiumEdge / Strike * 365 / DTE`
 - sample size
 - one-year weekly high/low, weekly max drawdown, support level, strike-to-support distance
 
 `PremiumEdge = bidPrice - AvgLoss`.
+
+Annualized fields are decimal rates in JSON/CSV and percentages in table output.
 
 Support definition in this CLI:
 

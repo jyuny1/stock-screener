@@ -95,8 +95,8 @@ class SchwabOptionMetricsService:
         self,
         symbol: str,
         *,
-        min_dte: int = 30,
-        max_dte: int = 45,
+        min_dte: int = 14,
+        max_dte: int = 28,
         today: date | None = None,
     ) -> OptionVolumePcrMetric:
         symbol = symbol.upper().strip()
@@ -172,7 +172,7 @@ def enrich_scan_results_with_option_pcr(
     *,
     metrics_service: SchwabOptionMetricsService | None = None,
 ) -> int:
-    """Best-effort enrichment of US scan rows with 30-45 DTE volume PCR."""
+    """Best-effort enrichment of US scan rows with 14-28 DTE volume PCR."""
     if not settings.scan_option_pcr_enabled:
         return 0
     if metrics_service is None and not _has_schwab_auth_material():
