@@ -5,8 +5,8 @@ and Custom stock screening with a Feature Store, Hermes-backed assistant, and ma
 
 > Full project overview and screenshots: [Root README](../README.md)
 > Frontend docs: [Frontend README](../frontend/README.md)
-> Deployment guide: [Docker](../https://github.com/jyuny1/stock-screener/wiki/Docker-Deployment)
-> Reference: [Architecture](../https://github.com/jyuny1/stock-screener/wiki/Architecture) | [Environment Variables](../https://github.com/jyuny1/stock-screener/wiki/Environment-Variables)
+> Deployment guide: [Docker](https://github.com/jyuny1/stock-screener/wiki/Docker-Deployment)
+> Reference: [Architecture](https://github.com/jyuny1/stock-screener/wiki/Architecture) | [Environment Variables](https://github.com/jyuny1/stock-screener/wiki/Environment-Variables)
 
 ## Setup
 
