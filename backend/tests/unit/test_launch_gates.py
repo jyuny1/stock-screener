@@ -50,8 +50,8 @@ _NOW = datetime(2026, 4, 15, 18, 0, 0, tzinfo=timezone.utc)
 
 
 def _make_docs_root(tmp_path: Path) -> Path:
-    """Return a minimal fixture project root with just docs/asia/ populated."""
-    docs = tmp_path / "docs" / "asia"
+    """Return a minimal fixture project root with just .tmp/reports/asia populated."""
+    docs = tmp_path / ".tmp" / "reports" / "asia"
     docs.mkdir(parents=True)
     return tmp_path
 
@@ -95,7 +95,7 @@ def _write_flag_matrix(docs: Path) -> Path:
 class TestSelfCheckGates:
     def test_g1_schema_passes_with_rehearsal_report(self, tmp_path):
         root = _make_docs_root(tmp_path)
-        _write_rehearsal_report(root / "docs" / "asia")
+        _write_rehearsal_report(root / ".tmp" / "reports" / "asia")
         report = run_all_gates(project_root=root, now=_NOW)
         g1 = next(g for g in report.gates if g.gate_id == "G1")
         assert g1.status == GateStatus.PASS, g1.detail
@@ -129,7 +129,7 @@ class TestSelfCheckGates:
 
     def test_g8_observability_passes_with_recent_drill(self, tmp_path):
         root = _make_docs_root(tmp_path)
-        docs = root / "docs" / "asia"
+        docs = root / ".tmp" / "reports" / "asia"
         _write_runbook(docs)
         _write_drill(docs, date="2026-04-15")
         report = run_all_gates(project_root=root, now=_NOW)
@@ -139,7 +139,7 @@ class TestSelfCheckGates:
 
     def test_g8_stale_drill_fails(self, tmp_path):
         root = _make_docs_root(tmp_path)
-        docs = root / "docs" / "asia"
+        docs = root / ".tmp" / "reports" / "asia"
         _write_runbook(docs)
         _write_drill(docs, date="2026-04-15")
         report = run_all_gates(project_root=root, now=_NOW + timedelta(days=30))
@@ -149,7 +149,7 @@ class TestSelfCheckGates:
 
     def test_g9_flag_matrix_passes(self, tmp_path):
         root = _make_docs_root(tmp_path)
-        _write_flag_matrix(root / "docs" / "asia")
+        _write_flag_matrix(root / ".tmp" / "reports" / "asia")
         report = run_all_gates(project_root=root, now=_NOW)
         g9 = next(g for g in report.gates if g.gate_id == "G9")
         assert g9.status == GateStatus.PASS, g9.detail
