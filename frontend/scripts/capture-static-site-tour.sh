@@ -11,9 +11,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TMP="$ROOT/.tmp/hero-capture"
-OUT="$ROOT/docs/gifs/static-site-tour.gif"
+OUT="$ROOT/.tmp/wiki-assets/gifs/static-site-tour.gif"
 
-mkdir -p "$TMP/frames" "$ROOT/docs/gifs"
+mkdir -p "$TMP/frames" "$ROOT/.tmp/wiki-assets/gifs"
 rm -f "$TMP"/*.webm "$TMP"/frames/*.png 2>/dev/null || true
 
 echo "→ capturing video via Playwright"

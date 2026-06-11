@@ -2,7 +2,7 @@
 yfinance service wrapper for fetching stock data.
 
 Canonical price contract ADR:
-docs/learning_loop/adr_ll2_e1_canonical_price_contract_v1.md
+https://github.com/jyuny1/stock-screener/wiki/Learning-Loop-adr_ll2_e1_canonical_price_contract_v1
 """
 from __future__ import annotations
 

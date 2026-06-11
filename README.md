@@ -4,19 +4,19 @@ A stock screening platform with multi-methodology scans across **US, Hong Kong, 
 
 ### Scan Workflow Demo
 
-![Stock Scanner Demo](docs/gifs/scan-workflow.gif)
+![Stock Scanner Demo](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/gifs/scan-workflow.gif)
 
 ---
 
 ### Static Site Page Tour
 
-![Static site page tour — Daily, Scan, Breadth, Groups](docs/gifs/static-site-tour.gif)
+![Static site page tour — Daily, Scan, Breadth, Groups](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/gifs/static-site-tour.gif)
 
 Static demo: [https://xang1234.github.io/stock-screener/](https://xang1234.github.io/stock-screener/)
 
 The static page is for demo purposes only. It is a read-only daily snapshot with reduced functionality compared with the full application, which includes live workflows such as chatbot, themes pipeline, watchlists, and the full interactive backend.
 
-Cloudflare static deployment runbook: **[Static Cloudflare Deployment](docs/STATIC_CLOUDFLARE_DEPLOYMENT.md)**
+Cloudflare static deployment runbook: **[Static Cloudflare Deployment](https://github.com/jyuny1/stock-screener/wiki/Static-Cloudflare-Deployment)**
 
 ## Highlights
 
@@ -39,54 +39,54 @@ Scan and track twelve markets:
 
 Each market runs on its own exchange calendar (XNYS / XHKG / XNSE / XTKS / XKRX / XTAI / XSHG / XETR / XTSE / XSES / XKLS / XASX) with independent Celery refresh queues and locks, so US, Asia-Pacific, and Europe can hydrate in parallel without stepping on each other. Switch markets from the scan control bar; mixed-universe results are tagged with per-row colored badges.
 
-![Market selector](docs/screenshots/market-selector.jpg)
+![Market selector](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/market-selector.jpg)
 *Market picker in the scan control bar — pick US, HK, IN, JP, KR, TW, CN, DE, CA, SG, MY, or AU and scope to an exchange or index*
 
-![Market badges](docs/screenshots/market-badges.png)
+![Market badges](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/market-badges.png)
 *Color-coded per-market badges in the Symbol column — US (blue), HK (green), JP (yellow); Taiwan, India, Korea, China, Germany, Canada, Singapore, Malaysia, and Australia follow the same pattern*
 
-Deep-dive: **[ASIA v2 ADRs & runbooks](docs/asia/README.md)**
+Deep-dive: **[ASIA v2 ADRs & runbooks](https://github.com/jyuny1/stock-screener/wiki/Asia-V2-Home)**
 
 ### Multi-Strategy Screening
 
 Run Minervini, CANSLIM, IPO, Volume Breakthrough, Setup Engine, and Custom scans simultaneously with composite scoring across 80+ configurable filters. Save filter presets and export results to CSV.
 
-![Scan Results](docs/screenshots/scan-results.png)
+![Scan Results](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/scan-results.png)
 *Results table with composite scores, RS sparklines, multi-screener ratings, and per-row classification columns — GICS Sector, IBD Industry, market themes, and group rank*
 
 ### Market Breadth Dashboard
 
 StockBee-style advance/decline analysis with SPY overlay, daily movers (stocks up/down 4%+), and multi-period trend visualization across quarterly, monthly, and 34-day windows.
 
-![Market Breadth](docs/screenshots/breadth-chart.png)
+![Market Breadth](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/breadth-chart.png)
 *Breadth chart with SPY price overlay and daily movers*
 
 ### IBD Industry Group Rankings
 
 197 industry groups ranked by relative strength with top movers identification (1W/1M/3M/6M), historical rank charts, and constituent stock analysis.
 
-![Group Rankings](docs/screenshots/group-rankings.png)
+![Group Rankings](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/group-rankings.png)
 *Industry group rankings with movers panel*
 
 ### Watchlists with Sparklines
 
 Visual performance tracking with RS and price sparklines (30-day trends), price change bars across 7 time periods, drag-and-drop organization with folders, and full-screen chart navigation.
 
-![Watchlist Table](docs/screenshots/watchlist-table.png)
+![Watchlist Table](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/watchlist-table.png)
 *Watchlist with sparklines and price change visualization*
 
 ### AI Research Chatbot
 
 Groq-powered research chat with optional Tavily/Serper web search, persistent conversation history, and tool-augmented investigation.
 
-![Chatbot](docs/screenshots/chatbot.png)
+![Chatbot](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/chatbot.png)
 *AI chatbot with conversation sidebar and research tools*
 
 ### Theme Discovery Pipeline
 
 AI-powered market theme identification from RSS, Twitter/X, and news feeds. Tracks trending vs. emerging themes, monitors constituent stocks, and alerts on momentum shifts.
 
-![Themes](docs/screenshots/themes.png)
+![Themes](https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/themes.png)
 *Theme discovery with rankings and emerging themes panel*
 
 ## Get Started
@@ -116,7 +116,7 @@ cp .env.docker.example .env
 scripts/docker-compose-enabled-markets.sh up
 ```
 
-Full guide with homelab, VPS, and GHCR deployment options: **[Docker Deployment](docs/INSTALL_DOCKER.md)**
+Full guide with homelab, VPS, and GHCR deployment options: **[Docker Deployment](https://github.com/jyuny1/stock-screener/wiki/Docker-Deployment)**
 
 ### Starting Only Enabled Market Workers
 
@@ -136,7 +136,7 @@ ENABLED_MARKETS=US,HK,CN,TW scripts/docker-compose-enabled-markets.sh up -d
 
 ### From Source (Contributors)
 
-See the **[Development Guide](docs/DEVELOPMENT.md)** for full backend + frontend + Celery setup.
+See the **[Development Guide](https://github.com/jyuny1/stock-screener/wiki/Development)** for full backend + frontend + Celery setup.
 
 ## First-Run Bootstrap
 
@@ -144,7 +144,7 @@ On first launch the app boots into a setup screen — no pre-seeded database req
 
 > **Bootstrap performance note:** selecting multiple enabled markets starts separate universe, price, fundamentals, breadth, group-rank, and scan work for each market. This can noticeably slow first load and ongoing data updates on smaller hosts or when upstream market-data providers throttle requests. For the fastest first run, start with one primary market and enable additional markets after the workspace is ready.
 
-<img src="docs/screenshots/bootstrap-setup.jpg" alt="Bootstrap setup" width="500" />
+<img src="https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/bootstrap-setup.jpg" alt="Bootstrap setup" width="500" />
 
 *Primary-market dropdown and enabled-markets checkboxes on first launch*
 
@@ -158,7 +158,7 @@ The orchestrator runs a staged Celery pipeline for the primary market:
 6. **Feature snapshot** (US only) — daily feature rollup used by the Setup Engine.
 7. **Initial autoscan** — seeds a first scan with the default profile so you land on populated results.
 
-<img src="docs/screenshots/bootstrap-progress.jpg" alt="Bootstrap progress" width="500" />
+<img src="https://raw.githubusercontent.com/wiki/jyuny1/stock-screener/assets/screenshots/bootstrap-progress.jpg" alt="Bootstrap progress" width="500" />
 
 *Per-stage progress with per-market queue status while the pipeline is running*
 
@@ -179,7 +179,7 @@ The AI chatbot requires at least one LLM provider API key. Scanning and all othe
 
 Optional web search keys (`TAVILY_API_KEY`, `SERPER_API_KEY`) enable the chatbot's research mode.
 
-Full reference: **[Environment Variables](docs/ENVIRONMENT.md)**
+Full reference: **[Environment Variables](https://github.com/jyuny1/stock-screener/wiki/Environment-Variables)**
 
 ## Application Pages
 
@@ -204,7 +204,7 @@ Full reference: **[Environment Variables](docs/ENVIRONMENT.md)**
 - **Market breadth** dashboard with StockBee-style indicators and historical trends
 - **197 IBD industry groups** ranked by relative strength with movers and constituent analysis
 - **Watchlists** with RS/price sparklines, multi-period change bars, and drag-and-drop organization
-- **MCP integration** for AI copilot workflows with 12 tools via stdio and Streamable HTTP ([details](docs/MCP_INTEGRATION.md))
+- **MCP integration** for AI copilot workflows with 12 tools via stdio and Streamable HTTP ([details](https://github.com/jyuny1/stock-screener/wiki/MCP-Integration))
 - **TradingView-style charts** with candlestick OHLC and technical overlays
 - **CSV export** for scan results
 - **Dark and light mode** UI
@@ -214,15 +214,15 @@ Full reference: **[Environment Variables](docs/ENVIRONMENT.md)**
 
 | Guide | Audience |
 |-------|----------|
-| [Docker Deployment](docs/INSTALL_DOCKER.md) | Server, homelab, VPS users |
-| [Development Guide](docs/DEVELOPMENT.md) | Contributors, developers |
-| [Architecture](docs/ARCHITECTURE.md) | Understanding the system design |
-| [Environment Variables](docs/ENVIRONMENT.md) | Configuration reference |
-| [MCP Integration](docs/MCP_INTEGRATION.md) | AI copilot workflows |
+| [Docker Deployment](https://github.com/jyuny1/stock-screener/wiki/Docker-Deployment) | Server, homelab, VPS users |
+| [Development Guide](https://github.com/jyuny1/stock-screener/wiki/Development) | Contributors, developers |
+| [Architecture](https://github.com/jyuny1/stock-screener/wiki/Architecture) | Understanding the system design |
+| [Environment Variables](https://github.com/jyuny1/stock-screener/wiki/Environment-Variables) | Configuration reference |
+| [MCP Integration](https://github.com/jyuny1/stock-screener/wiki/MCP-Integration) | AI copilot workflows |
 | [Backend API & Architecture](backend/README.md) | Backend developers |
 | [Frontend Components](frontend/README.md) | Frontend developers |
 | [Contributing](CONTRIBUTING.md) | Getting started as a contributor |
-| [ASIA v2 (HK/JP/TW) ADRs & Runbooks](docs/asia/README.md) | Multi-market operators, auditors |
+| [ASIA v2 (HK/JP/TW) ADRs & Runbooks](https://github.com/jyuny1/stock-screener/wiki/Asia-V2-Home) | Multi-market operators, auditors |
 
 ## Tech Stack
 

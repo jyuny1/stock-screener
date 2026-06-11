@@ -2,7 +2,7 @@
 
 Provides Redis-backed counters so operators can track how many clients are
 still hitting the legacy `universe` string path before the sunset date
-(see docs/asia/asia_v2_legacy_universe_compat_deprecation_policy.md).
+(see https://github.com/jyuny1/stock-screener/wiki/Asia-asia_v2_legacy_universe_compat_deprecation_policy).
 
 The counters degrade to no-ops when Redis is unavailable — legacy-path
 requests continue working; only telemetry is lost.

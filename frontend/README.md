@@ -4,7 +4,7 @@ React 18 SPA for stock screening, market analysis, assistant workflows, and port
 
 > Full project overview and screenshots: [Root README](../README.md)
 > Backend docs: [Backend README](../backend/README.md)
-> Development setup: [Development Guide](../docs/DEVELOPMENT.md)
+> Development setup: [Development Guide](../https://github.com/jyuny1/stock-screener/wiki/Development)
 
 ## Setup
 

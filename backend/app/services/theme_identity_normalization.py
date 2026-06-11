@@ -1,7 +1,7 @@
 """Deterministic theme identity normalization helpers.
 
 This module implements the v1 policy in
-docs/theme_identity/adr_e2_canonical_key_normalization_v1.md.
+https://github.com/jyuny1/stock-screener/wiki/Theme-Identity-adr_e2_canonical_key_normalization_v1.
 """
 
 from __future__ import annotations

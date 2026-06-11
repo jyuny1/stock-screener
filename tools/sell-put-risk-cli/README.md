@@ -1,6 +1,6 @@
 # Sell Put Risk CLI
 
-TypeScript CLI for the two-layer model in `docs/wiki-archive/Sell-Put-Historical-Risk-Premium-Two-Layer-Model.md`.
+TypeScript CLI for the two-layer model in `https://github.com/jyuny1/stock-screener/wiki/Sell-Put-Historical-Risk-Premium-Two-Layer-Model`.
 
 It answers only:
 

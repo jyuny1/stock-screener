@@ -19,8 +19,8 @@ from ..models.theme import (
 
 VALID_PIPELINES = ("technical", "fundamental")
 PIPELINE_OBSERVABILITY_RUNBOOK_URL = (
-    "https://github.com/xang1234/stock-screener/blob/main/"
-    "docs/theme_identity/e8_t4_pipeline_observability_runbook.md"
+    "https://github.com/jyuny1/stock-screener/wiki/"
+    "Theme-Identity-e8_t4_pipeline_observability_runbook"
 )
 
 

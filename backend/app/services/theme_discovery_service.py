@@ -43,7 +43,7 @@ LIFECYCLE_RANK_WEIGHTS = {
     "dormant": 0.6,
     "retired": 0.2,
 }
-LIFECYCLE_RUNBOOK_URL = "/docs/runbooks/theme-lifecycle.md"
+LIFECYCLE_RUNBOOK_URL = "https://github.com/jyuny1/stock-screener/wiki/Theme-Identity-e8_t4_pipeline_observability_runbook"
 
 
 def _coerce_utc_datetime(value: datetime | None) -> datetime | None:

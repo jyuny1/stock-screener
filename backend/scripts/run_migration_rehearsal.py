@@ -4,7 +4,7 @@
 Walks the entire Alembic migration chain (baseline → head), seeds a
 production-like dataset between checkpoints, exercises a downgrade /
 re-upgrade rollback drill on the most recent revision pair, and emits
-a Markdown rehearsal report under ``docs/asia/``.
+a Markdown rehearsal report under ``.tmp/reports/asia/``.
 
 Usage:
     DATABASE_URL=postgresql://user:pass@host:port/dbname \
@@ -441,7 +441,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--report-dir", default=None,
-        help="Override the docs/asia/ output directory.",
+        help="Override the .tmp/reports/asia/ output directory."
     )
     parser.add_argument(
         "--database-label", default=None,
@@ -462,7 +462,7 @@ def main() -> int:
 
     from app.config.settings import get_project_root
     report_dir = Path(args.report_dir) if args.report_dir else (
-        get_project_root() / "docs" / "asia"
+        get_project_root() / ".tmp" / "reports" / "asia"
     )
     report_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")

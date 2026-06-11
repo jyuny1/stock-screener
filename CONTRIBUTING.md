@@ -4,13 +4,13 @@ Thank you for your interest in contributing to StockScreenClaude.
 
 ## Getting Started
 
-See the [Development Guide](docs/DEVELOPMENT.md) for full from-source setup instructions covering backend, frontend, Redis, and Celery workers.
+See the [Development Guide](https://github.com/jyuny1/stock-screener/wiki/Development) for full from-source setup instructions covering backend, frontend, Redis, and Celery workers.
 
 ## Code Structure
 
 - **Backend:** [backend/README.md](backend/README.md) — Architecture, API reference, database schema, service layer
 - **Frontend:** [frontend/README.md](frontend/README.md) — Component structure, tech stack, patterns, conventions
-- **Architecture overview:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System design, data flow, caching strategy
+- **Architecture overview:** [https://github.com/jyuny1/stock-screener/wiki/Architecture](https://github.com/jyuny1/stock-screener/wiki/Architecture) — System design, data flow, caching strategy
 
 ## Quality Gates
 
@@ -22,7 +22,7 @@ make all           # Full CI (backend gates + frontend lint/test)
 make gate-check    # Verify all test files are assigned to a gate
 ```
 
-See `make help` for all available targets. Details in [docs/release-checklist.md](docs/release-checklist.md).
+See `make help` for all available targets. Details in [https://github.com/jyuny1/stock-screener/wiki/Release-Checklist](https://github.com/jyuny1/stock-screener/wiki/Release-Checklist).
 
 ## Git Conventions
 
@@ -65,10 +65,10 @@ GitHub branch protection should require PRs (no direct pushes) and passing CI on
 
 ## Testing
 
-- **Backend tests:** `pytest` (see [Development Guide](docs/DEVELOPMENT.md#running-tests))
+- **Backend tests:** `pytest` (see [Development Guide](https://github.com/jyuny1/stock-screener/wiki/Development#running-tests))
 - **Frontend tests:** `npm run test:run` in `frontend/`
 - **Integration tests:** require a running server (`pytest tests/integration/ -m integration`)
 
 ## Environment Variables
 
-See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for the full configuration reference.
+See [https://github.com/jyuny1/stock-screener/wiki/Environment-Variables](https://github.com/jyuny1/stock-screener/wiki/Environment-Variables) for the full configuration reference.

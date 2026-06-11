@@ -2,7 +2,7 @@
 
 Covers:
 - Self-check gates (G1, G3, G8, G9) pass against controlled fixture trees —
-  NOT the live repo docs/asia tree, which changes as JP/TW canary evidence
+  NOT the public wiki / archived evidence tree, which changes as JP/TW canary evidence
   lands and would silently flip assertions without any code regression.
 - DB-backed gates (G2, G4) report MISSING_EVIDENCE when no session is passed
 - External-evidence gates (G5, G6, G7) report MISSING_EVIDENCE without

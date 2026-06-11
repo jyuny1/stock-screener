@@ -1,7 +1,7 @@
 """ASIA v2 launch-gate runner (bead asia.11.1).
 
-Aggregates the nine gates defined in ``docs/asia/asia_v2_launch_gate_charter.md``
-into one deterministic pass/fail artifact. Gates that have evidence in the
+Aggregates the nine gates defined in the public wiki page
+``Asia-asia_v2_launch_gate_charter`` into one deterministic pass/fail artifact. Gates that have evidence in the
 repo (runbook, drill record, flag matrix, migration rehearsal, telemetry
 event log) self-check; gates that depend on externally-produced reports
 (load test output, multilingual QA snapshot) accept an injected evidence
@@ -34,7 +34,7 @@ from .signed_artifact import compute_content_hash
 
 
 REPORT_SCHEMA_VERSION = 2
-CHARTER_VERSION = "1.0"  # ties to docs/asia/asia_v2_launch_gate_charter.md
+CHARTER_VERSION = "1.0"  # ties to public wiki: Asia-asia_v2_launch_gate_charter
 GATE_RUNNER_VERSION = "1.2"
 
 
@@ -118,7 +118,7 @@ def _read_text(path: Path) -> Optional[str]:
 
 
 def _doc_path(ctx: GateContext, name: str) -> Path:
-    return ctx.project_root / "docs" / "asia" / name
+    return ctx.project_root / ".tmp" / "reports" / "asia" / name
 
 
 def _normalize_markets(markets: Optional[List[str]] = None) -> tuple[str, ...]:
@@ -283,7 +283,7 @@ def _drill_age_days(text: str, ctx: GateContext) -> Optional[int]:
 def _check_g1_schema(ctx: GateContext) -> GateResult:
     """G1 — Schema/Contract Readiness.
 
-    Self-check: most recent migration rehearsal report under docs/asia/.
+    Self-check: most recent migration rehearsal report under .tmp/reports/asia/.
     Glob-based so a new dated report (e.g. pre-canary rehearsal) is
     picked up automatically without editing the gate. Failures here
     block all downstream gates.
@@ -293,7 +293,7 @@ def _check_g1_schema(ctx: GateContext) -> GateResult:
     # SUFFIX (filename ends in _YYYY-MM-DD.md) — sorting by full filename
     # would put e11 before e2 alphabetically and pick the wrong report.
     candidates = list(
-        (ctx.project_root / "docs" / "asia").glob(
+        (ctx.project_root / ".tmp" / "reports" / "asia").glob(
             "asia_v2_e*_*_migration_rehearsal_report_*.md"
         )
     )
@@ -307,7 +307,7 @@ def _check_g1_schema(ctx: GateContext) -> GateResult:
         return GateResult(
             gate_id="G1", name="Schema/Contract Readiness", severity="hard",
             status=GateStatus.MISSING_EVIDENCE,
-            detail="No migration rehearsal report found in docs/asia/",
+            detail="No migration rehearsal report found in .tmp/reports/asia/.",
         )
     path = reports[0]
     text = _read_text(path) or ""
@@ -911,7 +911,7 @@ def _check_g8_observability(ctx: GateContext) -> GateResult:
         )
 
     drills = sorted(
-        (ctx.project_root / "docs" / "asia").glob("asia_v2_runbook_drill_*.md"),
+        (ctx.project_root / ".tmp" / "reports" / "asia").glob("asia_v2_runbook_drill_*.md"),
         reverse=True,
     )
     if not drills:
