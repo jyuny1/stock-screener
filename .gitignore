@@ -11,10 +11,12 @@ ENV/
 
 # Node modules
 frontend/node_modules
+tools/*/node_modules
 
 # Build artifacts
 frontend/dist
 frontend/public/static-data/
+tools/*/dist
 
 # Environment variables (keep .example files)
 .env

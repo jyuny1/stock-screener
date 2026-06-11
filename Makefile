@@ -11,7 +11,7 @@
 
 .PHONY: help gate-identity gate-1 gate-2 gate-3 gate-4 gate-5 gate-6-load gate-7-chaos \
         gate-market-parity gates gate-check frontend-lint frontend-test frontend \
-        phase2-type-gate phase2-reliability golden-update load-baseline-update all
+        sell-put-risk-cli phase2-type-gate phase2-reliability golden-update load-baseline-update all
 
 # ── Tooling ─────────────────────────────────────────────────────────
 
@@ -169,6 +169,9 @@ frontend-test: ## Run frontend tests
 	@$(NVM_ACTIVATE) && cd frontend && npm run test:run
 
 frontend: frontend-lint frontend-test ## Frontend lint + test
+
+sell-put-risk-cli: ## Typecheck and test Sell Put historical risk TypeScript CLI
+	@$(NVM_ACTIVATE) && cd tools/sell-put-risk-cli && npm run typecheck && npm test
 
 # ── Phase 2 Reliability ─────────────────────────────────────────────
 
