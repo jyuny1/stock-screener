@@ -13,14 +13,14 @@ def test_compute_volume_pcr_14_28dte_from_chain_payload():
         return {
             "putExpDateMap": {
                 "2026-07-17:38": {
-                    "600.0": [{"expirationDate": "2026-07-17T20:00:00.000+00:00", "totalVolume": 10, "openInterest": 100}],
-                    "595.0": [{"expirationDate": "2026-07-17T20:00:00.000+00:00", "totalVolume": 15, "openInterest": 150}],
+                    "600.0": [{"symbol": "SPY260703P00600000", "expirationDate": "2026-07-03T20:00:00.000+00:00", "daysToExpiration": 24, "strikePrice": 600, "bid": 1.2, "ask": 1.3, "totalVolume": 10, "openInterest": 100, "delta": -0.2}],
+                    "595.0": [{"symbol": "SPY260703P00595000", "expirationDate": "2026-07-03T20:00:00.000+00:00", "daysToExpiration": 24, "strikePrice": 595, "bid": 0.9, "ask": 1.0, "totalVolume": 15, "openInterest": 150}],
                 }
             },
             "callExpDateMap": {
                 "2026-07-17:38": {
-                    "600.0": [{"expirationDate": "2026-07-17T20:00:00.000+00:00", "totalVolume": 5, "openInterest": 50}],
-                    "605.0": [{"expirationDate": "2026-07-17T20:00:00.000+00:00", "totalVolume": 20, "openInterest": 200}],
+                    "600.0": [{"expirationDate": "2026-07-03T20:00:00.000+00:00", "totalVolume": 5, "openInterest": 50}],
+                    "605.0": [{"expirationDate": "2026-07-03T20:00:00.000+00:00", "totalVolume": 20, "openInterest": 200}],
                 }
             },
         }
@@ -37,6 +37,17 @@ def test_compute_volume_pcr_14_28dte_from_chain_payload():
     assert metric.pcr == 1.0
     assert metric.expirations == 1
     assert metric.contract_count == 4
+    assert len(metric.put_contracts) == 2
+    assert metric.put_contracts[0].contract_symbol == "SPY260703P00600000"
+    assert metric.put_contracts[0].expiration_date == "2026-07-03"
+    assert metric.put_contracts[0].dte_at_snapshot == 24
+    assert metric.put_contracts[0].schwab_dte == 24
+    assert metric.put_contracts[0].strike == 600
+    assert metric.put_contracts[0].put_volume == 10
+    assert metric.put_contracts[0].put_oi == 100
+    assert metric.put_contracts[0].bid == 1.2
+    assert metric.to_details_patch()["option_put_contracts_14_28dte"][0]["dte_at_snapshot"] == 24
+    assert metric.to_details_patch()["option_put_contracts_14_28dte"][0]["put_volume"] == 10
 
 
 def test_compute_volume_pcr_returns_none_when_no_call_volume():

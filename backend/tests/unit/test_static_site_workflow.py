@@ -58,7 +58,7 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
 
 
 def test_option_pcr_enrichment_skips_when_schwab_refresh_fails(monkeypatch) -> None:
-    rows = [{"symbol": "AAPL"}, {"symbol": "MSFT", "option_pcr_volume_30_45dte": 0.8}]
+    rows = [{"symbol": "AAPL"}, {"symbol": "MSFT", "option_pcr_volume_14_28dte": 0.8}]
 
     monkeypatch.setenv("SCHWAB_CLIENT_ID", "client")
     monkeypatch.setenv("SCHWAB_CLIENT_SECRET", "secret")
@@ -70,9 +70,9 @@ def test_option_pcr_enrichment_skips_when_schwab_refresh_fails(monkeypatch) -> N
     )
 
     assert _enrich_rows_with_option_pcr(rows) == 0
-    assert rows[0]["option_pcr_volume_30_45dte_error"].startswith("Option PCR enrichment skipped")
-    assert rows[0]["option_pcr_volume_30_45dte_provider"] == "schwab"
-    assert rows[1]["option_pcr_volume_30_45dte"] == 0.8
+    assert rows[0]["option_pcr_volume_14_28dte_error"].startswith("Option PCR enrichment skipped")
+    assert rows[0]["option_pcr_volume_14_28dte_provider"] == "schwab"
+    assert rows[1]["option_pcr_volume_14_28dte"] == 0.8
 
 
 def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path) -> None:
@@ -170,4 +170,8 @@ def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path)
     assert (output_dir / "markets/us/breadth.json").exists()
     assert (output_dir / "markets/us/groups.json").exists()
     assert (output_dir / "markets/us/charts/manifest.json").exists()
+    assert (output_dir / "markets/us/options/put-contract-liquidity.sqlite").exists()
+    assert (output_dir / "markets/us/options/put-contract-liquidity-d1.sql").exists()
+    assert manifest["assets"]["option_put_contract_liquidity_sqlite"]["retention_days"] == 90
+    assert manifest["assets"]["option_put_contract_liquidity_d1_import"]["retention_days"] == 90
     assert summary["rows_total"] == 2

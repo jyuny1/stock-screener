@@ -12,6 +12,7 @@ ENV/
 # Node modules
 frontend/node_modules
 tools/*/node_modules
+workers/*/node_modules
 
 # Build artifacts
 frontend/dist

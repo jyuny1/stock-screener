@@ -216,7 +216,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --app actions
 
-      - name: Build static data from artifacts
+      - name: Build static data and fetch option chain Put Volume
         env:
           SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
           SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
@@ -236,6 +236,58 @@ jobs:
           if [ -n "${ETF_PROFILE_BUNDLE:-}" ]; then args+=(--etf-profile "$ETF_PROFILE_BUNDLE"); fi
           cd backend
           python -m app.scripts.build_static_site_from_artifacts "${args[@]}"
+
+      - name: Validate option chain D1 workflow settings
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID OPTION_CONTRACT_D1_DATABASE_NAME; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required option chain D1 workflow setting: ${name}" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Import fetched option chain put volume into D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+        run: |
+          set -euo pipefail
+          sql_file="frontend/public/static-data/markets/us/options/put-contract-liquidity-d1.sql"
+          test -s "$sql_file"
+          npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --file "$sql_file"
+
+      - name: Recalculate Put Volume aggregates from D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+        run: |
+          set -euo pipefail
+          aggregate_json="/tmp/option-put-liquidity-aggregate.json"
+          npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
+          SELECT
+            snapshot_date AS date,
+            underlying_symbol AS symbol,
+            SUM(put_volume) AS put_volume,
+            SUM(put_oi) AS put_oi,
+            COUNT(*) AS contract_count,
+            MAX(asof) AS asof
+          FROM option_put_contract_liquidity_snapshots
+          WHERE dte_at_snapshot BETWEEN 14 AND 28
+          GROUP BY snapshot_date, underlying_symbol
+          ORDER BY snapshot_date, underlying_symbol
+          " > "$aggregate_json"
+          PYTHONPATH=backend python -m app.scripts.patch_option_liquidity_from_d1 \
+            --static-data-dir frontend/public/static-data \
+            --d1-aggregate-json "$aggregate_json" \
+            --history-window-days 7
 
       - name: Validate static data contract
         run: |
@@ -303,6 +355,7 @@ jobs:
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
           CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
         run: |
           missing=0
           for name in \
@@ -312,7 +365,8 @@ jobs:
             R2_SECRET_ACCESS_KEY \
             R2_BUCKET \
             STATIC_DATA_BASE_URL \
-            CLOUDFLARE_PAGES_PROJECT; do
+            CLOUDFLARE_PAGES_PROJECT \
+            OPTION_CONTRACT_D1_DATABASE_NAME; do
             if [ -z "${!name}" ]; then
               echo "Missing required Cloudflare static deployment setting: ${name}" >&2
               missing=1

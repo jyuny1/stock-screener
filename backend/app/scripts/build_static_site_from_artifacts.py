@@ -14,6 +14,7 @@ import gzip
 import json
 import math
 import os
+import sqlite3
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
@@ -125,6 +126,83 @@ def _int_value(value: Any) -> int:
         return 0
 
 
+def _float_value(value: Any) -> float | int | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    if number.is_integer():
+        return int(number)
+    return number
+
+
+def _text_value(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _first_contract_text(contract: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = _text_value(contract.get(key))
+        if value:
+            return value
+    return None
+
+
+def _first_contract_number(contract: dict[str, Any], *keys: str) -> float | int | None:
+    for key in keys:
+        value = _float_value(contract.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _date_key(value: Any) -> str | None:
+    text = _text_value(value)
+    return text[:10] if text else None
+
+
+def _calculated_dte(snapshot_date: str | None, expiration_date: str | None) -> int | None:
+    if not snapshot_date or not expiration_date:
+        return None
+    try:
+        snapshot = datetime.fromisoformat(snapshot_date[:10]).date()
+        expiration = datetime.fromisoformat(expiration_date[:10]).date()
+    except ValueError:
+        return None
+    return (expiration - snapshot).days
+
+
+def _normalize_put_contract(symbol: str, contract: dict[str, Any], *, asof: str, snapshot_date: str) -> dict[str, Any]:
+    expiration_date = _date_key(_first_contract_text(contract, "expirationDate", "expiration"))
+    schwab_dte = _first_contract_number(contract, "daysToExpiration", "dte")
+    dte_at_snapshot = _calculated_dte(snapshot_date, expiration_date)
+    in_the_money = contract.get("isInTheMoney", contract.get("inTheMoney"))
+    return {
+        "symbol": symbol,
+        "underlying_symbol": symbol,
+        "option_type": "PUT",
+        "contract_symbol": _first_contract_text(contract, "symbol", "contractSymbol"),
+        "expiration": expiration_date,
+        "expiration_date": expiration_date,
+        "dte": dte_at_snapshot,
+        "dte_at_snapshot": dte_at_snapshot,
+        "schwab_dte": schwab_dte,
+        "strike": _first_contract_number(contract, "strikePrice", "strike"),
+        "bid": _first_contract_number(contract, "bidPrice", "bid"),
+        "ask": _first_contract_number(contract, "askPrice", "ask"),
+        "last": _first_contract_number(contract, "lastPrice", "last"),
+        "mark": _first_contract_number(contract, "markPrice", "mark"),
+        "put_volume": _int_value(contract.get("totalVolume", contract.get("volume"))),
+        "put_oi": _int_value(contract.get("openInterest")),
+        "delta": _first_contract_number(contract, "delta"),
+        "volatility": _first_contract_number(contract, "volatility"),
+        "in_the_money": in_the_money if isinstance(in_the_money, bool) else None,
+        "asof": asof,
+    }
+
+
 def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None = None) -> dict[str, Any]:
     now = today or datetime.now(timezone.utc)
     from_date = (now.date() + timedelta(days=OPTION_PCR_MIN_DTE)).isoformat()
@@ -153,27 +231,35 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
         for contract in [*puts, *calls]
         if contract.get("expirationDate")
     }
+    asof = datetime.now(timezone.utc).isoformat()
+    snapshot_date = now.date().isoformat()
+    put_contracts = [
+        _normalize_put_contract(symbol, contract, asof=asof, snapshot_date=snapshot_date)
+        for contract in puts
+    ]
     return {
-        "option_pcr_volume_30_45dte": (put_volume / call_volume) if call_volume > 0 else None,
-        "option_put_volume_30_45dte": put_volume,
-        "option_call_volume_30_45dte": call_volume,
-        "option_put_oi_30_45dte": sum(_int_value(contract.get("openInterest")) for contract in puts),
-        "option_call_oi_30_45dte": sum(_int_value(contract.get("openInterest")) for contract in calls),
-        "option_pcr_volume_30_45dte_expirations": len(expirations),
-        "option_pcr_volume_30_45dte_contracts": len(puts) + len(calls),
-        "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
-        "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
-        "option_pcr_volume_30_45dte_asof": datetime.now(timezone.utc).isoformat(),
-        "option_pcr_volume_30_45dte_provider": "schwab",
+        "option_pcr_volume_14_28dte": (put_volume / call_volume) if call_volume > 0 else None,
+        "option_put_volume_14_28dte": put_volume,
+        "option_call_volume_14_28dte": call_volume,
+        "option_put_oi_14_28dte": sum(_int_value(contract.get("openInterest")) for contract in puts),
+        "option_call_oi_14_28dte": sum(_int_value(contract.get("openInterest")) for contract in calls),
+        "option_pcr_volume_14_28dte_expirations": len(expirations),
+        "option_pcr_volume_14_28dte_contracts": len(puts) + len(calls),
+        "option_pcr_volume_14_28dte_min_dte": OPTION_PCR_MIN_DTE,
+        "option_pcr_volume_14_28dte_max_dte": OPTION_PCR_MAX_DTE,
+        "option_pcr_volume_14_28dte_asof": asof,
+        "option_pcr_volume_14_28dte_provider": "schwab",
+        "option_put_contracts_14_28dte_count": len(put_contracts),
+        "_option_put_contracts_14_28dte": put_contracts,
     }
 
 
 def _option_pcr_error_fields(message: str) -> dict[str, Any]:
     return {
-        "option_pcr_volume_30_45dte_error": message[:200],
-        "option_pcr_volume_30_45dte_provider": "schwab",
-        "option_pcr_volume_30_45dte_min_dte": OPTION_PCR_MIN_DTE,
-        "option_pcr_volume_30_45dte_max_dte": OPTION_PCR_MAX_DTE,
+        "option_pcr_volume_14_28dte_error": message[:200],
+        "option_pcr_volume_14_28dte_provider": "schwab",
+        "option_pcr_volume_14_28dte_min_dte": OPTION_PCR_MIN_DTE,
+        "option_pcr_volume_14_28dte_max_dte": OPTION_PCR_MAX_DTE,
     }
 
 
@@ -185,14 +271,14 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
     except Exception as exc:  # noqa: BLE001 - static export must not fail on optional enrichment
         message = f"Option PCR enrichment skipped: {exc}"
         for row in top_rows:
-            if row.get("option_pcr_volume_30_45dte") is None:
+            if row.get("option_pcr_volume_14_28dte") is None:
                 row.update(_option_pcr_error_fields(message))
         print(f"{message} rows={len(top_rows)}")
         return 0
 
     updated = 0
     for index, row in enumerate(top_rows):
-        if row.get("option_pcr_volume_30_45dte") is not None:
+        if row.get("option_pcr_volume_14_28dte") is not None and row.get("_option_put_contracts_14_28dte") is not None:
             continue
         symbol = str(row.get("symbol") or "").upper().strip()
         if not symbol:
@@ -257,15 +343,15 @@ def _merge_option_history(
     today_key = str(as_of_date)
     for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
         symbol = str(row.get("symbol") or "").upper().strip()
-        if not symbol or row.get("option_put_volume_30_45dte") is None:
+        if not symbol or row.get("option_put_volume_14_28dte") is None:
             continue
         entries = [entry for entry in history.get(symbol, []) if isinstance(entry, dict) and entry.get("date") != today_key]
         entries.append({
             "date": today_key,
-            "put_volume": row.get("option_put_volume_30_45dte"),
-            "put_oi": row.get("option_put_oi_30_45dte"),
-            "pcr": row.get("option_pcr_volume_30_45dte"),
-            "asof": row.get("option_pcr_volume_30_45dte_asof"),
+            "put_volume": row.get("option_put_volume_14_28dte"),
+            "put_oi": row.get("option_put_oi_14_28dte"),
+            "pcr": row.get("option_pcr_volume_14_28dte"),
+            "asof": row.get("option_pcr_volume_14_28dte_asof"),
         })
         entries = sorted(entries, key=lambda item: str(item.get("date") or ""))[-window_days:]
         history[symbol] = entries
@@ -273,8 +359,8 @@ def _merge_option_history(
     for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
         entries = history.get(symbol, [])[-window_days:]
-        row["option_put_volume_30_45dte_history"] = [entry.get("put_volume") for entry in entries]
-        row["option_put_oi_30_45dte_history"] = [entry.get("put_oi") for entry in entries]
+        row["option_put_volume_14_28dte_history"] = [entry.get("put_volume") for entry in entries]
+        row["option_put_oi_14_28dte_history"] = [entry.get("put_oi") for entry in entries]
         row["option_put_liquidity_history_dates"] = [entry.get("date") for entry in entries]
 
     payload = {
@@ -286,6 +372,413 @@ def _merge_option_history(
     }
     _write_json(output_dir / "markets/us/options/put-liquidity-history.json", payload)
     return payload
+
+
+def _read_previous_option_contract_history() -> dict[str, dict[str, list[dict[str, Any]]]]:
+    base_url = (os.environ.get("STATIC_DATA_BASE_URL") or "").rstrip("/")
+    if not base_url:
+        return {}
+    url = f"{base_url}/markets/us/options/put-contract-liquidity-history.json"
+    try:
+        req = request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with request.urlopen(req, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - first run or unavailable history is expected
+        print(f"Option put contract liquidity history unavailable: {exc}")
+        return {}
+    rows = payload.get("rows") or {}
+    if not isinstance(rows, dict):
+        return {}
+    history: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for symbol, contracts in rows.items():
+        if not isinstance(contracts, dict):
+            continue
+        symbol_history: dict[str, list[dict[str, Any]]] = {}
+        for contract_key, entries in contracts.items():
+            if isinstance(entries, list):
+                symbol_history[str(contract_key)] = [entry for entry in entries if isinstance(entry, dict)]
+        if symbol_history:
+            history[str(symbol).upper()] = symbol_history
+    return history
+
+
+def _contract_history_key(contract: dict[str, Any]) -> str:
+    expiration = str(contract.get("expiration") or "")[:10]
+    strike = contract.get("strike")
+    if isinstance(strike, (int, float)) and math.isfinite(float(strike)):
+        strike_text = (f"{float(strike):.4f}").rstrip("0").rstrip(".")
+    else:
+        strike_text = str(strike or "")
+    contract_symbol = str(contract.get("contract_symbol") or "")
+    return f"{expiration}|{strike_text}|{contract_symbol}"
+
+
+def _contract_history_entry(contract: dict[str, Any], *, date_key: str) -> dict[str, Any]:
+    return {
+        "date": date_key,
+        "asof": contract.get("asof"),
+        "symbol": contract.get("symbol"),
+        "contract_symbol": contract.get("contract_symbol"),
+        "expiration": contract.get("expiration"),
+        "expiration_date": contract.get("expiration_date"),
+        "dte": contract.get("dte"),
+        "dte_at_snapshot": contract.get("dte_at_snapshot"),
+        "schwab_dte": contract.get("schwab_dte"),
+        "strike": contract.get("strike"),
+        "bid": contract.get("bid"),
+        "ask": contract.get("ask"),
+        "last": contract.get("last"),
+        "mark": contract.get("mark"),
+        "put_volume": contract.get("put_volume"),
+        "put_oi": contract.get("put_oi"),
+        "delta": contract.get("delta"),
+        "volatility": contract.get("volatility"),
+        "in_the_money": contract.get("in_the_money"),
+    }
+
+
+def _merge_option_contract_history(
+    rows: list[dict[str, Any]],
+    *,
+    output_dir: Path,
+    generated_at: str,
+    as_of_date: str,
+    window_days: int = 90,
+) -> dict[str, Any]:
+    history = _read_previous_option_contract_history()
+    latest: dict[str, list[dict[str, Any]]] = {}
+    today_key = str(as_of_date)[:10]
+
+    for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+        symbol = str(row.get("symbol") or "").upper().strip()
+        contracts = row.get("_option_put_contracts_14_28dte")
+        if not symbol or not isinstance(contracts, list):
+            continue
+        normalized_contracts = [contract for contract in contracts if isinstance(contract, dict)]
+        latest[symbol] = normalized_contracts
+        symbol_history = dict(history.get(symbol) or {})
+        for contract in normalized_contracts:
+            contract_key = _contract_history_key(contract)
+            entries = [
+                entry
+                for entry in symbol_history.get(contract_key, [])
+                if isinstance(entry, dict) and entry.get("date") != today_key
+            ]
+            entries.append(_contract_history_entry(contract, date_key=today_key))
+            symbol_history[contract_key] = sorted(entries, key=lambda item: str(item.get("date") or ""))[-window_days:]
+        for contract_key, entries in list(symbol_history.items()):
+            kept = sorted(
+                [entry for entry in entries if isinstance(entry, dict)],
+                key=lambda item: str(item.get("date") or ""),
+            )[-window_days:]
+            if kept:
+                symbol_history[contract_key] = kept
+            else:
+                del symbol_history[contract_key]
+        if symbol_history:
+            history[symbol] = symbol_history
+
+    latest_payload = {
+        "schema_version": "option-put-contract-liquidity-latest-v1",
+        "generated_at": generated_at,
+        "as_of_date": today_key,
+        "min_dte": OPTION_PCR_MIN_DTE,
+        "max_dte": OPTION_PCR_MAX_DTE,
+        "rows": latest,
+    }
+    history_payload = {
+        "schema_version": "option-put-contract-liquidity-history-v1",
+        "generated_at": generated_at,
+        "as_of_date": today_key,
+        "window_days": window_days,
+        "min_dte": OPTION_PCR_MIN_DTE,
+        "max_dte": OPTION_PCR_MAX_DTE,
+        "rows": history,
+    }
+    _write_json(output_dir / "markets/us/options/put-contract-liquidity-latest.json", latest_payload)
+    _write_json(output_dir / "markets/us/options/put-contract-liquidity-history.json", history_payload)
+    for row in rows:
+        row.pop("_option_put_contracts_14_28dte", None)
+    return {"latest": latest_payload, "history": history_payload}
+
+
+def _sql_literal(value: Any) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value) if math.isfinite(float(value)) else "NULL"
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _write_option_contract_d1_import_sql(
+    rows: list[dict[str, Any]],
+    *,
+    output_dir: Path,
+    generated_at: str,
+    as_of_date: str,
+    retention_days: int = 90,
+) -> dict[str, Any]:
+    sql_path = output_dir / "markets/us/options/put-contract-liquidity-d1.sql"
+    sql_path.parent.mkdir(parents=True, exist_ok=True)
+    today_key = str(as_of_date)[:10]
+    cutoff = (datetime.fromisoformat(today_key).date() - timedelta(days=retention_days - 1)).isoformat()
+    statements = [
+        "CREATE TABLE IF NOT EXISTS option_put_contract_liquidity_snapshots (\n"
+        "    snapshot_date TEXT NOT NULL,\n"
+        "    underlying_symbol TEXT NOT NULL,\n"
+        "    option_type TEXT NOT NULL DEFAULT 'PUT',\n"
+        "    contract_symbol TEXT NOT NULL,\n"
+        "    expiration_date TEXT NOT NULL,\n"
+        "    strike REAL NOT NULL,\n"
+        "    dte_at_snapshot INTEGER NOT NULL,\n"
+        "    schwab_dte INTEGER,\n"
+        "    bid REAL,\n"
+        "    ask REAL,\n"
+        "    last REAL,\n"
+        "    mark REAL,\n"
+        "    put_volume INTEGER NOT NULL DEFAULT 0,\n"
+        "    put_oi INTEGER NOT NULL DEFAULT 0,\n"
+        "    delta REAL,\n"
+        "    volatility REAL,\n"
+        "    in_the_money INTEGER,\n"
+        "    asof TEXT,\n"
+        "    provider TEXT NOT NULL DEFAULT 'schwab',\n"
+        "    created_at TEXT NOT NULL,\n"
+        "    PRIMARY KEY (snapshot_date, contract_symbol)\n"
+        ")",
+        "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "CREATE INDEX IF NOT EXISTS idx_put_liq_symbol_date_dte ON option_put_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)",
+        "CREATE INDEX IF NOT EXISTS idx_put_liq_contract_date ON option_put_contract_liquidity_snapshots(contract_symbol, snapshot_date)",
+        "CREATE INDEX IF NOT EXISTS idx_put_liq_expiration ON option_put_contract_liquidity_snapshots(expiration_date, strike)",
+        f"DELETE FROM option_put_contract_liquidity_snapshots WHERE snapshot_date < {_sql_literal(cutoff)}",
+        "INSERT OR REPLACE INTO metadata(key, value) VALUES "
+        f"('schema_version', 'option-put-contract-liquidity-d1-v2'), "
+        f"('generated_at', {_sql_literal(generated_at)}), "
+        f"('as_of_date', {_sql_literal(today_key)}), "
+        f"('min_dte', {_sql_literal(str(OPTION_PCR_MIN_DTE))}), "
+        f"('max_dte', {_sql_literal(str(OPTION_PCR_MAX_DTE))}), "
+        f"('retention_days', {_sql_literal(str(retention_days))})",
+    ]
+    inserted = 0
+    for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+        symbol = str(row.get("symbol") or "").upper().strip()
+        contracts = row.get("_option_put_contracts_14_28dte")
+        if not symbol or not isinstance(contracts, list):
+            continue
+        for contract in contracts:
+            if not isinstance(contract, dict):
+                continue
+            expiration_date = _date_key(contract.get("expiration_date") or contract.get("expiration"))
+            strike = contract.get("strike")
+            if expiration_date is None or strike is None:
+                continue
+            contract_symbol = str(contract.get("contract_symbol") or _contract_history_key(contract))
+            dte_at_snapshot = _calculated_dte(today_key, expiration_date)
+            if dte_at_snapshot is None:
+                continue
+            values = [
+                today_key,
+                symbol,
+                "PUT",
+                contract_symbol,
+                expiration_date,
+                strike,
+                dte_at_snapshot,
+                contract.get("schwab_dte"),
+                contract.get("bid"),
+                contract.get("ask"),
+                contract.get("last"),
+                contract.get("mark"),
+                _int_value(contract.get("put_volume")),
+                _int_value(contract.get("put_oi")),
+                contract.get("delta"),
+                contract.get("volatility"),
+                contract.get("in_the_money"),
+                contract.get("asof"),
+                "schwab",
+                generated_at,
+            ]
+            statements.append(
+                "INSERT OR REPLACE INTO option_put_contract_liquidity_snapshots ("
+                "snapshot_date, underlying_symbol, option_type, contract_symbol, expiration_date, strike, "
+                "dte_at_snapshot, schwab_dte, bid, ask, last, mark, put_volume, put_oi, delta, volatility, "
+                "in_the_money, asof, provider, created_at"
+                ") VALUES ("
+                + ", ".join(_sql_literal(value) for value in values)
+                + ")"
+            )
+            inserted += 1
+    sql_path.write_text(";\n".join(statements) + ";\n", encoding="utf-8")
+    return {"path": sql_path.as_posix(), "inserted": inserted, "retention_days": retention_days}
+
+
+def _download_previous_option_contract_sqlite(db_path: Path) -> bool:
+    base_url = (os.environ.get("STATIC_DATA_BASE_URL") or "").rstrip("/")
+    if not base_url:
+        return False
+    url = f"{base_url}/markets/us/options/put-contract-liquidity.sqlite"
+    try:
+        req = request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/octet-stream"})
+        with request.urlopen(req, timeout=30) as response:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            db_path.write_bytes(response.read())
+        return True
+    except Exception as exc:  # noqa: BLE001 - first run or unavailable history is expected
+        print(f"Option put contract SQLite history unavailable: {exc}")
+        return False
+
+
+def _sqlite_value(value: Any) -> Any:
+    if isinstance(value, bool):
+        return int(value)
+    return value
+
+
+def _merge_option_contract_sqlite(
+    rows: list[dict[str, Any]],
+    *,
+    output_dir: Path,
+    generated_at: str,
+    as_of_date: str,
+    retention_days: int = 90,
+) -> dict[str, Any]:
+    db_path = output_dir / "markets/us/options/put-contract-liquidity.sqlite"
+    if not db_path.exists():
+        _download_previous_option_contract_sqlite(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS option_put_contract_liquidity_snapshots (
+                snapshot_date TEXT NOT NULL,
+                underlying_symbol TEXT NOT NULL,
+                option_type TEXT NOT NULL DEFAULT 'PUT',
+                contract_symbol TEXT NOT NULL,
+                expiration_date TEXT NOT NULL,
+                strike REAL NOT NULL,
+                dte_at_snapshot INTEGER NOT NULL,
+                schwab_dte INTEGER,
+                bid REAL,
+                ask REAL,
+                last REAL,
+                mark REAL,
+                put_volume INTEGER NOT NULL DEFAULT 0,
+                put_oi INTEGER NOT NULL DEFAULT 0,
+                delta REAL,
+                volatility REAL,
+                in_the_money INTEGER,
+                asof TEXT,
+                provider TEXT NOT NULL DEFAULT 'schwab',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (snapshot_date, contract_symbol)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_put_liq_symbol_date_dte ON option_put_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_put_liq_contract_date ON option_put_contract_liquidity_snapshots(contract_symbol, snapshot_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_put_liq_expiration ON option_put_contract_liquidity_snapshots(expiration_date, strike)")
+
+        today_key = str(as_of_date)[:10]
+        inserted = 0
+        for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+            symbol = str(row.get("symbol") or "").upper().strip()
+            contracts = row.get("_option_put_contracts_14_28dte")
+            if not symbol or not isinstance(contracts, list):
+                continue
+            for contract in contracts:
+                if not isinstance(contract, dict):
+                    continue
+                expiration_date = _date_key(contract.get("expiration_date") or contract.get("expiration"))
+                strike = contract.get("strike")
+                if expiration_date is None or strike is None:
+                    continue
+                contract_symbol = contract.get("contract_symbol") or _contract_history_key(contract)
+                dte_at_snapshot = _calculated_dte(today_key, expiration_date)
+                if dte_at_snapshot is None:
+                    continue
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO option_put_contract_liquidity_snapshots (
+                        snapshot_date, underlying_symbol, option_type, contract_symbol,
+                        expiration_date, strike, dte_at_snapshot, schwab_dte,
+                        bid, ask, last, mark, put_volume, put_oi, delta, volatility,
+                        in_the_money, asof, provider, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today_key,
+                        symbol,
+                        "PUT",
+                        contract_symbol,
+                        expiration_date,
+                        _sqlite_value(strike),
+                        dte_at_snapshot,
+                        _sqlite_value(contract.get("schwab_dte")),
+                        _sqlite_value(contract.get("bid")),
+                        _sqlite_value(contract.get("ask")),
+                        _sqlite_value(contract.get("last")),
+                        _sqlite_value(contract.get("mark")),
+                        _int_value(contract.get("put_volume")),
+                        _int_value(contract.get("put_oi")),
+                        _sqlite_value(contract.get("delta")),
+                        _sqlite_value(contract.get("volatility")),
+                        _sqlite_value(contract.get("in_the_money")),
+                        contract.get("asof"),
+                        "schwab",
+                        generated_at,
+                    ),
+                )
+                inserted += 1
+
+        cutoff = (datetime.fromisoformat(today_key).date() - timedelta(days=retention_days - 1)).isoformat()
+        deleted = conn.execute(
+            "DELETE FROM option_put_contract_liquidity_snapshots WHERE snapshot_date < ?",
+            (cutoff,),
+        ).rowcount
+        metadata = {
+            "schema_version": "option-put-contract-liquidity-sqlite-v2",
+            "generated_at": generated_at,
+            "as_of_date": today_key,
+            "min_dte": str(OPTION_PCR_MIN_DTE),
+            "max_dte": str(OPTION_PCR_MAX_DTE),
+            "retention_days": str(retention_days),
+        }
+        conn.executemany(
+            "INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)",
+            metadata.items(),
+        )
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        total_rows = conn.execute("SELECT COUNT(*) FROM option_put_contract_liquidity_snapshots").fetchone()[0]
+    finally:
+        conn.close()
+        for suffix in ("-wal", "-shm"):
+            sidecar = db_path.with_name(db_path.name + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
+
+    return {
+        "path": db_path.as_posix(),
+        "inserted": inserted,
+        "deleted": int(deleted or 0),
+        "rows_total": int(total_rows),
+        "retention_days": retention_days,
+    }
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -526,18 +1019,18 @@ def _scan_row(
         "rs_sparkline": rs_sparkline,
         "rs_sparkline_data": rs_sparkline,
         "rs_trend": metrics.get("rs_trend", _trend(rs_sparkline)),
-        "option_pcr_volume_30_45dte": metrics.get("option_pcr_volume_30_45dte"),
-        "option_put_volume_30_45dte": metrics.get("option_put_volume_30_45dte"),
-        "option_call_volume_30_45dte": metrics.get("option_call_volume_30_45dte"),
-        "option_put_oi_30_45dte": metrics.get("option_put_oi_30_45dte"),
-        "option_call_oi_30_45dte": metrics.get("option_call_oi_30_45dte"),
-        "option_pcr_volume_30_45dte_expirations": metrics.get("option_pcr_volume_30_45dte_expirations"),
-        "option_pcr_volume_30_45dte_contracts": metrics.get("option_pcr_volume_30_45dte_contracts"),
-        "option_pcr_volume_30_45dte_min_dte": metrics.get("option_pcr_volume_30_45dte_min_dte"),
-        "option_pcr_volume_30_45dte_max_dte": metrics.get("option_pcr_volume_30_45dte_max_dte"),
-        "option_pcr_volume_30_45dte_asof": metrics.get("option_pcr_volume_30_45dte_asof"),
-        "option_pcr_volume_30_45dte_provider": metrics.get("option_pcr_volume_30_45dte_provider"),
-        "option_pcr_volume_30_45dte_error": metrics.get("option_pcr_volume_30_45dte_error"),
+        "option_pcr_volume_14_28dte": metrics.get("option_pcr_volume_14_28dte"),
+        "option_put_volume_14_28dte": metrics.get("option_put_volume_14_28dte"),
+        "option_call_volume_14_28dte": metrics.get("option_call_volume_14_28dte"),
+        "option_put_oi_14_28dte": metrics.get("option_put_oi_14_28dte"),
+        "option_call_oi_14_28dte": metrics.get("option_call_oi_14_28dte"),
+        "option_pcr_volume_14_28dte_expirations": metrics.get("option_pcr_volume_14_28dte_expirations"),
+        "option_pcr_volume_14_28dte_contracts": metrics.get("option_pcr_volume_14_28dte_contracts"),
+        "option_pcr_volume_14_28dte_min_dte": metrics.get("option_pcr_volume_14_28dte_min_dte"),
+        "option_pcr_volume_14_28dte_max_dte": metrics.get("option_pcr_volume_14_28dte_max_dte"),
+        "option_pcr_volume_14_28dte_asof": metrics.get("option_pcr_volume_14_28dte_asof"),
+        "option_pcr_volume_14_28dte_provider": metrics.get("option_pcr_volume_14_28dte_provider"),
+        "option_pcr_volume_14_28dte_error": metrics.get("option_pcr_volume_14_28dte_error"),
     }
     return row
 
@@ -756,6 +1249,9 @@ def build_static_site_from_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     option_history_date = scan_as_of_date or price_as_of_date or as_of_date
     _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _merge_option_contract_sqlite(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _write_option_contract_d1_import_sql(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _merge_option_contract_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
     scan_manifest = _build_scan(
         output_dir,
         generated_at=generated_at,
@@ -820,6 +1316,10 @@ def build_static_site_from_artifacts(
         "assets": {
             "charts": {"path": "markets/us/charts/manifest.json", "limit": 0, "symbols_total": 0},
             "option_put_liquidity_history": {"path": "markets/us/options/put-liquidity-history.json", "window_days": 7},
+            "option_put_contract_liquidity_latest": {"path": "markets/us/options/put-contract-liquidity-latest.json"},
+            "option_put_contract_liquidity_history": {"path": "markets/us/options/put-contract-liquidity-history.json", "window_days": 90},
+            "option_put_contract_liquidity_sqlite": {"path": "markets/us/options/put-contract-liquidity.sqlite", "retention_days": 90},
+            "option_put_contract_liquidity_d1_import": {"path": "markets/us/options/put-contract-liquidity-d1.sql", "retention_days": 90},
         },
         "freshness": home_payload["freshness"],
     }
