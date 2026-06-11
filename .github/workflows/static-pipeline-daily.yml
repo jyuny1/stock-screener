@@ -1,12 +1,12 @@
 name: Static Pipeline Daily
 
 on:
-  # GitHub cron is UTC-only. These two explicit UTC triggers cover 18:00
+  # GitHub cron is UTC-only. These two explicit UTC triggers cover 17:00
   # America/New_York across DST/non-DST; the ET gate below skips the
-  # non-matching UTC hour. Run after market close so option-chain volume PCR
-  # is populated instead of pre-market zero volume.
+  # non-matching UTC hour. Run one hour after market close so option-chain
+  # volume is populated instead of pre-market or intraday zero volume.
   schedule:
-    - cron: '0 22,23 * * 1-5'
+    - cron: '0 21,22 * * 1-5'
   workflow_dispatch:
     inputs:
       force:
@@ -73,7 +73,7 @@ jobs:
 
           et_dow="$(TZ=America/New_York date +%u)"
           et_hour="$(TZ=America/New_York date +%H)"
-          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && { [ "$et_hour" = "18" ] || [ "$et_hour" = "19" ]; }; then
+          if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && [ "$et_hour" = "17" ]; then
             if latest_recent_same_type daily 6; then
               echo "Skipping; a daily pipeline manifest was generated within the last 6 hours."
               echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
@@ -81,7 +81,7 @@ jobs:
               echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "Skipping; target is Monday-Friday 18:00 America/New_York with one-hour delay tolerance."
+            echo "Skipping; target is Monday-Friday 17:00 America/New_York, one hour after market close."
             echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
           fi
 
