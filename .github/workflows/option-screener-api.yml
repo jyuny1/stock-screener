@@ -82,8 +82,8 @@ jobs:
           path = Path('wrangler.jsonc')
           raw = path.read_text(encoding='utf-8')
           raw = raw.replace('replace-with-r2-bucket', os.environ['R2_BUCKET'])
-          raw = raw.replace('replace-with-d1-database', os.environ['OPTION_CONTRACT_D1_DATABASE_NAME'])
           raw = raw.replace('replace-with-d1-database-id', os.environ['OPTION_CONTRACT_D1_DATABASE_ID'])
+          raw = raw.replace('replace-with-d1-database', os.environ['OPTION_CONTRACT_D1_DATABASE_NAME'])
           raw = raw.replace(
               '  "name": "stock-option-screener-api",',
               '  "name": "stock-option-screener-api",\n  "account_id": "' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '",',
