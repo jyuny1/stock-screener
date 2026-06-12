@@ -105,6 +105,8 @@ jobs:
           for path in options/manifest 'options/contracts?limit=1' 'options/summary?limit=1'; do
             echo "Testing /api/v1/${path}"
             status=$(curl -sS "${base_url}/${path}" \
+              -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36" \
+              -H "Accept: application/json" \
               -H "Authorization: Bearer ${OPTION_SCREENER_API_TOKEN}" \
               -o /tmp/option-api-response.json \
               -w '%{http_code}')
