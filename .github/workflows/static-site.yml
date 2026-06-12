@@ -29,7 +29,7 @@ permissions:
   actions: write
 
 jobs:
-  publish-us:
+  build-static-data:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     env:
@@ -43,15 +43,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
 
       - name: Download pipeline run manifest if provided
         env:
@@ -237,6 +228,38 @@ jobs:
           cd backend
           python -u -m app.scripts.build_static_site_from_artifacts "${args[@]}"
 
+      - name: Upload raw static data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-data-raw-us
+          path: frontend/public/static-data
+          if-no-files-found: error
+          retention-days: 2
+          overwrite: true
+
+  import-option-d1:
+    needs: build-static-data
+    runs-on: ubuntu-latest
+    env:
+      STATIC_DATA_DIR: frontend/public/static-data
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download raw static data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: static-data-raw-us
+          path: frontend/public/static-data
+
       - name: Validate option chain D1 workflow settings
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -348,6 +371,39 @@ jobs:
           })
           PY
 
+      - name: Upload D1-patched static data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-data-patched-us
+          path: frontend/public/static-data
+          if-no-files-found: error
+          retention-days: 2
+          overwrite: true
+
+  deploy-pages:
+    needs: import-option-d1
+    runs-on: ubuntu-latest
+    env:
+      STATIC_DATA_DIR: frontend/public/static-data
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Download D1-patched static data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: static-data-patched-us
+          path: frontend/public/static-data
+
       - name: Build static frontend
         env:
           VITE_STATIC_SITE: "true"
@@ -365,7 +421,6 @@ jobs:
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
           CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
-          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
         run: |
           missing=0
           for name in \
@@ -375,8 +430,7 @@ jobs:
             R2_SECRET_ACCESS_KEY \
             R2_BUCKET \
             STATIC_DATA_BASE_URL \
-            CLOUDFLARE_PAGES_PROJECT \
-            OPTION_CONTRACT_D1_DATABASE_NAME; do
+            CLOUDFLARE_PAGES_PROJECT; do
             if [ -z "${!name}" ]; then
               echo "Missing required Cloudflare static deployment setting: ${name}" >&2
               missing=1
