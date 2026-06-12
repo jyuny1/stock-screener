@@ -56,13 +56,23 @@ jobs:
       - name: Resolve D1 database id
         run: |
           set -euo pipefail
-          resolved_id="$({ npx wrangler d1 list --json || echo '[]'; } | python3 -c 'import json,sys,os; rows=json.load(sys.stdin); name=os.environ["OPTION_CONTRACT_D1_DATABASE_NAME"]; matches=[r for r in rows if r.get("name")==name]; print((matches[0].get("uuid") or matches[0].get("id")) if matches else os.environ["OPTION_CONTRACT_D1_DATABASE_ID"])')"
-          if [ -z "$resolved_id" ]; then
-            echo "Unable to resolve D1 database id" >&2
-            exit 1
-          fi
-          echo "OPTION_CONTRACT_D1_DATABASE_ID=${resolved_id}" >> "$GITHUB_ENV"
-          echo "Resolved D1 database '${OPTION_CONTRACT_D1_DATABASE_NAME}' for Worker binding"
+          npx wrangler d1 list --json > /tmp/d1-list.json
+          python3 - <<'PY'
+          import json, os
+          rows = json.loads(open('/tmp/d1-list.json', encoding='utf-8').read())
+          name = os.environ['OPTION_CONTRACT_D1_DATABASE_NAME']
+          configured = os.environ['OPTION_CONTRACT_D1_DATABASE_ID']
+          matches = [row for row in rows if row.get('name') == name]
+          print({'d1_database_count': len(rows), 'target_name_found': bool(matches), 'configured_id_matches_any': any((row.get('uuid') or row.get('id')) == configured for row in rows)})
+          if not matches:
+              raise SystemExit(f"D1 database not found by name: {name}")
+          resolved = matches[0].get('uuid') or matches[0].get('id')
+          if not resolved:
+              raise SystemExit(f"D1 database id missing in wrangler d1 list output for: {name}")
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f"OPTION_CONTRACT_D1_DATABASE_ID={resolved}\n")
+          print(f"Resolved D1 database '{name}' for Worker binding")
+          PY
 
       - name: Configure Cloudflare bindings
         run: |
