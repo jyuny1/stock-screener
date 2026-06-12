@@ -26,5 +26,12 @@
       "binding": "STATIC_DATA_BUCKET",
       "bucket_name": "replace-with-r2-bucket"
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "OPTIONS_D1",
+      "database_name": "replace-with-d1-database",
+      "database_id": "replace-with-d1-database-id"
+    }
   ]
 }

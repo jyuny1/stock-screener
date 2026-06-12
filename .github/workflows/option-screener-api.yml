@@ -22,6 +22,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       OPTION_SCREENER_API_TOKEN: ${{ secrets.OPTION_SCREENER_API_TOKEN }}
       R2_BUCKET: ${{ vars.R2_BUCKET }}
+      OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+      OPTION_CONTRACT_D1_DATABASE_ID: ${{ vars.OPTION_CONTRACT_D1_DATABASE_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +45,7 @@ jobs:
       - name: Validate deployment settings
         run: |
           missing=0
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_BUCKET OPTION_SCREENER_API_TOKEN; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_BUCKET OPTION_SCREENER_API_TOKEN OPTION_CONTRACT_D1_DATABASE_NAME OPTION_CONTRACT_D1_DATABASE_ID; do
             if [ -z "${!name}" ]; then
               echo "Missing required deployment setting: ${name}" >&2
               missing=1
@@ -51,15 +53,16 @@ jobs:
           done
           exit "$missing"
 
-      - name: Configure R2 bucket binding
+      - name: Configure Cloudflare bindings
         run: |
           python3 - <<'PY'
-          import json
           from pathlib import Path
           import os
           path = Path('wrangler.jsonc')
           raw = path.read_text(encoding='utf-8')
           raw = raw.replace('replace-with-r2-bucket', os.environ['R2_BUCKET'])
+          raw = raw.replace('replace-with-d1-database', os.environ['OPTION_CONTRACT_D1_DATABASE_NAME'])
+          raw = raw.replace('replace-with-d1-database-id', os.environ['OPTION_CONTRACT_D1_DATABASE_ID'])
           raw = raw.replace(
               '  "name": "stock-option-screener-api",',
               '  "name": "stock-option-screener-api",\n  "account_id": "' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '",',
@@ -72,3 +75,26 @@ jobs:
 
       - name: Configure agent bearer token secret
         run: printf '%s' "$OPTION_SCREENER_API_TOKEN" | npx wrangler secret put OPTION_SCREENER_API_TOKEN
+
+      - name: Smoke test deployed D1 options API
+        run: |
+          set -euo pipefail
+          base_url="https://ss.ljy.app/api/v1"
+          for path in options/manifest 'options/contracts?limit=1' 'options/summary?limit=1'; do
+            echo "Testing /api/v1/${path}"
+            curl -fsS "${base_url}/${path}" \
+              -H "Authorization: Bearer ${OPTION_SCREENER_API_TOKEN}" \
+              -o /tmp/option-api-response.json
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('/tmp/option-api-response.json').read_text())
+          assert payload.get('schema_version') == 'option-screener-api-v1', payload
+          assert 'error' not in payload, payload
+          print(json.dumps({
+              'meta': payload.get('meta', {}),
+              'returned': payload.get('data', {}).get('pagination', {}).get('returned'),
+              'latest_snapshot_date': payload.get('data', {}).get('latest_snapshot_date'),
+          }, ensure_ascii=False))
+          PY
+          done

@@ -5,9 +5,12 @@ const MAX_LIMIT = 500;
 const DEFAULT_SORT = 'volume';
 const DEFAULT_ORDER = 'desc';
 const CACHE_TTL_MS = 60_000;
+const DEFAULT_OPTIONS_SORT = 'volume';
+const DEFAULT_SUMMARY_SORT = 'put_volume';
 
 export interface Env {
   STATIC_DATA_BUCKET: R2Bucket;
+  OPTIONS_D1?: D1Database;
   OPTION_SCREENER_API_TOKEN: string;
   STATIC_DATA_PREFIX?: string;
   DEFAULT_ROWS_LIMIT?: string;
@@ -69,6 +72,75 @@ const FILTER_ALIASES: Record<string, string> = {
   sector: 'gics_sector',
   industry: 'ibd_industry_group',
 };
+
+const OPTION_CONTRACT_FIELDS = [
+  'snapshot_date',
+  'symbol',
+  'option_type',
+  'contract_symbol',
+  'expiration_date',
+  'strike',
+  'dte_at_snapshot',
+  'schwab_dte',
+  'bid',
+  'ask',
+  'last',
+  'mark',
+  'volume',
+  'open_interest',
+  'iv',
+  'delta',
+  'asof',
+  'provider',
+  'created_at',
+] as const;
+
+const OPTION_SUMMARY_FIELDS = [
+  'snapshot_date',
+  'symbol',
+  'put_volume',
+  'call_volume',
+  'put_oi',
+  'call_oi',
+  'pcr',
+  'put_contract_count',
+  'call_contract_count',
+  'contract_count',
+  'asof',
+] as const;
+
+const OPTION_CONTRACT_SQL_FIELDS: Record<string, string> = {
+  snapshot_date: 'snapshot_date',
+  symbol: 'underlying_symbol AS symbol',
+  option_type: 'option_type',
+  contract_symbol: 'contract_symbol',
+  expiration_date: 'expiration_date',
+  strike: 'strike',
+  dte_at_snapshot: 'dte_at_snapshot',
+  schwab_dte: 'schwab_dte',
+  bid: 'bid',
+  ask: 'ask',
+  last: 'last',
+  mark: 'mark',
+  volume: 'volume',
+  open_interest: 'open_interest',
+  iv: 'iv',
+  delta: 'delta',
+  asof: 'asof',
+  provider: 'provider',
+  created_at: 'created_at',
+};
+
+const OPTION_CONTRACT_SORT_SQL: Record<string, string> = Object.fromEntries(
+  OPTION_CONTRACT_FIELDS.map((field) => [field, field === 'symbol' ? 'underlying_symbol' : field]),
+);
+const OPTION_SUMMARY_SORT_SQL: Record<string, string> = Object.fromEntries(OPTION_SUMMARY_FIELDS.map((field) => [field, field]));
+
+const OPTIONS_FILTER_PARAMS = new Set([
+  'limit', 'offset', 'sort', 'order', 'fields', 'latest', 'snapshot_date', 'symbol', 'option_type', 'contract_symbol',
+  'expiration_date', 'min_expiration_date', 'max_expiration_date', 'min_dte', 'max_dte', 'min_strike', 'max_strike',
+  'min_volume', 'max_volume', 'min_open_interest', 'max_open_interest', 'min_delta', 'max_delta', 'min_iv', 'max_iv',
+]);
 
 let rowsCache: CachedRows | null = null;
 
@@ -274,6 +346,24 @@ const projectRows = (rows: ScanRow[], fieldsParam: string | null): ScanRow[] => 
   });
 };
 
+const projectGenericRows = (rows: ScanRow[], fieldsParam: string | null, allowedFields: readonly string[]): ScanRow[] => {
+  if (!fieldsParam) return rows;
+  const fields = [...new Set(fieldsParam.split(',').map((field) => field.trim()).filter(Boolean))];
+  if (fields.length > 32) {
+    throw errorResponse(413, 'response_too_large', 'fields count exceeds max 32');
+  }
+  for (const field of fields) {
+    if (!allowedFields.includes(field)) {
+      throw errorResponse(400, 'invalid_request', `unsupported field: ${field}`, { field });
+    }
+  }
+  return rows.map((row) => {
+    const projected: ScanRow = {};
+    for (const field of fields) projected[field] = row[field];
+    return projected;
+  });
+};
+
 const stringField = (payload: Record<string, unknown>, field: string): string | null => {
   const value = payload[field];
   return typeof value === 'string' && value ? value : null;
@@ -290,6 +380,144 @@ const commonMeta = (env: Env, loaded: CachedRows): Record<string, unknown> => ({
     static_manifest_path: `${prefix(env)}/manifest.json`,
     scan_manifest_path: `${prefix(env)}/markets/us/scan/manifest.json`,
   },
+});
+
+const requireOptionsD1 = (env: Env): D1Database => {
+  if (!env.OPTIONS_D1) {
+    throw errorResponse(503, 'd1_unavailable', 'OPTIONS_D1 binding is not configured');
+  }
+  return env.OPTIONS_D1;
+};
+
+const validateAllowedParams = (params: URLSearchParams, allowed: Set<string>): Response | null => {
+  for (const keyName of params.keys()) {
+    if (!allowed.has(keyName)) {
+      return errorResponse(400, 'invalid_request', `unsupported query parameter: ${keyName}`, { field: keyName });
+    }
+  }
+  return null;
+};
+
+const parseDateParam = (params: URLSearchParams, name: string): string | null => {
+  const raw = params.get(name)?.trim();
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw errorResponse(400, 'invalid_request', `${name} must be YYYY-MM-DD`, { field: name });
+  }
+  return raw;
+};
+
+const parseOptionType = (params: URLSearchParams): string | null => {
+  const raw = params.get('option_type')?.trim().toUpperCase();
+  if (!raw) return null;
+  if (raw !== 'PUT' && raw !== 'CALL') {
+    throw errorResponse(400, 'invalid_request', 'option_type must be PUT or CALL', { field: 'option_type' });
+  }
+  return raw;
+};
+
+const parseSqlFields = (fieldsParam: string | null, allowedFields: readonly string[], sqlFields: Record<string, string>): string => {
+  const fields = fieldsParam
+    ? [...new Set(fieldsParam.split(',').map((field) => field.trim()).filter(Boolean))]
+    : [...allowedFields];
+  if (fields.length > 32) {
+    throw errorResponse(413, 'response_too_large', 'fields count exceeds max 32');
+  }
+  for (const field of fields) {
+    if (!allowedFields.includes(field)) {
+      throw errorResponse(400, 'invalid_request', `unsupported field: ${field}`, { field });
+    }
+  }
+  return fields.map((field) => sqlFields[field]).join(', ');
+};
+
+const latestOptionSnapshotDate = async (db: D1Database): Promise<string | null> => {
+  const result = await db.prepare('SELECT MAX(snapshot_date) AS snapshot_date FROM option_contract_liquidity_snapshots').first<{ snapshot_date?: string }>();
+  return typeof result?.snapshot_date === 'string' ? result.snapshot_date : null;
+};
+
+const optionMetadata = async (db: D1Database): Promise<Record<string, string>> => {
+  const result = await db.prepare('SELECT key, value FROM metadata').all<{ key: string; value: string }>();
+  const rows = result.results || [];
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+};
+
+type SqlWhere = { clause: string; bindings: (string | number)[]; snapshotDate: string | null };
+
+const buildOptionWhere = async (db: D1Database, params: URLSearchParams): Promise<SqlWhere> => {
+  const clauses: string[] = [];
+  const bindings: (string | number)[] = [];
+
+  const snapshotDate = parseDateParam(params, 'snapshot_date');
+  const latest = params.get('latest') == null ? true : parseBoolean(params.get('latest') || '', 'latest');
+  let effectiveSnapshot = snapshotDate;
+  if (!effectiveSnapshot && latest) effectiveSnapshot = await latestOptionSnapshotDate(db);
+  if (effectiveSnapshot) {
+    clauses.push('snapshot_date = ?');
+    bindings.push(effectiveSnapshot);
+  }
+
+  const symbol = params.get('symbol')?.trim().toUpperCase();
+  if (symbol) {
+    clauses.push('underlying_symbol = ?');
+    bindings.push(symbol);
+  }
+
+  const contractSymbol = params.get('contract_symbol')?.trim();
+  if (contractSymbol) {
+    clauses.push('contract_symbol = ?');
+    bindings.push(contractSymbol);
+  }
+
+  const optionType = parseOptionType(params);
+  if (optionType) {
+    clauses.push('option_type = ?');
+    bindings.push(optionType);
+  }
+
+  const expirationDate = parseDateParam(params, 'expiration_date');
+  const minExpirationDate = parseDateParam(params, 'min_expiration_date');
+  const maxExpirationDate = parseDateParam(params, 'max_expiration_date');
+  if (expirationDate) {
+    clauses.push('expiration_date = ?');
+    bindings.push(expirationDate);
+  }
+  if (minExpirationDate) {
+    clauses.push('expiration_date >= ?');
+    bindings.push(minExpirationDate);
+  }
+  if (maxExpirationDate) {
+    clauses.push('expiration_date <= ?');
+    bindings.push(maxExpirationDate);
+  }
+
+  const numericFilters: [string, string, string][] = [
+    ['min_dte', 'dte_at_snapshot', '>='], ['max_dte', 'dte_at_snapshot', '<='],
+    ['min_strike', 'strike', '>='], ['max_strike', 'strike', '<='],
+    ['min_volume', 'volume', '>='], ['max_volume', 'volume', '<='],
+    ['min_open_interest', 'open_interest', '>='], ['max_open_interest', 'open_interest', '<='],
+    ['min_delta', 'delta', '>='], ['max_delta', 'delta', '<='],
+    ['min_iv', 'iv', '>='], ['max_iv', 'iv', '<='],
+  ];
+  for (const [param, column, operator] of numericFilters) {
+    const value = numberParam(params, param);
+    if (value != null) {
+      clauses.push(`${column} ${operator} ?`);
+      bindings.push(value);
+    }
+  }
+
+  return { clause: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', bindings, snapshotDate: effectiveSnapshot };
+};
+
+const d1Meta = (metadata: Record<string, string>, rowsTotal: number, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  market: 'US',
+  rows_total: rowsTotal,
+  generated_at: metadata.generated_at || null,
+  as_of_date: metadata.as_of_date || null,
+  data_updated_at: metadata.generated_at || null,
+  source: { type: 'cloudflare-d1', binding: 'OPTIONS_D1', table: 'option_contract_liquidity_snapshots' },
+  ...extra,
 });
 
 const handleHealth = async (env: Env): Promise<Response> => {
@@ -373,6 +601,141 @@ const handleRows = async (request: Request, env: Env): Promise<Response> => {
   }
 };
 
+const handleOptionsManifest = async (env: Env): Promise<Response> => {
+  const db = requireOptionsD1(env);
+  const [metadata, countResult, latestSnapshot] = await Promise.all([
+    optionMetadata(db),
+    db.prepare('SELECT COUNT(*) AS count FROM option_contract_liquidity_snapshots').first<{ count: number }>(),
+    latestOptionSnapshotDate(db),
+  ]);
+  const rowsTotal = Number(countResult?.count || 0);
+  return jsonResponse({
+    schema_version: API_SCHEMA_VERSION,
+    data: {
+      market: 'US',
+      latest_snapshot_date: latestSnapshot,
+      default_query: { sort: DEFAULT_OPTIONS_SORT, order: DEFAULT_ORDER, limit: DEFAULT_LIMIT, latest: true, nulls: 'last' },
+      contract_columns: OPTION_CONTRACT_FIELDS,
+      summary_columns: OPTION_SUMMARY_FIELDS,
+      filterable_fields: [...OPTIONS_FILTER_PARAMS].filter((field) => !['limit', 'offset', 'sort', 'order', 'fields'].includes(field)),
+      sortable_contract_fields: Object.keys(OPTION_CONTRACT_SORT_SQL),
+      sortable_summary_fields: Object.keys(OPTION_SUMMARY_SORT_SQL),
+      metadata,
+    },
+    meta: d1Meta(metadata, rowsTotal),
+  });
+};
+
+const handleOptionContracts = async (request: Request, env: Env): Promise<Response> => {
+  const db = requireOptionsD1(env);
+  const url = new URL(request.url);
+  const params = url.searchParams;
+  const invalid = validateAllowedParams(params, OPTIONS_FILTER_PARAMS);
+  if (invalid) return invalid;
+
+  const configuredDefaultLimit = Number(env.DEFAULT_ROWS_LIMIT || DEFAULT_LIMIT);
+  const configuredMaxLimit = Number(env.MAX_ROWS_LIMIT || MAX_LIMIT);
+  const maxLimit = Number.isFinite(configuredMaxLimit) ? configuredMaxLimit : MAX_LIMIT;
+  const defaultLimit = Number.isFinite(configuredDefaultLimit) ? configuredDefaultLimit : DEFAULT_LIMIT;
+  const limit = parseInteger(params, 'limit', defaultLimit);
+  const offset = parseInteger(params, 'offset', 0);
+  if (limit < 1 || limit > maxLimit) return errorResponse(400, 'invalid_request', `limit must be between 1 and ${maxLimit}`, { field: 'limit' });
+  if (offset < 0) return errorResponse(400, 'invalid_request', 'offset must be >= 0', { field: 'offset' });
+
+  const sort = params.get('sort') || DEFAULT_OPTIONS_SORT;
+  const sortSql = OPTION_CONTRACT_SORT_SQL[sort];
+  if (!sortSql) return errorResponse(400, 'invalid_request', `unsupported sort field: ${sort}`, { field: 'sort' });
+  const order = (params.get('order') || DEFAULT_ORDER).toLowerCase();
+  if (order !== 'asc' && order !== 'desc') return errorResponse(400, 'invalid_request', 'order must be asc or desc', { field: 'order' });
+
+  const selectSql = parseSqlFields(params.get('fields'), OPTION_CONTRACT_FIELDS, OPTION_CONTRACT_SQL_FIELDS);
+  const where = await buildOptionWhere(db, params);
+  const direction = order === 'asc' ? 'ASC' : 'DESC';
+  const rowsSql = `SELECT ${selectSql} FROM option_contract_liquidity_snapshots ${where.clause} ORDER BY ${sortSql} IS NULL ASC, ${sortSql} ${direction}, underlying_symbol ASC, expiration_date ASC, strike ASC LIMIT ? OFFSET ?`;
+  const countSql = `SELECT COUNT(*) AS count FROM option_contract_liquidity_snapshots ${where.clause}`;
+  const [rowsResult, countResult, metadata] = await Promise.all([
+    db.prepare(rowsSql).bind(...where.bindings, limit, offset).all<ScanRow>(),
+    db.prepare(countSql).bind(...where.bindings).first<{ count: number }>(),
+    optionMetadata(db),
+  ]);
+  const rows = rowsResult.results || [];
+  const totalFiltered = Number(countResult?.count || 0);
+  return jsonResponse({
+    schema_version: API_SCHEMA_VERSION,
+    data: {
+      rows,
+      pagination: { limit, offset, returned: rows.length, total_filtered: totalFiltered, has_more: offset + rows.length < totalFiltered },
+      sort: { field: sort, order, nulls: 'last' },
+      filters: Object.fromEntries(params.entries()),
+    },
+    meta: d1Meta(metadata, totalFiltered, { snapshot_date: where.snapshotDate }),
+  });
+};
+
+const handleOptionSummary = async (request: Request, env: Env): Promise<Response> => {
+  const db = requireOptionsD1(env);
+  const url = new URL(request.url);
+  const params = url.searchParams;
+  const invalid = validateAllowedParams(params, OPTIONS_FILTER_PARAMS);
+  if (invalid) return invalid;
+
+  const configuredDefaultLimit = Number(env.DEFAULT_ROWS_LIMIT || DEFAULT_LIMIT);
+  const configuredMaxLimit = Number(env.MAX_ROWS_LIMIT || MAX_LIMIT);
+  const maxLimit = Number.isFinite(configuredMaxLimit) ? configuredMaxLimit : MAX_LIMIT;
+  const defaultLimit = Number.isFinite(configuredDefaultLimit) ? configuredDefaultLimit : DEFAULT_LIMIT;
+  const limit = parseInteger(params, 'limit', defaultLimit);
+  const offset = parseInteger(params, 'offset', 0);
+  if (limit < 1 || limit > maxLimit) return errorResponse(400, 'invalid_request', `limit must be between 1 and ${maxLimit}`, { field: 'limit' });
+  if (offset < 0) return errorResponse(400, 'invalid_request', 'offset must be >= 0', { field: 'offset' });
+
+  const sort = params.get('sort') || DEFAULT_SUMMARY_SORT;
+  const sortSql = OPTION_SUMMARY_SORT_SQL[sort];
+  if (!sortSql) return errorResponse(400, 'invalid_request', `unsupported sort field: ${sort}`, { field: 'sort' });
+  const order = (params.get('order') || DEFAULT_ORDER).toLowerCase();
+  if (order !== 'asc' && order !== 'desc') return errorResponse(400, 'invalid_request', 'order must be asc or desc', { field: 'order' });
+
+  const where = await buildOptionWhere(db, params);
+  const groupedSql = `
+    SELECT
+      snapshot_date,
+      underlying_symbol AS symbol,
+      SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END) AS put_volume,
+      SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) AS call_volume,
+      SUM(CASE WHEN option_type = 'PUT' THEN open_interest ELSE 0 END) AS put_oi,
+      SUM(CASE WHEN option_type = 'CALL' THEN open_interest ELSE 0 END) AS call_oi,
+      CASE WHEN SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) > 0
+        THEN CAST(SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END) AS REAL) / SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END)
+        ELSE NULL END AS pcr,
+      SUM(CASE WHEN option_type = 'PUT' THEN 1 ELSE 0 END) AS put_contract_count,
+      SUM(CASE WHEN option_type = 'CALL' THEN 1 ELSE 0 END) AS call_contract_count,
+      COUNT(*) AS contract_count,
+      MAX(asof) AS asof
+    FROM option_contract_liquidity_snapshots
+    ${where.clause}
+    GROUP BY snapshot_date, underlying_symbol
+  `;
+  const direction = order === 'asc' ? 'ASC' : 'DESC';
+  const rowsSql = `SELECT * FROM (${groupedSql}) ORDER BY ${sortSql} IS NULL ASC, ${sortSql} ${direction}, symbol ASC LIMIT ? OFFSET ?`;
+  const countSql = `SELECT COUNT(*) AS count FROM (SELECT 1 FROM option_contract_liquidity_snapshots ${where.clause} GROUP BY snapshot_date, underlying_symbol)`;
+  const [rowsResult, countResult, metadata] = await Promise.all([
+    db.prepare(rowsSql).bind(...where.bindings, limit, offset).all<ScanRow>(),
+    db.prepare(countSql).bind(...where.bindings).first<{ count: number }>(),
+    optionMetadata(db),
+  ]);
+  const rows = projectGenericRows(rowsResult.results || [], params.get('fields'), OPTION_SUMMARY_FIELDS);
+  const totalFiltered = Number(countResult?.count || 0);
+  return jsonResponse({
+    schema_version: API_SCHEMA_VERSION,
+    data: {
+      rows,
+      pagination: { limit, offset, returned: rows.length, total_filtered: totalFiltered, has_more: offset + rows.length < totalFiltered },
+      sort: { field: sort, order, nulls: 'last' },
+      filters: Object.fromEntries(params.entries()),
+    },
+    meta: d1Meta(metadata, totalFiltered, { snapshot_date: where.snapshotDate }),
+  });
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method !== 'GET') {
@@ -387,6 +750,9 @@ export default {
       if (pathname === '/api/v1/health') return await handleHealth(env);
       if (pathname === '/api/v1/manifest') return await handleManifest(env);
       if (pathname === '/api/v1/rows') return await handleRows(request, env);
+      if (pathname === '/api/v1/options/manifest') return await handleOptionsManifest(env);
+      if (pathname === '/api/v1/options/contracts') return await handleOptionContracts(request, env);
+      if (pathname === '/api/v1/options/summary') return await handleOptionSummary(request, env);
       return errorResponse(404, 'not_found', 'Not found');
     } catch (error) {
       if (error instanceof Response) return error;

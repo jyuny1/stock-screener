@@ -17,6 +17,94 @@ class FakeR2Bucket {
   }
 }
 
+const optionRows = [
+  {
+    snapshot_date: '2026-06-05', underlying_symbol: 'HIGH', option_type: 'PUT', contract_symbol: 'HIGH260626P00025000',
+    expiration_date: '2026-06-26', strike: 25, dte_at_snapshot: 21, schwab_dte: 21, bid: 1.1, ask: 1.2,
+    last: 1.05, mark: 1.15, volume: 100, open_interest: 500, iv: 0.4, delta: -0.2, asof: '2026-06-05T10:08:31Z',
+    provider: 'schwab', created_at: '2026-06-05T10:08:31Z',
+  },
+  {
+    snapshot_date: '2026-06-05', underlying_symbol: 'HIGH', option_type: 'CALL', contract_symbol: 'HIGH260626C00035000',
+    expiration_date: '2026-06-26', strike: 35, dte_at_snapshot: 21, schwab_dte: 21, bid: 0.9, ask: 1.0,
+    last: 0.95, mark: 0.95, volume: 50, open_interest: 300, iv: 0.35, delta: 0.25, asof: '2026-06-05T10:08:31Z',
+    provider: 'schwab', created_at: '2026-06-05T10:08:31Z',
+  },
+  {
+    snapshot_date: '2026-06-04', underlying_symbol: 'LOW', option_type: 'PUT', contract_symbol: 'LOW260626P00015000',
+    expiration_date: '2026-06-26', strike: 15, dte_at_snapshot: 22, schwab_dte: 22, bid: 0.5, ask: 0.6,
+    last: 0.55, mark: 0.55, volume: 20, open_interest: 80, iv: 0.3, delta: -0.18, asof: '2026-06-04T10:08:31Z',
+    provider: 'schwab', created_at: '2026-06-04T10:08:31Z',
+  },
+];
+
+class FakeD1Statement {
+  private bindings: any[] = [];
+  constructor(private readonly sql: string) {}
+  bind(...bindings: any[]) {
+    this.bindings = bindings;
+    return this;
+  }
+  async first<T>(): Promise<T | null> {
+    if (this.sql.includes('MAX(snapshot_date)')) return { snapshot_date: '2026-06-05' } as T;
+    if (this.sql.includes('COUNT(*) AS count')) return { count: this.filtered().length } as T;
+    return null;
+  }
+  async all<T>(): Promise<{ results: T[] }> {
+    if (this.sql.includes('FROM metadata')) {
+      return { results: [
+        { key: 'schema_version', value: 'option-contract-liquidity-d1-v3' },
+        { key: 'generated_at', value: '2026-06-05T10:08:31Z' },
+        { key: 'as_of_date', value: '2026-06-05' },
+      ] as T[] };
+    }
+    if (this.sql.includes('GROUP BY snapshot_date, underlying_symbol')) {
+      const grouped = this.filtered().reduce<Record<string, any>>((acc, row) => {
+        const key = `${row.snapshot_date}|${row.underlying_symbol}`;
+        const item = acc[key] ||= { snapshot_date: row.snapshot_date, symbol: row.underlying_symbol, put_volume: 0, call_volume: 0, put_oi: 0, call_oi: 0, put_contract_count: 0, call_contract_count: 0, contract_count: 0, asof: row.asof };
+        if (row.option_type === 'PUT') { item.put_volume += row.volume; item.put_oi += row.open_interest; item.put_contract_count += 1; }
+        if (row.option_type === 'CALL') { item.call_volume += row.volume; item.call_oi += row.open_interest; item.call_contract_count += 1; }
+        item.contract_count += 1;
+        item.pcr = item.call_volume > 0 ? item.put_volume / item.call_volume : null;
+        return acc;
+      }, {});
+      return { results: Object.values(grouped) as T[] };
+    }
+    return { results: this.filtered().map((row) => ({
+      snapshot_date: row.snapshot_date,
+      symbol: row.underlying_symbol,
+      option_type: row.option_type,
+      contract_symbol: row.contract_symbol,
+      expiration_date: row.expiration_date,
+      strike: row.strike,
+      dte_at_snapshot: row.dte_at_snapshot,
+      schwab_dte: row.schwab_dte,
+      bid: row.bid,
+      ask: row.ask,
+      last: row.last,
+      mark: row.mark,
+      volume: row.volume,
+      open_interest: row.open_interest,
+      iv: row.iv,
+      delta: row.delta,
+      asof: row.asof,
+      provider: row.provider,
+      created_at: row.created_at,
+    })) as T[] };
+  }
+  private filtered() {
+    let rows = optionRows.slice();
+    if (this.sql.includes('snapshot_date = ?')) rows = rows.filter((row) => this.bindings.includes(row.snapshot_date));
+    if (this.sql.includes('underlying_symbol = ?')) rows = rows.filter((row) => this.bindings.includes(row.underlying_symbol));
+    if (this.sql.includes('option_type = ?')) rows = rows.filter((row) => this.bindings.includes(row.option_type));
+    return rows;
+  }
+}
+
+class FakeD1Database {
+  prepare(sql: string) { return new FakeD1Statement(sql); }
+}
+
 const rows = [
   {
     symbol: 'EMPTY',
@@ -65,6 +153,7 @@ const rows = [
 const makeEnv = (): Env => ({
   OPTION_SCREENER_API_TOKEN: 'secret-token',
   STATIC_DATA_PREFIX: 'static-data',
+  OPTIONS_D1: new FakeD1Database() as unknown as D1Database,
   STATIC_DATA_BUCKET: new FakeR2Bucket({
     'static-data/manifest.json': {
       schema_version: 'static-site-v2',
@@ -141,5 +230,29 @@ describe('screener agent api worker', () => {
     const response = await worker.fetch(request('/api/v1/rows?volume=100'), makeEnv());
     expect(response.status).toBe(400);
     expect((await json(response)).error.details.field).toBe('volume');
+  });
+
+  it('returns D1 option manifest without changing static manifest', async () => {
+    const response = await worker.fetch(request('/api/v1/options/manifest'), makeEnv());
+    expect(response.status).toBe(200);
+    const payload = await json(response);
+    expect(payload.data.latest_snapshot_date).toBe('2026-06-05');
+    expect(payload.data.contract_columns).toContain('contract_symbol');
+    expect(payload.meta.source.type).toBe('cloudflare-d1');
+  });
+
+  it('queries D1 option contracts with latest snapshot and filters', async () => {
+    const response = await worker.fetch(request('/api/v1/options/contracts?symbol=HIGH&option_type=PUT&fields=symbol,contract_symbol,volume'), makeEnv());
+    expect(response.status).toBe(200);
+    const payload = await json(response);
+    expect(payload.data.rows[0]).toMatchObject({ symbol: 'HIGH', contract_symbol: 'HIGH260626P00025000', volume: 100 });
+    expect(payload.meta.snapshot_date).toBe('2026-06-05');
+  });
+
+  it('returns D1 option summary aggregates', async () => {
+    const response = await worker.fetch(request('/api/v1/options/summary?symbol=HIGH'), makeEnv());
+    expect(response.status).toBe(200);
+    const payload = await json(response);
+    expect(payload.data.rows[0]).toMatchObject({ symbol: 'HIGH', put_volume: 100, call_volume: 50, pcr: 2 });
   });
 });
