@@ -53,6 +53,17 @@ jobs:
           done
           exit "$missing"
 
+      - name: Resolve D1 database id
+        run: |
+          set -euo pipefail
+          resolved_id="$({ npx wrangler d1 list --json || echo '[]'; } | python3 -c 'import json,sys,os; rows=json.load(sys.stdin); name=os.environ["OPTION_CONTRACT_D1_DATABASE_NAME"]; matches=[r for r in rows if r.get("name")==name]; print((matches[0].get("uuid") or matches[0].get("id")) if matches else os.environ["OPTION_CONTRACT_D1_DATABASE_ID"])')"
+          if [ -z "$resolved_id" ]; then
+            echo "Unable to resolve D1 database id" >&2
+            exit 1
+          fi
+          echo "OPTION_CONTRACT_D1_DATABASE_ID=${resolved_id}" >> "$GITHUB_ENV"
+          echo "Resolved D1 database '${OPTION_CONTRACT_D1_DATABASE_NAME}' for Worker binding"
+
       - name: Configure Cloudflare bindings
         run: |
           python3 - <<'PY'
