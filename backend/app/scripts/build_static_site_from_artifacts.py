@@ -33,8 +33,16 @@ SCHWAB_MARKETDATA_BASE_URL = "https://api.schwabapi.com/marketdata/v1"
 SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
 OPTION_PCR_MIN_DTE = 14
 OPTION_PCR_MAX_DTE = 28
-OPTION_PCR_MAX_SYMBOLS = 300
+OPTION_CHAIN_TRACKING_TOP_N = 500
+OPTION_CHAIN_TRACKING_RETENTION_DAYS = 90
+OPTION_CHAIN_MAX_FETCH_SYMBOLS = 500
 OPTION_PCR_REQUEST_INTERVAL_SECONDS = 0.5
+
+
+def _log(message: str, **fields: Any) -> None:
+    payload = " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
+    suffix = f" {payload}" if payload else ""
+    print(f"[static-site] {message}{suffix}", flush=True)
 
 
 def _utc_now() -> str:
@@ -174,6 +182,121 @@ def _calculated_dte(snapshot_date: str | None, expiration_date: str | None) -> i
     return (expiration - snapshot).days
 
 
+def _dollar_volume(row: dict[str, Any]) -> float:
+    adv_usd = _float_value(row.get("adv_usd"))
+    if adv_usd is not None and adv_usd > 0:
+        return float(adv_usd)
+    price = _float_value(row.get("current_price"))
+    volume = _float_value(row.get("volume"))
+    if price is None or volume is None or price <= 0 or volume <= 0:
+        return 0.0
+    return float(price) * float(volume)
+
+
+def _read_previous_option_tracking_pool() -> dict[str, dict[str, Any]]:
+    base_url = (os.environ.get("STATIC_DATA_BASE_URL") or "").rstrip("/")
+    if not base_url:
+        return {}
+    url = f"{base_url}/markets/us/options/option-chain-tracking-pool.json"
+    try:
+        req = request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with request.urlopen(req, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - first run or unavailable pool is expected
+        print(f"Option chain tracking pool unavailable: {exc}")
+        return {}
+    raw_rows = payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        items = raw_rows.values()
+    elif isinstance(raw_rows, list):
+        items = raw_rows
+    else:
+        return {}
+    pool: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol") or "").upper().strip()
+        if symbol:
+            pool[symbol] = dict(item, symbol=symbol)
+    return pool
+
+
+def _build_option_tracking_pool(
+    rows: list[dict[str, Any]],
+    *,
+    generated_at: str,
+    as_of_date: str,
+    top_n: int = OPTION_CHAIN_TRACKING_TOP_N,
+    retention_days: int = OPTION_CHAIN_TRACKING_RETENTION_DAYS,
+    max_symbols: int = OPTION_CHAIN_MAX_FETCH_SYMBOLS,
+) -> dict[str, Any]:
+    today_key = str(as_of_date)[:10]
+    active_until = (datetime.fromisoformat(today_key).date() + timedelta(days=retention_days - 1)).isoformat()
+    previous = _read_previous_option_tracking_pool()
+    liquidity_by_symbol = {
+        str(row.get("symbol") or "").upper().strip(): _dollar_volume(row)
+        for row in rows
+        if row.get("symbol")
+    }
+    ranked_today = sorted(
+        ((symbol, value) for symbol, value in liquidity_by_symbol.items() if value > 0),
+        key=lambda item: (-item[1], item[0]),
+    )[:top_n]
+    today_rank = {symbol: index + 1 for index, (symbol, _value) in enumerate(ranked_today)}
+
+    candidates: dict[str, dict[str, Any]] = {}
+    for symbol, prior in previous.items():
+        if str(prior.get("active_until") or "") >= today_key:
+            candidates[symbol] = dict(prior)
+
+    for symbol, dollar_value in ranked_today:
+        prior = candidates.get(symbol) or previous.get(symbol) or {}
+        first_tracked = str(prior.get("first_tracked_date") or today_key)
+        max_dollar = max(float(prior.get("max_dollar_volume") or 0), float(dollar_value or 0))
+        candidates[symbol] = {
+            "symbol": symbol,
+            "first_tracked_date": first_tracked,
+            "last_ranked_date": today_key,
+            "last_seen_date": today_key,
+            "active_until": active_until,
+            "reason": "dollar_volume_top500",
+            "priority": today_rank[symbol],
+            "dollar_volume": dollar_value,
+            "max_dollar_volume": max_dollar,
+            "updated_at": generated_at,
+        }
+
+    for symbol, entry in list(candidates.items()):
+        if symbol not in today_rank:
+            current_liquidity = liquidity_by_symbol.get(symbol, 0.0)
+            entry["dollar_volume"] = current_liquidity
+            entry["max_dollar_volume"] = max(float(entry.get("max_dollar_volume") or 0), current_liquidity)
+            entry["priority"] = int(entry.get("priority") or 1_000_000)
+            entry["updated_at"] = generated_at
+
+    selected = sorted(
+        candidates.values(),
+        key=lambda item: (-float(item.get("max_dollar_volume") or 0), int(item.get("priority") or 1_000_000), str(item.get("symbol") or "")),
+    )[:max_symbols]
+    active_symbols = [str(item["symbol"]) for item in selected]
+    return {
+        "schema_version": "option-chain-tracking-pool-v1",
+        "generated_at": generated_at,
+        "as_of_date": today_key,
+        "retention_days": retention_days,
+        "seed_top_n": top_n,
+        "max_symbols": max_symbols,
+        "active_count": len(active_symbols),
+        "active_symbols": active_symbols,
+        "rows": selected,
+    }
+
+
+def _write_option_tracking_pool(output_dir: Path, payload: dict[str, Any]) -> None:
+    _write_json(output_dir / "markets/us/options/option-chain-tracking-pool.json", payload)
+
+
 def _normalize_option_contract(
     symbol: str,
     contract: dict[str, Any],
@@ -280,26 +403,35 @@ def _option_pcr_error_fields(message: str) -> dict[str, Any]:
     }
 
 
-def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
-    top_rows = rows[:OPTION_PCR_MAX_SYMBOLS]
+def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]], *, tracked_symbols: list[str]) -> int:
+    rows_by_symbol = {str(row.get("symbol") or "").upper().strip(): row for row in rows if row.get("symbol")}
+    target_rows = [rows_by_symbol[symbol] for symbol in tracked_symbols if symbol in rows_by_symbol]
+    started_at = time.monotonic()
+    _log("Option PCR enrichment starting", rows=len(target_rows), tracked_symbols=len(tracked_symbols))
     try:
         _require_schwab_auth_material()
         access_token = _schwab_access_token()
     except Exception as exc:  # noqa: BLE001 - static export must not fail on optional enrichment
         message = f"Option PCR enrichment skipped: {exc}"
-        for row in top_rows:
+        for row in target_rows:
             if row.get("option_pcr_volume_14_28dte") is None:
                 row.update(_option_pcr_error_fields(message))
-        print(f"{message} rows={len(top_rows)}")
+        _log(message, rows=len(target_rows))
         return 0
 
     updated = 0
-    for index, row in enumerate(top_rows):
-        if row.get("option_pcr_volume_14_28dte") is not None and row.get("_option_put_contracts_14_28dte") is not None:
+    errors = 0
+    skipped = 0
+    for index, row in enumerate(target_rows, start=1):
+        if row.get("option_pcr_volume_14_28dte") is not None and row.get("_option_contracts_14_28dte") is not None:
+            skipped += 1
             continue
         symbol = str(row.get("symbol") or "").upper().strip()
         if not symbol:
+            skipped += 1
             continue
+        if index == 1 or index % 25 == 0 or index == len(target_rows):
+            _log("Option PCR enrichment progress", index=index, total=len(target_rows), symbol=symbol, updated=updated, errors=errors, elapsed_seconds=round(time.monotonic() - started_at, 1))
         try:
             row.update(_fetch_option_pcr(symbol, access_token=access_token))
             updated += 1
@@ -309,20 +441,23 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]]) -> int:
                     access_token = _refresh_schwab_access_token()
                     row.update(_fetch_option_pcr(symbol, access_token=access_token))
                     updated += 1
-                    if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(top_rows) - 1:
+                    if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(target_rows) - 1:
                         time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
                     continue
                 except error.HTTPError as retry_exc:
                     exc = retry_exc
                 except Exception as refresh_exc:  # noqa: BLE001 - per-row enrichment is optional
                     row.update(_option_pcr_error_fields(str(refresh_exc)))
+                    errors += 1
                     continue
             row.update(_option_pcr_error_fields(f"HTTP {exc.code}"))
+            errors += 1
         except Exception as exc:  # noqa: BLE001 - best-effort static enrichment
             row.update(_option_pcr_error_fields(str(exc)))
-        if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(top_rows) - 1:
+            errors += 1
+        if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(target_rows):
             time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
-    print(f"Option PCR enrichment complete: updated={updated} rows={len(top_rows)}")
+    _log("Option PCR enrichment complete", updated=updated, errors=errors, skipped=skipped, rows=len(target_rows), tracked_symbols=len(tracked_symbols), elapsed_seconds=round(time.monotonic() - started_at, 1))
     return updated
 
 
@@ -358,7 +493,7 @@ def _merge_option_history(
 ) -> dict[str, Any]:
     history = _read_previous_option_history()
     today_key = str(as_of_date)
-    for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+    for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
         if not symbol or row.get("option_put_volume_14_28dte") is None:
             continue
@@ -467,7 +602,7 @@ def _merge_option_contract_history(
     latest: dict[str, list[dict[str, Any]]] = {}
     today_key = str(as_of_date)[:10]
 
-    for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+    for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
         contracts = row.get("_option_put_contracts_14_28dte")
         if not symbol or not isinstance(contracts, list):
@@ -580,7 +715,7 @@ def _write_option_contract_d1_import_sql(
         f"('retention_days', {_sql_literal(str(retention_days))})",
     ]
     inserted = 0
-    for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+    for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
         contracts = row.get("_option_contracts_14_28dte")
         if not symbol or not isinstance(contracts, list):
@@ -629,6 +764,7 @@ def _write_option_contract_d1_import_sql(
             )
             inserted += 1
     sql_path.write_text(";\n".join(statements) + ";\n", encoding="utf-8")
+    _log("Option D1 import SQL written", path=sql_path.as_posix(), statements=len(statements), inserted=inserted)
     return {"path": sql_path.as_posix(), "inserted": inserted, "retention_days": retention_days}
 
 
@@ -712,7 +848,7 @@ def _merge_option_contract_sqlite(
 
         today_key = str(as_of_date)[:10]
         inserted = 0
-        for row in rows[:OPTION_PCR_MAX_SYMBOLS]:
+        for row in rows:
             symbol = str(row.get("symbol") or "").upper().strip()
             contracts = row.get("_option_contracts_14_28dte")
             if not symbol or not isinstance(contracts, list):
@@ -790,13 +926,15 @@ def _merge_option_contract_sqlite(
             if sidecar.exists():
                 sidecar.unlink()
 
-    return {
+    summary = {
         "path": db_path.as_posix(),
         "inserted": inserted,
         "deleted": int(deleted or 0),
         "rows_total": int(total_rows),
         "retention_days": retention_days,
     }
+    _log("Option contract SQLite merged", **summary)
+    return summary
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -1222,13 +1360,21 @@ def build_static_site_from_artifacts(
     listing_profile: Path | None = None,
     etf_profile: Path | None = None,
 ) -> dict[str, Any]:
+    started_at = time.monotonic()
     generated_at = _utc_now()
+    _log("Build static site from artifacts starting", output_dir=output_dir)
     weekly = _read_json(foundation_update)
+    _log("Loaded foundation artifact", path=foundation_update, rows=len(weekly.get("rows") or []))
     daily = _read_json(daily_price) if daily_price else None
+    _log("Loaded daily price artifact", path=daily_price, rows=len((daily or {}).get("rows") or []))
     metrics_bundle = _read_json(scan_metrics) if scan_metrics else None
+    _log("Loaded scan metrics artifact", path=scan_metrics, rows=len((metrics_bundle or {}).get("rows") or []))
     group_bundle = _read_json(group_rank) if group_rank else None
+    _log("Loaded group rank artifact", path=group_rank, rows=len((group_bundle or {}).get("rows") or []))
     listing_bundle = _read_json(listing_profile) if listing_profile else None
+    _log("Loaded listing profile artifact", path=listing_profile, rows=len((listing_bundle or {}).get("rows") or []))
     etf_bundle = _read_json(etf_profile) if etf_profile else None
+    _log("Loaded ETF profile artifact", path=etf_profile, rows=len((etf_bundle or {}).get("rows") or []))
     latest_prices = _latest_daily_by_symbol(daily)
     metrics_by_symbol = _metrics_by_symbol(metrics_bundle)
     group_by_symbol = _rows_by_symbol(group_bundle)
@@ -1247,6 +1393,7 @@ def build_static_site_from_artifacts(
     coverage["source_revision"] = weekly.get("source_revision")
 
     rows = []
+    _log("Building scan rows starting")
     for source_row in _weekly_rows(weekly):
         payload = _row_payload(source_row)
         if not payload.get("symbol"):
@@ -1262,14 +1409,29 @@ def build_static_site_from_artifacts(
             etf_by_symbol.get(symbol),
         ))
     rows = _sort_rows(rows)
-    _enrich_rows_with_option_pcr(rows)
+    _log("Built and sorted scan rows", rows=len(rows), elapsed_seconds=round(time.monotonic() - started_at, 1))
+    option_history_date = scan_as_of_date or price_as_of_date or as_of_date
+    _log("Building option tracking pool", as_of_date=option_history_date)
+    option_tracking_pool = _build_option_tracking_pool(
+        rows,
+        generated_at=generated_at,
+        as_of_date=option_history_date,
+    )
+    _log("Built option tracking pool", active_count=option_tracking_pool["active_count"], max_symbols=option_tracking_pool["max_symbols"])
+    _enrich_rows_with_option_pcr(rows, tracked_symbols=option_tracking_pool["active_symbols"])
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    option_history_date = scan_as_of_date or price_as_of_date or as_of_date
+    _log("Writing option tracking pool")
+    _write_option_tracking_pool(output_dir, option_tracking_pool)
+    _log("Merging option aggregate history")
     _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _log("Merging option contract SQLite")
     _merge_option_contract_sqlite(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _log("Writing option D1 import SQL")
     _write_option_contract_d1_import_sql(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _log("Merging option contract JSON history")
     _merge_option_contract_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _log("Building scan payload")
     scan_manifest = _build_scan(
         output_dir,
         generated_at=generated_at,
@@ -1309,6 +1471,7 @@ def build_static_site_from_artifacts(
         rows=rows,
         coverage=coverage,
     )
+    _log("Writing market payloads")
     _write_json(output_dir / "markets/us/home.json", home_payload)
     _write_json(output_dir / "markets/us/breadth.json", breadth_payload)
     _write_json(output_dir / "markets/us/groups.json", groups_payload)
@@ -1334,6 +1497,7 @@ def build_static_site_from_artifacts(
         "assets": {
             "charts": {"path": "markets/us/charts/manifest.json", "limit": 0, "symbols_total": 0},
             "option_put_liquidity_history": {"path": "markets/us/options/put-liquidity-history.json", "window_days": 7},
+            "option_chain_tracking_pool": {"path": "markets/us/options/option-chain-tracking-pool.json", "max_symbols": OPTION_CHAIN_MAX_FETCH_SYMBOLS, "retention_days": OPTION_CHAIN_TRACKING_RETENTION_DAYS},
             "option_put_contract_liquidity_latest": {"path": "markets/us/options/put-contract-liquidity-latest.json"},
             "option_put_contract_liquidity_history": {"path": "markets/us/options/put-contract-liquidity-history.json", "window_days": 90},
             "option_contract_liquidity_sqlite": {"path": "markets/us/options/option-contract-liquidity.sqlite", "retention_days": 90},
@@ -1363,6 +1527,7 @@ def build_static_site_from_artifacts(
             "Artifact-native export does not require Postgres; breadth, group rankings, and chart payloads are disabled until artifact-native inputs are available."
         ],
     }
+    _log("Writing manifests")
     _write_json(output_dir / "manifest.json", manifest)
     _write_json(output_dir / "markets/us/manifest.market.json", {
         "schema_version": STATIC_SITE_SCHEMA_VERSION,
@@ -1371,6 +1536,7 @@ def build_static_site_from_artifacts(
         "entry": market_entry,
         "warnings": manifest["warnings"],
     })
+    _log("Build static site from artifacts complete", rows=len(rows), elapsed_seconds=round(time.monotonic() - started_at, 1))
     return {"rows_total": len(rows), "scan_manifest": scan_manifest, "manifest": manifest}
 
 

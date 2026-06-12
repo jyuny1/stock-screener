@@ -235,7 +235,7 @@ jobs:
           if [ -n "${LISTING_PROFILE_BUNDLE:-}" ]; then args+=(--listing-profile "$LISTING_PROFILE_BUNDLE"); fi
           if [ -n "${ETF_PROFILE_BUNDLE:-}" ]; then args+=(--etf-profile "$ETF_PROFILE_BUNDLE"); fi
           cd backend
-          python -m app.scripts.build_static_site_from_artifacts "${args[@]}"
+          python -u -m app.scripts.build_static_site_from_artifacts "${args[@]}"
 
       - name: Validate option chain D1 workflow settings
         env:
