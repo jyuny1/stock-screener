@@ -101,21 +101,26 @@ jobs:
         run: |
           set -euo pipefail
           base_url="https://ss.ljy.app/api/v1"
+          sleep 10
           for path in options/manifest 'options/contracts?limit=1' 'options/summary?limit=1'; do
             echo "Testing /api/v1/${path}"
-            curl -fsS "${base_url}/${path}" \
+            status=$(curl -sS "${base_url}/${path}" \
               -H "Authorization: Bearer ${OPTION_SCREENER_API_TOKEN}" \
-              -o /tmp/option-api-response.json
+              -o /tmp/option-api-response.json \
+              -w '%{http_code}')
+            echo "HTTP ${status}"
             python3 - <<'PY'
           import json
           from pathlib import Path
           payload = json.loads(Path('/tmp/option-api-response.json').read_text())
-          assert payload.get('schema_version') == 'option-screener-api-v1', payload
-          assert 'error' not in payload, payload
           print(json.dumps({
+              'error': payload.get('error'),
               'meta': payload.get('meta', {}),
               'returned': payload.get('data', {}).get('pagination', {}).get('returned'),
               'latest_snapshot_date': payload.get('data', {}).get('latest_snapshot_date'),
           }, ensure_ascii=False))
+          assert payload.get('schema_version') == 'option-screener-api-v1', payload
+          assert 'error' not in payload, payload
           PY
+            test "$status" = "200"
           done
