@@ -109,6 +109,8 @@ jobs:
               -o /tmp/option-api-response.json \
               -w '%{http_code}')
             echo "HTTP ${status}"
+            head -c 500 /tmp/option-api-response.json || true
+            echo
             python3 - <<'PY'
           import json
           from pathlib import Path
