@@ -814,6 +814,7 @@ def _map_feature_to_scan_result(
         "option_call_volume_14_28dte": d.get("option_call_volume_14_28dte"),
         "option_put_oi_14_28dte": d.get("option_put_oi_14_28dte"),
         "option_call_oi_14_28dte": d.get("option_call_oi_14_28dte"),
+        "option_put_contracts_14_28dte": d.get("option_put_contracts_14_28dte"),
         "option_put_contracts_14_28dte_count": d.get("option_put_contracts_14_28dte_count"),
         "option_call_contracts_14_28dte_count": d.get("option_call_contracts_14_28dte_count"),
         "option_contracts_14_28dte_count": d.get("option_contracts_14_28dte_count"),
