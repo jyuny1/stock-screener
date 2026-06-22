@@ -21,19 +21,22 @@ const optionRows = [
   {
     snapshot_date: '2026-06-05', underlying_symbol: 'HIGH', option_type: 'PUT', contract_symbol: 'HIGH260626P00025000',
     expiration_date: '2026-06-26', strike: 25, dte_at_snapshot: 21, schwab_dte: 21, bid: 1.1, ask: 1.2,
-    last: 1.05, mark: 1.15, volume: 100, open_interest: 500, iv: 0.4, delta: -0.2, asof: '2026-06-05T10:08:31Z',
+    last: 1.05, mark: 1.15, volume: 100, open_interest: 500, iv: 0.4, delta: -0.2,
+    theta: -0.04, theta_yield_pct: 0.16, spread_pct: 8.7, roc_pct: 4.4, asof: '2026-06-05T10:08:31Z',
     provider: 'schwab', created_at: '2026-06-05T10:08:31Z',
   },
   {
     snapshot_date: '2026-06-05', underlying_symbol: 'HIGH', option_type: 'CALL', contract_symbol: 'HIGH260626C00035000',
     expiration_date: '2026-06-26', strike: 35, dte_at_snapshot: 21, schwab_dte: 21, bid: 0.9, ask: 1.0,
-    last: 0.95, mark: 0.95, volume: 50, open_interest: 300, iv: 0.35, delta: 0.25, asof: '2026-06-05T10:08:31Z',
+    last: 0.95, mark: 0.95, volume: 50, open_interest: 300, iv: 0.35, delta: 0.25,
+    theta: -0.03, theta_yield_pct: 0.086, spread_pct: 10.5, roc_pct: 2.57, asof: '2026-06-05T10:08:31Z',
     provider: 'schwab', created_at: '2026-06-05T10:08:31Z',
   },
   {
     snapshot_date: '2026-06-04', underlying_symbol: 'LOW', option_type: 'PUT', contract_symbol: 'LOW260626P00015000',
     expiration_date: '2026-06-26', strike: 15, dte_at_snapshot: 22, schwab_dte: 22, bid: 0.5, ask: 0.6,
-    last: 0.55, mark: 0.55, volume: 20, open_interest: 80, iv: 0.3, delta: -0.18, asof: '2026-06-04T10:08:31Z',
+    last: 0.55, mark: 0.55, volume: 20, open_interest: 80, iv: 0.3, delta: -0.18,
+    theta: -0.02, theta_yield_pct: 0.133, spread_pct: 18.2, roc_pct: 3.33, asof: '2026-06-04T10:08:31Z',
     provider: 'schwab', created_at: '2026-06-04T10:08:31Z',
   },
 ];
@@ -53,7 +56,7 @@ class FakeD1Statement {
   async all<T>(): Promise<{ results: T[] }> {
     if (this.sql.includes('FROM metadata')) {
       return { results: [
-        { key: 'schema_version', value: 'option-contract-liquidity-d1-v3' },
+        { key: 'schema_version', value: 'option-contract-liquidity-d1-v4' },
         { key: 'generated_at', value: '2026-06-05T10:08:31Z' },
         { key: 'as_of_date', value: '2026-06-05' },
       ] as T[] };
@@ -66,6 +69,8 @@ class FakeD1Statement {
         if (row.option_type === 'CALL') { item.call_volume += row.volume; item.call_oi += row.open_interest; item.call_contract_count += 1; }
         item.contract_count += 1;
         item.pcr = item.call_volume > 0 ? item.put_volume / item.call_volume : null;
+        item.pcr_volume = item.pcr;
+        item.pcr_oi = item.call_oi > 0 ? item.put_oi / item.call_oi : null;
         return acc;
       }, {});
       return { results: Object.values(grouped) as T[] };
@@ -87,6 +92,10 @@ class FakeD1Statement {
       open_interest: row.open_interest,
       iv: row.iv,
       delta: row.delta,
+      theta: row.theta,
+      theta_yield_pct: row.theta_yield_pct,
+      spread_pct: row.spread_pct,
+      roc_pct: row.roc_pct,
       asof: row.asof,
       provider: row.provider,
       created_at: row.created_at,

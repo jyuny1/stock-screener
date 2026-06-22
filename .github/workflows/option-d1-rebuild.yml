@@ -1,0 +1,171 @@
+name: Option D1 Rebuild
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_database_name:
+        description: "Optional new D1 database name. Defaults to stock-screener-option-contracts-v4-<run id>."
+        required: false
+        type: string
+        default: ""
+      static_site_deployment_mode:
+        description: "Static-site mode used to generate and import the fresh option snapshot."
+        required: false
+        type: choice
+        default: production
+        options:
+          - production
+          - preview
+
+concurrency:
+  group: option-d1-rebuild
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  rebuild:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OLD_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+      OLD_D1_DATABASE_ID: ${{ vars.OPTION_CONTRACT_D1_DATABASE_ID }}
+      STATIC_SITE_DEPLOYMENT_MODE: ${{ inputs.static_site_deployment_mode }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate rebuild settings
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID OLD_D1_DATABASE_NAME OLD_D1_DATABASE_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required setting: ${name}" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Backup current option D1
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/option-d1-backup
+          backup="/tmp/option-d1-backup/${OLD_D1_DATABASE_NAME}-${OLD_D1_DATABASE_ID}-${GITHUB_RUN_ID}.sql"
+          npx --yes wrangler@latest d1 export "$OLD_D1_DATABASE_NAME" --remote --output "$backup" --skip-confirmation
+          gzip -9 "$backup"
+          echo "BACKUP_PATH=${backup}.gz" >> "$GITHUB_ENV"
+
+      - name: Upload D1 backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: option-d1-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create replacement D1 database and update repository variables
+        id: create_d1
+        run: |
+          set -euo pipefail
+          requested="${{ inputs.new_database_name }}"
+          if [ -z "$requested" ]; then
+            requested="stock-screener-option-contracts-v4-${GITHUB_RUN_ID}"
+          fi
+          echo "Creating D1 database: ${requested}"
+          output="$(npx --yes wrangler@latest d1 create "$requested" --location apac 2>&1)"
+          printf '%s\n' "$output"
+          database_id="$(WRANGLER_OUTPUT="$output" python3 - <<'PY'
+          import re, sys
+          import os
+          text = os.environ['WRANGLER_OUTPUT']
+          match = re.search(r'database_id\s*=\s*"([0-9a-fA-F-]+)"', text) or re.search(r'([0-9a-fA-F]{8}-[0-9a-fA-F-]{27,})', text)
+          if not match:
+              raise SystemExit(f'Could not parse D1 database id from wrangler output:\n{text}')
+          print(match.group(1))
+          PY
+          )"
+          gh variable set OPTION_CONTRACT_D1_DATABASE_NAME --repo "${{ github.repository }}" --body "$requested"
+          gh variable set OPTION_CONTRACT_D1_DATABASE_ID --repo "${{ github.repository }}" --body "$database_id"
+          echo "new_database_name=$requested" >> "$GITHUB_OUTPUT"
+          echo "new_database_id=$database_id" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch static-site to import fresh option D1 data
+        id: static_site
+        run: |
+          set -euo pipefail
+          started="$(date -u +%s)"
+          gh workflow run static-site.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f deployment_mode="$STATIC_SITE_DEPLOYMENT_MODE"
+          sleep 10
+          run_id="$(STARTED="$started" python3 - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime
+          raw = subprocess.check_output([
+              'gh', 'run', 'list', '--repo', os.environ['GITHUB_REPOSITORY'],
+              '--workflow', 'static-site.yml', '--branch', os.environ['GITHUB_REF_NAME'],
+              '--event', 'workflow_dispatch', '--limit', '20',
+              '--json', 'databaseId,createdAt,status'
+          ], text=True)
+          started = int(os.environ['STARTED']) - 30
+          candidates = []
+          for run in json.loads(raw):
+              ts = datetime.fromisoformat(run['createdAt'].replace('Z', '+00:00')).timestamp()
+              if ts >= started:
+                  candidates.append((ts, run['databaseId']))
+          if not candidates:
+              raise SystemExit('No dispatched static-site run found')
+          print(sorted(candidates)[-1][1])
+          PY
+          )"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          gh run watch "$run_id" --repo "${{ github.repository }}" --exit-status --interval 30
+
+      - name: Validate replacement D1 contents
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest d1 execute "${{ steps.create_d1.outputs.new_database_name }}" --remote --json --command \
+            "SELECT key, value FROM metadata ORDER BY key" > /tmp/option-d1-metadata.json
+          npx --yes wrangler@latest d1 execute "${{ steps.create_d1.outputs.new_database_name }}" --remote --json --command \
+            "SELECT COUNT(*) AS rows_total, MAX(snapshot_date) AS latest_snapshot_date FROM option_contract_liquidity_snapshots" > /tmp/option-d1-count.json
+          python3 - <<'PY'
+          import json
+          metadata = json.load(open('/tmp/option-d1-metadata.json', encoding='utf-8'))[0]['results']
+          count = json.load(open('/tmp/option-d1-count.json', encoding='utf-8'))[0]['results'][0]
+          meta = {row['key']: row['value'] for row in metadata}
+          rows_total = int(count['rows_total'] or 0)
+          if rows_total <= 0:
+              raise SystemExit(f'Replacement D1 has no option rows: {count}')
+          if meta.get('max_dte') != '90':
+              raise SystemExit(f"Expected max_dte=90, got {meta.get('max_dte')!r}")
+          print({'rows_total': rows_total, 'latest_snapshot_date': count['latest_snapshot_date'], 'metadata': meta})
+          PY
+
+      - name: Deploy option screener API with replacement D1 binding
+        run: |
+          set -euo pipefail
+          gh workflow run option-screener-api.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.event.repository.default_branch }}"
+
+      - name: Summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### Option D1 rebuild complete
+
+          - Old D1: ${OLD_D1_DATABASE_NAME} (${OLD_D1_DATABASE_ID})
+          - New D1: ${{ steps.create_d1.outputs.new_database_name }} (${{ steps.create_d1.outputs.new_database_id }})
+          - Backup artifact: option-d1-backup-${GITHUB_RUN_ID}
+          - Static-site import run: ${{ steps.static_site.outputs.run_id }}
+          EOF

@@ -36,6 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install market calendar dependency
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          python3 -m pip install --quiet exchange-calendars
+
       - name: Decide scheduled cadence
         id: cadence
         run: |
@@ -74,14 +79,27 @@ jobs:
           et_dow="$(TZ=America/New_York date +%u)"
           et_hour="$(TZ=America/New_York date +%H)"
           if [ "$et_dow" -ge 1 ] && [ "$et_dow" -le 5 ] && [ "$et_hour" = "17" ]; then
-            if latest_recent_same_type daily 6; then
+            if ! python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import pandas as pd
+          import exchange_calendars as xcals
+
+          today_et = datetime.now(ZoneInfo('America/New_York')).date()
+          calendar = xcals.get_calendar('XNYS')
+          raise SystemExit(0 if calendar.is_session(pd.Timestamp(today_et)) else 1)
+          PY
+            then
+              echo "Skipping; America/New_York today is not an XNYS trading session."
+              echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
+            elif latest_recent_same_type daily 6; then
               echo "Skipping; a daily pipeline manifest was generated within the last 6 hours."
               echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
             else
               echo "run_pipeline=true" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "Skipping; target is Monday-Friday 17:00 America/New_York, one hour after market close."
+            echo "Skipping; target is Monday-Friday 17:00 America/New_York after market close."
             echo "run_pipeline=false" >> "$GITHUB_OUTPUT"
           fi
 

@@ -282,6 +282,18 @@ jobs:
           OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
         run: |
           set -euo pipefail
+          alter_column() {
+            local column_name="$1"
+            local column_type="$2"
+            if ! npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --command \
+              "ALTER TABLE option_contract_liquidity_snapshots ADD COLUMN ${column_name} ${column_type}"; then
+              echo "Column ${column_name} may already exist; continuing."
+            fi
+          }
+          alter_column theta REAL
+          alter_column theta_yield_pct REAL
+          alter_column spread_pct REAL
+          alter_column roc_pct REAL
           sql_file="frontend/public/static-data/markets/us/options/option-contract-liquidity-d1.sql"
           test -s "$sql_file"
           npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --file "$sql_file"
@@ -308,12 +320,24 @@ jobs:
                    / SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END)
               ELSE NULL
             END AS pcr,
+            CASE
+              WHEN SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) > 0
+              THEN 1.0 * SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END)
+                   / SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END)
+              ELSE NULL
+            END AS pcr_volume,
+            CASE
+              WHEN SUM(CASE WHEN option_type = 'CALL' THEN open_interest ELSE 0 END) > 0
+              THEN 1.0 * SUM(CASE WHEN option_type = 'PUT' THEN open_interest ELSE 0 END)
+                   / SUM(CASE WHEN option_type = 'CALL' THEN open_interest ELSE 0 END)
+              ELSE NULL
+            END AS pcr_oi,
             SUM(CASE WHEN option_type = 'PUT' THEN 1 ELSE 0 END) AS put_contract_count,
             SUM(CASE WHEN option_type = 'CALL' THEN 1 ELSE 0 END) AS call_contract_count,
             COUNT(*) AS contract_count,
             MAX(asof) AS asof
           FROM option_contract_liquidity_snapshots
-          WHERE dte_at_snapshot BETWEEN 14 AND 28
+          WHERE dte_at_snapshot BETWEEN 0 AND 90
           GROUP BY snapshot_date, underlying_symbol
           ORDER BY snapshot_date, underlying_symbol
           " > "$aggregate_json"

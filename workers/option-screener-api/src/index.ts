@@ -90,6 +90,10 @@ const OPTION_CONTRACT_FIELDS = [
   'open_interest',
   'iv',
   'delta',
+  'theta',
+  'theta_yield_pct',
+  'spread_pct',
+  'roc_pct',
   'asof',
   'provider',
   'created_at',
@@ -103,6 +107,8 @@ const OPTION_SUMMARY_FIELDS = [
   'put_oi',
   'call_oi',
   'pcr',
+  'pcr_volume',
+  'pcr_oi',
   'put_contract_count',
   'call_contract_count',
   'contract_count',
@@ -126,6 +132,10 @@ const OPTION_CONTRACT_SQL_FIELDS: Record<string, string> = {
   open_interest: 'open_interest',
   iv: 'iv',
   delta: 'delta',
+  theta: 'theta',
+  theta_yield_pct: 'theta_yield_pct',
+  spread_pct: 'spread_pct',
+  roc_pct: 'roc_pct',
   asof: 'asof',
   provider: 'provider',
   created_at: 'created_at',
@@ -140,6 +150,8 @@ const OPTIONS_FILTER_PARAMS = new Set([
   'limit', 'offset', 'sort', 'order', 'fields', 'latest', 'snapshot_date', 'symbol', 'option_type', 'contract_symbol',
   'expiration_date', 'min_expiration_date', 'max_expiration_date', 'min_dte', 'max_dte', 'min_strike', 'max_strike',
   'min_volume', 'max_volume', 'min_open_interest', 'max_open_interest', 'min_delta', 'max_delta', 'min_iv', 'max_iv',
+  'min_theta', 'max_theta', 'min_theta_yield_pct', 'max_theta_yield_pct', 'min_spread_pct', 'max_spread_pct',
+  'min_roc_pct', 'max_roc_pct',
 ]);
 
 let rowsCache: CachedRows | null = null;
@@ -498,6 +510,10 @@ const buildOptionWhere = async (db: D1Database, params: URLSearchParams): Promis
     ['min_open_interest', 'open_interest', '>='], ['max_open_interest', 'open_interest', '<='],
     ['min_delta', 'delta', '>='], ['max_delta', 'delta', '<='],
     ['min_iv', 'iv', '>='], ['max_iv', 'iv', '<='],
+    ['min_theta', 'theta', '>='], ['max_theta', 'theta', '<='],
+    ['min_theta_yield_pct', 'theta_yield_pct', '>='], ['max_theta_yield_pct', 'theta_yield_pct', '<='],
+    ['min_spread_pct', 'spread_pct', '>='], ['max_spread_pct', 'spread_pct', '<='],
+    ['min_roc_pct', 'roc_pct', '>='], ['max_roc_pct', 'roc_pct', '<='],
   ];
   for (const [param, column, operator] of numericFilters) {
     const value = numberParam(params, param);
@@ -706,6 +722,12 @@ const handleOptionSummary = async (request: Request, env: Env): Promise<Response
       CASE WHEN SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) > 0
         THEN CAST(SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END) AS REAL) / SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END)
         ELSE NULL END AS pcr,
+      CASE WHEN SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) > 0
+        THEN CAST(SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END) AS REAL) / SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END)
+        ELSE NULL END AS pcr_volume,
+      CASE WHEN SUM(CASE WHEN option_type = 'CALL' THEN open_interest ELSE 0 END) > 0
+        THEN CAST(SUM(CASE WHEN option_type = 'PUT' THEN open_interest ELSE 0 END) AS REAL) / SUM(CASE WHEN option_type = 'CALL' THEN open_interest ELSE 0 END)
+        ELSE NULL END AS pcr_oi,
       SUM(CASE WHEN option_type = 'PUT' THEN 1 ELSE 0 END) AS put_contract_count,
       SUM(CASE WHEN option_type = 'CALL' THEN 1 ELSE 0 END) AS call_contract_count,
       COUNT(*) AS contract_count,

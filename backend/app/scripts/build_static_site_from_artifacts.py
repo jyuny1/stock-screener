@@ -31,8 +31,8 @@ DEFAULT_MARKET = "US"
 DEFAULT_MARKET_DISPLAY = "United States"
 SCHWAB_MARKETDATA_BASE_URL = "https://api.schwabapi.com/marketdata/v1"
 SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
-OPTION_PCR_MIN_DTE = 14
-OPTION_PCR_MAX_DTE = 28
+OPTION_PCR_MIN_DTE = 0
+OPTION_PCR_MAX_DTE = 90
 OPTION_CHAIN_TRACKING_TOP_N = 500
 OPTION_CHAIN_TRACKING_RETENTION_DAYS = 90
 OPTION_CHAIN_MAX_FETCH_SYMBOLS = 500
@@ -310,6 +310,11 @@ def _normalize_option_contract(
     dte_at_snapshot = _calculated_dte(snapshot_date, expiration_date)
     volume = _int_value(contract.get("totalVolume", contract.get("volume")))
     open_interest = _int_value(contract.get("openInterest"))
+    strike = _first_contract_number(contract, "strikePrice", "strike")
+    bid = _first_contract_number(contract, "bidPrice", "bid")
+    ask = _first_contract_number(contract, "askPrice", "ask")
+    mid = (bid + ask) / 2 if bid is not None and ask is not None else None
+    theta = _first_contract_number(contract, "theta")
     normalized = {
         "symbol": symbol,
         "underlying_symbol": symbol,
@@ -320,15 +325,19 @@ def _normalize_option_contract(
         "dte": dte_at_snapshot,
         "dte_at_snapshot": dte_at_snapshot,
         "schwab_dte": schwab_dte,
-        "strike": _first_contract_number(contract, "strikePrice", "strike"),
-        "bid": _first_contract_number(contract, "bidPrice", "bid"),
-        "ask": _first_contract_number(contract, "askPrice", "ask"),
+        "strike": strike,
+        "bid": bid,
+        "ask": ask,
         "last": _first_contract_number(contract, "lastPrice", "last"),
         "mark": _first_contract_number(contract, "markPrice", "mark"),
         "volume": volume,
         "open_interest": open_interest,
         "iv": _first_contract_number(contract, "volatility", "impliedVolatility", "iv"),
         "delta": _first_contract_number(contract, "delta"),
+        "theta": theta,
+        "theta_yield_pct": (abs(theta) / strike * 100) if theta is not None and strike and strike > 0 else None,
+        "spread_pct": ((ask - bid) / mid * 100) if mid and mid > 0 and bid is not None and ask is not None else None,
+        "roc_pct": (bid / strike * 100) if bid is not None and strike and strike > 0 else None,
         "asof": asof,
     }
     if normalized["option_type"] == "PUT":
@@ -695,19 +704,41 @@ def _write_option_contract_d1_import_sql(
         "    open_interest INTEGER NOT NULL DEFAULT 0,\n"
         "    iv REAL,\n"
         "    delta REAL,\n"
+        "    theta REAL,\n"
+        "    theta_yield_pct REAL,\n"
+        "    spread_pct REAL,\n"
+        "    roc_pct REAL,\n"
         "    asof TEXT,\n"
         "    provider TEXT NOT NULL DEFAULT 'schwab',\n"
         "    created_at TEXT NOT NULL,\n"
         "    PRIMARY KEY (snapshot_date, contract_symbol)\n"
         ")",
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS option_contract_liquidity_summary (\n"
+        "    snapshot_date TEXT NOT NULL,\n"
+        "    underlying_symbol TEXT NOT NULL,\n"
+        "    put_volume INTEGER NOT NULL DEFAULT 0,\n"
+        "    call_volume INTEGER NOT NULL DEFAULT 0,\n"
+        "    put_oi INTEGER NOT NULL DEFAULT 0,\n"
+        "    call_oi INTEGER NOT NULL DEFAULT 0,\n"
+        "    pcr_volume REAL,\n"
+        "    pcr_oi REAL,\n"
+        "    put_contract_count INTEGER NOT NULL DEFAULT 0,\n"
+        "    call_contract_count INTEGER NOT NULL DEFAULT 0,\n"
+        "    contract_count INTEGER NOT NULL DEFAULT 0,\n"
+        "    asof TEXT,\n"
+        "    created_at TEXT NOT NULL,\n"
+        "    PRIMARY KEY (snapshot_date, underlying_symbol)\n"
+        ")",
         "CREATE INDEX IF NOT EXISTS idx_opt_liq_symbol_date_dte ON option_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)",
         "CREATE INDEX IF NOT EXISTS idx_opt_liq_contract_date ON option_contract_liquidity_snapshots(contract_symbol, snapshot_date)",
         "CREATE INDEX IF NOT EXISTS idx_opt_liq_expiration ON option_contract_liquidity_snapshots(expiration_date, strike, option_type)",
         "CREATE INDEX IF NOT EXISTS idx_opt_liq_type_date ON option_contract_liquidity_snapshots(option_type, snapshot_date)",
+        "CREATE INDEX IF NOT EXISTS idx_opt_liq_summary_symbol_date ON option_contract_liquidity_summary(underlying_symbol, snapshot_date)",
         f"DELETE FROM option_contract_liquidity_snapshots WHERE snapshot_date < {_sql_literal(cutoff)}",
+        f"DELETE FROM option_contract_liquidity_summary WHERE snapshot_date < {_sql_literal(cutoff)}",
         "INSERT OR REPLACE INTO metadata(key, value) VALUES "
-        f"('schema_version', 'option-contract-liquidity-d1-v3'), "
+        f"('schema_version', 'option-contract-liquidity-d1-v4'), "
         f"('generated_at', {_sql_literal(generated_at)}), "
         f"('as_of_date', {_sql_literal(today_key)}), "
         f"('min_dte', {_sql_literal(str(OPTION_PCR_MIN_DTE))}), "
@@ -715,6 +746,7 @@ def _write_option_contract_d1_import_sql(
         f"('retention_days', {_sql_literal(str(retention_days))})",
     ]
     inserted = 0
+    summaries: dict[str, dict[str, Any]] = {}
     for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
         contracts = row.get("_option_contracts_14_28dte")
@@ -749,6 +781,10 @@ def _write_option_contract_d1_import_sql(
                 _int_value(contract.get("open_interest", contract.get("put_oi"))),
                 contract.get("iv", contract.get("volatility")),
                 contract.get("delta"),
+                contract.get("theta"),
+                contract.get("theta_yield_pct"),
+                contract.get("spread_pct"),
+                contract.get("roc_pct"),
                 contract.get("asof"),
                 "schwab",
                 generated_at,
@@ -757,12 +793,62 @@ def _write_option_contract_d1_import_sql(
                 "INSERT OR REPLACE INTO option_contract_liquidity_snapshots ("
                 "snapshot_date, underlying_symbol, option_type, contract_symbol, expiration_date, strike, "
                 "dte_at_snapshot, schwab_dte, bid, ask, last, mark, volume, open_interest, iv, delta, "
-                "asof, provider, created_at"
+                "theta, theta_yield_pct, spread_pct, roc_pct, asof, provider, created_at"
                 ") VALUES ("
                 + ", ".join(_sql_literal(value) for value in values)
                 + ")"
             )
+            summary = summaries.setdefault(symbol, {
+                "put_volume": 0,
+                "call_volume": 0,
+                "put_oi": 0,
+                "call_oi": 0,
+                "put_contract_count": 0,
+                "call_contract_count": 0,
+                "contract_count": 0,
+                "asof": None,
+            })
+            volume = _int_value(contract.get("volume", contract.get("put_volume")))
+            oi = _int_value(contract.get("open_interest", contract.get("put_oi")))
+            if option_type == "PUT":
+                summary["put_volume"] += volume
+                summary["put_oi"] += oi
+                summary["put_contract_count"] += 1
+            else:
+                summary["call_volume"] += volume
+                summary["call_oi"] += oi
+                summary["call_contract_count"] += 1
+            summary["contract_count"] += 1
+            summary["asof"] = max(str(summary.get("asof") or ""), str(contract.get("asof") or "")) or None
             inserted += 1
+    for symbol, summary in summaries.items():
+        put_volume = int(summary["put_volume"])
+        call_volume = int(summary["call_volume"])
+        put_oi = int(summary["put_oi"])
+        call_oi = int(summary["call_oi"])
+        values = [
+            today_key,
+            symbol,
+            put_volume,
+            call_volume,
+            put_oi,
+            call_oi,
+            (put_volume / call_volume) if call_volume > 0 else None,
+            (put_oi / call_oi) if call_oi > 0 else None,
+            summary["put_contract_count"],
+            summary["call_contract_count"],
+            summary["contract_count"],
+            summary.get("asof"),
+            generated_at,
+        ]
+        statements.append(
+            "INSERT OR REPLACE INTO option_contract_liquidity_summary ("
+            "snapshot_date, underlying_symbol, put_volume, call_volume, put_oi, call_oi, "
+            "pcr_volume, pcr_oi, put_contract_count, call_contract_count, contract_count, asof, created_at"
+            ") VALUES ("
+            + ", ".join(_sql_literal(value) for value in values)
+            + ")"
+        )
     sql_path.write_text(";\n".join(statements) + ";\n", encoding="utf-8")
     _log("Option D1 import SQL written", path=sql_path.as_posix(), statements=len(statements), inserted=inserted)
     return {"path": sql_path.as_posix(), "inserted": inserted, "retention_days": retention_days}
@@ -826,6 +912,10 @@ def _merge_option_contract_sqlite(
                 open_interest INTEGER NOT NULL DEFAULT 0,
                 iv REAL,
                 delta REAL,
+                theta REAL,
+                theta_yield_pct REAL,
+                spread_pct REAL,
+                roc_pct REAL,
                 asof TEXT,
                 provider TEXT NOT NULL DEFAULT 'schwab',
                 created_at TEXT NOT NULL,
@@ -841,13 +931,42 @@ def _merge_option_contract_sqlite(
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS option_contract_liquidity_summary (
+                snapshot_date TEXT NOT NULL,
+                underlying_symbol TEXT NOT NULL,
+                put_volume INTEGER NOT NULL DEFAULT 0,
+                call_volume INTEGER NOT NULL DEFAULT 0,
+                put_oi INTEGER NOT NULL DEFAULT 0,
+                call_oi INTEGER NOT NULL DEFAULT 0,
+                pcr_volume REAL,
+                pcr_oi REAL,
+                put_contract_count INTEGER NOT NULL DEFAULT 0,
+                call_contract_count INTEGER NOT NULL DEFAULT 0,
+                contract_count INTEGER NOT NULL DEFAULT 0,
+                asof TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (snapshot_date, underlying_symbol)
+            )
+            """
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_symbol_date_dte ON option_contract_liquidity_snapshots(underlying_symbol, snapshot_date, dte_at_snapshot)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_contract_date ON option_contract_liquidity_snapshots(contract_symbol, snapshot_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_expiration ON option_contract_liquidity_snapshots(expiration_date, strike, option_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_type_date ON option_contract_liquidity_snapshots(option_type, snapshot_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_opt_liq_summary_symbol_date ON option_contract_liquidity_summary(underlying_symbol, snapshot_date)")
+        existing_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(option_contract_liquidity_snapshots)").fetchall()
+        }
+        for column_name in ("theta", "theta_yield_pct", "spread_pct", "roc_pct"):
+            if column_name not in existing_columns:
+                conn.execute(f"ALTER TABLE option_contract_liquidity_snapshots ADD COLUMN {column_name} REAL")
 
         today_key = str(as_of_date)[:10]
         inserted = 0
+        summaries: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = str(row.get("symbol") or "").upper().strip()
             contracts = row.get("_option_contracts_14_28dte")
@@ -871,8 +990,8 @@ def _merge_option_contract_sqlite(
                         snapshot_date, underlying_symbol, option_type, contract_symbol,
                         expiration_date, strike, dte_at_snapshot, schwab_dte,
                         bid, ask, last, mark, volume, open_interest, iv, delta,
-                        asof, provider, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        theta, theta_yield_pct, spread_pct, roc_pct, asof, provider, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today_key,
@@ -891,20 +1010,78 @@ def _merge_option_contract_sqlite(
                         _int_value(contract.get("open_interest", contract.get("put_oi"))),
                         _sqlite_value(contract.get("iv", contract.get("volatility"))),
                         _sqlite_value(contract.get("delta")),
+                        _sqlite_value(contract.get("theta")),
+                        _sqlite_value(contract.get("theta_yield_pct")),
+                        _sqlite_value(contract.get("spread_pct")),
+                        _sqlite_value(contract.get("roc_pct")),
                         contract.get("asof"),
                         "schwab",
                         generated_at,
                     ),
                 )
+                summary = summaries.setdefault(symbol, {
+                    "put_volume": 0,
+                    "call_volume": 0,
+                    "put_oi": 0,
+                    "call_oi": 0,
+                    "put_contract_count": 0,
+                    "call_contract_count": 0,
+                    "contract_count": 0,
+                    "asof": None,
+                })
+                volume = _int_value(contract.get("volume", contract.get("put_volume")))
+                oi = _int_value(contract.get("open_interest", contract.get("put_oi")))
+                if option_type == "PUT":
+                    summary["put_volume"] += volume
+                    summary["put_oi"] += oi
+                    summary["put_contract_count"] += 1
+                else:
+                    summary["call_volume"] += volume
+                    summary["call_oi"] += oi
+                    summary["call_contract_count"] += 1
+                summary["contract_count"] += 1
+                summary["asof"] = max(str(summary.get("asof") or ""), str(contract.get("asof") or "")) or None
                 inserted += 1
+        for symbol, summary in summaries.items():
+            put_volume = int(summary["put_volume"])
+            call_volume = int(summary["call_volume"])
+            put_oi = int(summary["put_oi"])
+            call_oi = int(summary["call_oi"])
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO option_contract_liquidity_summary (
+                    snapshot_date, underlying_symbol, put_volume, call_volume, put_oi, call_oi,
+                    pcr_volume, pcr_oi, put_contract_count, call_contract_count, contract_count, asof, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    today_key,
+                    symbol,
+                    put_volume,
+                    call_volume,
+                    put_oi,
+                    call_oi,
+                    (put_volume / call_volume) if call_volume > 0 else None,
+                    (put_oi / call_oi) if call_oi > 0 else None,
+                    summary["put_contract_count"],
+                    summary["call_contract_count"],
+                    summary["contract_count"],
+                    summary.get("asof"),
+                    generated_at,
+                ),
+            )
 
         cutoff = (datetime.fromisoformat(today_key).date() - timedelta(days=retention_days - 1)).isoformat()
         deleted = conn.execute(
             "DELETE FROM option_contract_liquidity_snapshots WHERE snapshot_date < ?",
             (cutoff,),
         ).rowcount
+        conn.execute(
+            "DELETE FROM option_contract_liquidity_summary WHERE snapshot_date < ?",
+            (cutoff,),
+        )
         metadata = {
-            "schema_version": "option-contract-liquidity-sqlite-v3",
+            "schema_version": "option-contract-liquidity-sqlite-v4",
             "generated_at": generated_at,
             "as_of_date": today_key,
             "min_dte": str(OPTION_PCR_MIN_DTE),
