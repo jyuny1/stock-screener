@@ -36,6 +36,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   import-soxl-price-d1:
@@ -166,3 +167,22 @@ jobs:
               raise SystemExit(f'SOXL D1 import validation failed: {rows}')
           print({'validated_counts': counts})
           PY
+
+      - name: Export SOXL D1 daily candles artifact
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
+            "SELECT trading_date AS date, open, high, low, close, volume FROM soxl_daily_candles ORDER BY trading_date" \
+            > /tmp/soxl-daily-candles.json
+          test -s /tmp/soxl-daily-candles.json
+
+      - name: Upload SOXL D1 daily candles artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soxl-d1-daily-candles
+          path: /tmp/soxl-daily-candles.json
+          if-no-files-found: error
+          retention-days: 2
