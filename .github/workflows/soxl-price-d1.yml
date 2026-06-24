@@ -177,12 +177,18 @@ jobs:
           npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
             "SELECT trading_date AS date, open, high, low, close, volume FROM soxl_daily_candles ORDER BY trading_date" \
             > /tmp/soxl-daily-candles.json
+          npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
+            "SELECT trading_date AS date, datetime_et, open, high, low, close, volume FROM soxl_intraday_candles ORDER BY ts" \
+            > /tmp/soxl-intraday-candles.json
           test -s /tmp/soxl-daily-candles.json
+          test -s /tmp/soxl-intraday-candles.json
 
       - name: Upload SOXL D1 daily candles artifact
         uses: actions/upload-artifact@v4
         with:
           name: soxl-d1-daily-candles
-          path: /tmp/soxl-daily-candles.json
+          path: |
+            /tmp/soxl-daily-candles.json
+            /tmp/soxl-intraday-candles.json
           if-no-files-found: error
           retention-days: 2
