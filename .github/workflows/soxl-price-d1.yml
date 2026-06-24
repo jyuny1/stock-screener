@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       d1_database_name:
-        description: "Optional SOXL price D1 database name override. Defaults to SOXL_PRICE_D1_DATABASE_NAME repo variable."
+        description: "Optional SOXL price D1 database name override. Defaults to SOXL_PRICE_D1_DATABASE_NAME or stock-screener-soxl-price."
         required: false
         type: string
         default: ""
@@ -42,7 +42,7 @@ jobs:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     env:
-      SOXL_D1_DATABASE_NAME: ${{ inputs.d1_database_name || vars.SOXL_PRICE_D1_DATABASE_NAME }}
+      SOXL_D1_DATABASE_NAME: ${{ inputs.d1_database_name || vars.SOXL_PRICE_D1_DATABASE_NAME || 'stock-screener-soxl-price' }}
       INTRADAY_PERIOD_DAYS: ${{ inputs.intraday_period_days || '10' }}
       DAILY_PERIOD_YEARS: ${{ inputs.daily_period_years || '5' }}
       INTRADAY_RETENTION_DAYS: ${{ inputs.intraday_retention_days || '180' }}
@@ -87,6 +87,26 @@ jobs:
           esac
           echo "SOXL D1 target: ${SOXL_D1_DATABASE_NAME}"
           exit "$missing"
+
+      - name: Ensure SOXL D1 database exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest d1 list --json > /tmp/d1-list.json
+          if python - <<'PY'
+          import json, os
+          name = os.environ['SOXL_D1_DATABASE_NAME']
+          rows = json.load(open('/tmp/d1-list.json', encoding='utf-8'))
+          raise SystemExit(0 if any(row.get('name') == name for row in rows) else 1)
+          PY
+          then
+            echo "D1 database already exists: ${SOXL_D1_DATABASE_NAME}"
+          else
+            echo "Creating D1 database: ${SOXL_D1_DATABASE_NAME}"
+            npx --yes wrangler@latest d1 create "$SOXL_D1_DATABASE_NAME" --location apac
+          fi
 
       - name: Refresh Schwab token and persist rotation
         env:
