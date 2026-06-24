@@ -1,8 +1,8 @@
 """Build a SOXL price-history D1 import SQL file from Schwab REST API.
 
-The script is intentionally standalone: it only fetches SOXL daily and
-1-minute OHLCV candles and writes SQL that can be imported with
-``wrangler d1 execute --file``. It does not compute support levels.
+The script fetches SOXL daily and 1-minute OHLCV candles, computes the latest
+support snapshot with the shared support-resistance service, and writes SQL
+that can be imported with ``wrangler d1 execute --file``.
 """
 
 from __future__ import annotations
@@ -137,6 +137,8 @@ def _schema_sql() -> list[str]:
         "CREATE TABLE IF NOT EXISTS soxl_intraday_candles (symbol TEXT NOT NULL DEFAULT 'SOXL', ts INTEGER NOT NULL, trading_date TEXT NOT NULL, datetime_et TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL, session TEXT NOT NULL DEFAULT 'regular', provider TEXT NOT NULL DEFAULT 'schwab', created_at TEXT NOT NULL, PRIMARY KEY (symbol, ts))",
         "CREATE INDEX IF NOT EXISTS idx_soxl_intraday_date ON soxl_intraday_candles(trading_date, ts)",
         "CREATE TABLE IF NOT EXISTS soxl_daily_candles (symbol TEXT NOT NULL DEFAULT 'SOXL', trading_date TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL, provider TEXT NOT NULL DEFAULT 'schwab', created_at TEXT NOT NULL, PRIMARY KEY (symbol, trading_date))",
+        "CREATE TABLE IF NOT EXISTS soxl_support_snapshots (symbol TEXT NOT NULL DEFAULT 'SOXL', as_of TEXT NOT NULL, spot REAL NOT NULL, daily_support_json TEXT NOT NULL, intraday_support_json TEXT NOT NULL, merged_support_json TEXT NOT NULL, sell_put_buckets_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (symbol, as_of))",
+        "CREATE INDEX IF NOT EXISTS idx_soxl_support_as_of ON soxl_support_snapshots(as_of)",
         "CREATE TABLE IF NOT EXISTS soxl_price_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     ]
 
@@ -146,7 +148,74 @@ def _insert_sql(table: str, row: dict[str, Any], columns: list[str]) -> str:
     return f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) VALUES ({values})"
 
 
-def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str, Any]], retention_days: int, created_at: str) -> str:
+def _service_daily_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": row["trading_date"],
+            "open": row["open"],
+            "high": row["high"],
+            "low": row["low"],
+            "close": row["close"],
+            "volume": row["volume"],
+        }
+        for row in rows
+    ]
+
+
+def _service_intraday_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": row["trading_date"],
+            "datetime_et": row["datetime_et"],
+            "open": row["open"],
+            "high": row["high"],
+            "low": row["low"],
+            "close": row["close"],
+            "volume": row["volume"],
+        }
+        for row in rows
+    ]
+
+
+def build_support_snapshot(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str, Any]], created_at: str) -> dict[str, Any]:
+    from app.services.support_resistance_service import (
+        calculate_intraday_tactical_support_levels,
+        calculate_operational_support_resistance_levels,
+        classify_sell_put_support_buckets,
+        merge_daily_intraday_support_context,
+    )
+
+    quote_spot = float(intraday[-1]["close"])
+    daily_support = calculate_operational_support_resistance_levels(
+        _service_daily_rows(daily[-252:]),
+        quote_spot=quote_spot,
+    )
+    intraday_support = calculate_intraday_tactical_support_levels(
+        _service_intraday_rows(intraday),
+        quote_spot=quote_spot,
+        daily_atr=daily_support.get("atr14"),
+        trading_days=len({row["trading_date"] for row in intraday}),
+    )
+    merged_support = merge_daily_intraday_support_context(
+        daily_support,
+        intraday_support,
+        quote_spot=quote_spot,
+    )
+    sell_put_buckets = classify_sell_put_support_buckets(merged_support)
+    as_of = str(intraday[-1]["trading_date"])
+    return {
+        "symbol": symbol,
+        "as_of": as_of,
+        "spot": quote_spot,
+        "daily_support_json": json.dumps(daily_support, ensure_ascii=False, separators=(",", ":")),
+        "intraday_support_json": json.dumps(intraday_support, ensure_ascii=False, separators=(",", ":")),
+        "merged_support_json": json.dumps(merged_support, ensure_ascii=False, separators=(",", ":")),
+        "sell_put_buckets_json": json.dumps(sell_put_buckets, ensure_ascii=False, separators=(",", ":")),
+        "created_at": created_at,
+    }
+
+
+def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str, Any]], retention_days: int, created_at: str, support_snapshot: dict[str, Any] | None = None) -> str:
     latest_date = daily[-1]["trading_date"] if daily else datetime.now(ET).date().isoformat()
     cutoff = (datetime.fromisoformat(latest_date).date() - timedelta(days=retention_days - 1)).isoformat()
     # Wrangler remote D1 imports reject explicit BEGIN/COMMIT statements.
@@ -154,8 +223,11 @@ def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str,
     statements.append(f"DELETE FROM soxl_intraday_candles WHERE trading_date < {_sql_literal(cutoff)}")
     daily_cols = ["symbol", "trading_date", "open", "high", "low", "close", "volume", "provider", "created_at"]
     intraday_cols = ["symbol", "ts", "trading_date", "datetime_et", "open", "high", "low", "close", "volume", "session", "provider", "created_at"]
+    support_cols = ["symbol", "as_of", "spot", "daily_support_json", "intraday_support_json", "merged_support_json", "sell_put_buckets_json", "created_at"]
     statements.extend(_insert_sql("soxl_daily_candles", row, daily_cols) for row in daily)
     statements.extend(_insert_sql("soxl_intraday_candles", row, intraday_cols) for row in intraday)
+    if support_snapshot is not None:
+        statements.append(_insert_sql("soxl_support_snapshots", support_snapshot, support_cols))
     metadata = {
         "schema_version": SCHEMA_VERSION,
         "symbol": symbol,
@@ -165,6 +237,7 @@ def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str,
         "daily_rows_imported": str(len(daily)),
         "intraday_rows_imported": str(len(intraday)),
         "intraday_retention_days": str(retention_days),
+        "latest_support_as_of": str(support_snapshot.get("as_of") if support_snapshot else ""),
         "provider": "schwab",
     }
     for key, value in metadata.items():
@@ -224,7 +297,8 @@ def main() -> int:
         raise RuntimeError("No daily candles returned")
     if not intraday:
         raise RuntimeError("No intraday candles returned")
-    sql = build_sql(symbol, daily, intraday, args.retention_days, created_at)
+    support_snapshot = build_support_snapshot(symbol, daily, intraday, created_at)
+    sql = build_sql(symbol, daily, intraday, args.retention_days, created_at, support_snapshot)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(sql, encoding="utf-8")
     print(json.dumps({
@@ -234,6 +308,7 @@ def main() -> int:
         "intraday_rows": len(intraday),
         "latest_daily_date": daily[-1]["trading_date"],
         "latest_intraday_date": intraday[-1]["trading_date"],
+        "latest_support_as_of": support_snapshot["as_of"],
         "retention_days": args.retention_days,
     }, ensure_ascii=False))
     return 0

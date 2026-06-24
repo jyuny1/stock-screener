@@ -59,6 +59,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install Python support calculation dependencies
+        run: python -m pip install --disable-pip-version-check "numpy==1.26.3" "pandas==2.2.0"
+
       - name: Validate workflow settings
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -155,7 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
-            "SELECT 'daily' AS table_name, COUNT(*) AS rows_total, MAX(trading_date) AS latest_date FROM soxl_daily_candles UNION ALL SELECT 'intraday' AS table_name, COUNT(*) AS rows_total, MAX(trading_date) AS latest_date FROM soxl_intraday_candles" \
+            "SELECT 'daily' AS table_name, COUNT(*) AS rows_total, MAX(trading_date) AS latest_date FROM soxl_daily_candles UNION ALL SELECT 'intraday' AS table_name, COUNT(*) AS rows_total, MAX(trading_date) AS latest_date FROM soxl_intraday_candles UNION ALL SELECT 'support' AS table_name, COUNT(*) AS rows_total, MAX(as_of) AS latest_date FROM soxl_support_snapshots" \
             > /tmp/soxl-d1-counts.json
           cat /tmp/soxl-d1-counts.json
           python - <<'PY'
@@ -163,7 +166,7 @@ jobs:
           payload = json.load(open('/tmp/soxl-d1-counts.json', encoding='utf-8'))
           rows = payload[0].get('results', []) if payload else []
           counts = {row['table_name']: int(row['rows_total'] or 0) for row in rows}
-          if counts.get('daily', 0) <= 0 or counts.get('intraday', 0) <= 0:
+          if counts.get('daily', 0) <= 0 or counts.get('intraday', 0) <= 0 or counts.get('support', 0) <= 0:
               raise SystemExit(f'SOXL D1 import validation failed: {rows}')
           print({'validated_counts': counts})
           PY
@@ -180,8 +183,12 @@ jobs:
           npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
             "SELECT trading_date AS date, datetime_et, open, high, low, close, volume FROM soxl_intraday_candles ORDER BY ts" \
             > /tmp/soxl-intraday-candles.json
+          npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
+            "SELECT symbol, as_of, spot, sell_put_buckets_json, created_at FROM soxl_support_snapshots ORDER BY as_of DESC LIMIT 5" \
+            > /tmp/soxl-support-snapshots.json
           test -s /tmp/soxl-daily-candles.json
           test -s /tmp/soxl-intraday-candles.json
+          test -s /tmp/soxl-support-snapshots.json
 
       - name: Upload SOXL D1 daily candles artifact
         uses: actions/upload-artifact@v4
@@ -190,5 +197,6 @@ jobs:
           path: |
             /tmp/soxl-daily-candles.json
             /tmp/soxl-intraday-candles.json
+            /tmp/soxl-support-snapshots.json
           if-no-files-found: error
           retention-days: 2
