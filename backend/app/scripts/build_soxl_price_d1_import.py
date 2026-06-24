@@ -143,7 +143,8 @@ def _insert_sql(table: str, row: dict[str, Any], columns: list[str]) -> str:
 def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str, Any]], retention_days: int, created_at: str) -> str:
     latest_date = daily[-1]["trading_date"] if daily else datetime.now(ET).date().isoformat()
     cutoff = (datetime.fromisoformat(latest_date).date() - timedelta(days=retention_days - 1)).isoformat()
-    statements = ["BEGIN TRANSACTION", *_schema_sql()]
+    # Wrangler remote D1 imports reject explicit BEGIN/COMMIT statements.
+    statements = [*_schema_sql()]
     statements.append(f"DELETE FROM soxl_intraday_candles WHERE trading_date < {_sql_literal(cutoff)}")
     daily_cols = ["symbol", "trading_date", "open", "high", "low", "close", "volume", "provider", "created_at"]
     intraday_cols = ["symbol", "ts", "trading_date", "datetime_et", "open", "high", "low", "close", "volume", "session", "provider", "created_at"]
@@ -162,7 +163,6 @@ def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str,
     }
     for key, value in metadata.items():
         statements.append(f"INSERT OR REPLACE INTO soxl_price_metadata (key, value) VALUES ({_sql_literal(key)}, {_sql_literal(value)})")
-    statements.append("COMMIT")
     return ";\n".join(statements) + ";\n"
 
 
