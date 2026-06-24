@@ -678,6 +678,16 @@ def _merge_option_contract_history(
     return {"latest": latest_payload, "history": history_payload}
 
 
+def _drop_private_option_contract_payloads(rows: list[dict[str, Any]]) -> None:
+    """Remove transient full option-chain payloads before writing scan JSON."""
+
+    for row in rows:
+        row.pop("_option_put_contracts_14_28dte", None)
+        row.pop("_option_contracts_14_28dte", None)
+        row.pop("_option_put_contracts_dte45", None)
+        row.pop("_option_contracts_dte45", None)
+
+
 def _sql_literal(value: Any) -> str:
     if value is None:
         return "NULL"
@@ -1642,6 +1652,7 @@ def build_static_site_from_artifacts(
     _write_option_contract_d1_import_sql(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
     _log("Merging option contract JSON history")
     _merge_option_contract_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _drop_private_option_contract_payloads(rows)
     _log("Building scan payload")
     scan_manifest = _build_scan(
         output_dir,
