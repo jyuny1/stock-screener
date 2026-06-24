@@ -86,7 +86,7 @@ const levelLabel = level => {
   return type === 'support' ? '支撐' : type === 'resistance' ? '壓力' : type;
 };
 const bucketColor = classification => ({avoid:'#b91c1c',watch:'#f59e0b',conditional_sell:'#2563eb',conservative_sell:'#16a34a'}[classification] || '#555');
-const bucketLabel = classification => ({avoid:'避免',watch:'觀察',conditional_sell:'條件可賣',conservative_sell:'保守可賣'}[classification] || classification || '支撐區');
+const bucketLabel = classification => ({avoid:'避免',watch:'高風險區',conditional_sell:'條件可賣',conservative_sell:'保守可賣'}[classification] || classification || '支撐區');
 const levelColor = level => { if(level?.kind === 'sell_put_bucket') return bucketColor(level.classification); const type = typeof level === 'string' ? level : level?.type; return type === 'support' ? '#1976d2' : type === 'resistance' ? '#d32f2f' : '#555'; };
 const levelScore = level => Number(level?.confirmationScore ?? level?.displayPriority ?? level?.strength ?? 0);
 const levelLineType = level => level?.kind === 'sell_put_bucket' ? 'solid' : (isConfirmedLevel(level) ? 'solid' : 'dotted');
@@ -113,6 +113,7 @@ function decisionZonesFromBuckets(snapshot,xMin,xMax){
   });
   return [...grouped.values()]
     .map(z=>({...z, low:Math.max(z.low,xMin), high:Math.min(z.high,xMax)}))
+    .filter(z=>z.classification !== 'avoid')
     .filter(z=>Number.isFinite(z.low)&&Number.isFinite(z.high)&&z.high>z.low)
     .sort((a,b)=>order.indexOf(a.classification)-order.indexOf(b.classification));
 }
