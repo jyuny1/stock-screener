@@ -180,12 +180,23 @@ def main() -> int:
         raise RuntimeError("Missing SCHWAB_ACCESS_TOKEN")
     symbol = args.symbol.upper()
     created_at = _utc_now()
+    # Schwab's period=10 minute query can lag on some runs. Use explicit
+    # start/end epoch milliseconds so the current/most recent regular session
+    # is included whenever Schwab pricehistory has published it.
+    now_et = datetime.now(ET)
+    intraday_start_et = (now_et - timedelta(days=max(14, args.intraday_period_days * 3))).replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
     intraday_raw = _fetch_price_history(access_token, {
         "symbol": symbol,
         "periodType": "day",
-        "period": args.intraday_period_days,
         "frequencyType": "minute",
         "frequency": 1,
+        "startDate": int(intraday_start_et.timestamp() * 1000),
+        "endDate": int(now_et.timestamp() * 1000),
         "needExtendedHoursData": "false",
         "needPreviousClose": "true",
     })
