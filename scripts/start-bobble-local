@@ -51,6 +51,19 @@ if [[ "${1:-}" == "--open" ]]; then
   fi
 fi
 
+if command -v uv >/dev/null 2>&1; then
+  exec uv run \
+    --with "numpy==1.26.3" \
+    --with "pandas==2.2.0" \
+    --with "certifi" \
+    --python 3.11 \
+    python tools/bobble_local_server.py \
+      --token-file "$TOKEN_FILE" \
+      --html "$HTML_FILE" \
+      --host "$HOST" \
+      --port "$PORT"
+fi
+
 exec python3 tools/bobble_local_server.py \
   --token-file "$TOKEN_FILE" \
   --html "$HTML_FILE" \

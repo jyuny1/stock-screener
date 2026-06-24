@@ -31,6 +31,13 @@ BACKEND_PATH = REPO_ROOT / "backend"
 if str(BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(BACKEND_PATH))
 
+try:
+    import certifi
+
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+except Exception:
+    pass
+
 TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
 CHAINS_URL = "https://api.schwabapi.com/marketdata/v1/chains"
 PRICE_HISTORY_URL = "https://api.schwabapi.com/marketdata/v1/pricehistory"
