@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TOKEN_FILE="${BOBBLE_SCHWAB_TOKEN_FILE:-$HOME/.pi/agent/extensions/option-analysis/schwab_tokens.json}"
+HOST="${BOBBLE_HOST:-127.0.0.1}"
+PORT="${BOBBLE_PORT:-8787}"
+HTML_FILE="${BOBBLE_HTML_FILE:-$ROOT_DIR/data/option_chains/bobble_local_tokenfile.html}"
+
+if [[ ! -f "$TOKEN_FILE" ]]; then
+  echo "Bobble token file not found: $TOKEN_FILE" >&2
+  echo "Set BOBBLE_SCHWAB_TOKEN_FILE=/path/to/schwab_tokens.json if needed." >&2
+  exit 1
+fi
+
+if [[ ! -f "$HTML_FILE" ]]; then
+  echo "Bobble HTML file not found: $HTML_FILE" >&2
+  exit 1
+fi
+
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  EXISTING_PIDS="$({
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null \
+      | awk 'NR > 1 {print $2}' \
+      | while read -r pid; do
+        if ps -p "$pid" -o command= 2>/dev/null | grep -q 'tools/bobble_local_server.py'; then
+          printf '%s\n' "$pid"
+        fi
+      done
+  })"
+  if [[ -n "$EXISTING_PIDS" ]]; then
+    echo "Stopping existing Bobble local server on port $PORT: $(echo "$EXISTING_PIDS" | tr '\n' ' ')"
+    echo "$EXISTING_PIDS" | xargs kill >/dev/null 2>&1 || true
+    sleep 0.5
+  else
+    echo "Port $PORT is already in use by another process:" >&2
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >&2 || true
+    exit 1
+  fi
+fi
+
+cd "$ROOT_DIR"
+
+echo "Starting Bobble local server..."
+echo "Token file: $TOKEN_FILE"
+echo "URL: http://$HOST:$PORT/bobble"
+
+if [[ "${1:-}" == "--open" ]]; then
+  if command -v open >/dev/null 2>&1; then
+    (sleep 1 && open "http://$HOST:$PORT/bobble") >/dev/null 2>&1 &
+  fi
+fi
+
+exec python3 tools/bobble_local_server.py \
+  --token-file "$TOKEN_FILE" \
+  --html "$HTML_FILE" \
+  --host "$HOST" \
+  --port "$PORT"

@@ -1,0 +1,538 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Local Tokenfile Schwab Bobble Option Chain</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+  window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] }, svg: { fontCache: 'global' } };
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;color:#111;background:#fafafa}
+  .wrap{max-width:1260px;margin:0 auto}.note{color:#444;line-height:1.45}.warn{color:#8a4b00;background:#fff4db;border:1px solid #ffd89a;border-radius:8px;padding:10px 12px}.info{color:#075985;background:#e0f2fe;border:1px solid #7dd3fc;border-radius:8px;padding:10px 12px;display:none}.err{color:#9f1239;background:#ffe4e6;border:1px solid #fecdd3;border-radius:8px;padding:10px 12px;display:none}
+  .controls{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:12px;align-items:end;padding:12px 14px;border:1px solid #ddd;border-radius:10px;background:white;margin:12px 0}
+  label{font-size:13px;color:#333;display:flex;flex-direction:column;gap:4px}input,select{font-size:14px;padding:7px 8px}button{padding:8px 12px;font-size:14px;cursor:pointer}.wide{grid-column:span 3}.wide2{grid-column:span 2}
+  #chart{width:1250px;max-width:100%;height:760px;border:1px solid #ddd;border-radius:6px;background:white;margin:0 auto}.stat{font-weight:700}.small{font-size:12px;color:#555}
+  .subcharts{max-width:1250px;margin:18px auto 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.subchart{height:360px;border:1px solid #ddd;border-radius:8px;background:white}.subchart.widechart{grid-column:1/-1}
+  #levelDetails{max-width:1250px;margin:18px auto 0;display:grid;gap:12px}.level-card{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 14px;line-height:1.45}.level-card h3{margin:0 0 8px;font-size:16px}.level-card.support{border-left:5px solid #1976d2}.level-card.resistance{border-left:5px solid #d32f2f}.formula{overflow-x:auto;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px;margin-top:8px}.level-meta{font-size:13px;color:#444}.level-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 14px;margin-top:6px}
+</style>
+<div class="wrap">
+  <h1>Local Schwab Bobble｜Option Chain 互動泡泡圖</h1>
+  <p class="warn">本頁搭配本地代理伺服器使用：Python server 讀取 ~/.pi/agent/extensions/option-analysis/schwab_tokens.json、自動刷新 token，瀏覽器不會看到 Schwab token。請用 http://127.0.0.1:8787/bobble 開啟，不要直接用 file://。</p>
+
+  <div class="controls">
+    <label>Symbol <input id="symbol" value="SOXL" autocomplete="off"></label>
+    <button id="load">載入 Schwab 期權鏈</button>
+    <label class="wide">Token file <input value="~/.pi/agent/extensions/option-analysis/schwab_tokens.json（由本地 server 讀取，不進瀏覽器）" disabled></label>
+    <label>類型<select id="optionType"><option value="PUT">PUT</option><option value="CALL">CALL</option></select></label>
+
+    <label>最小 DTE <input id="minDte" type="number" value="0" min="0" step="1"></label>
+    <label>最大 DTE <input id="maxDte" type="number" value="45" min="0" step="1"></label>
+    <label>最大 spread % <input id="maxSpread" type="number" value="20" min="0" step="1"></label>
+    <label>最小 OI <input id="minOi" type="number" value="100" min="0" step="1"></label>
+    <label>最低 ROC % <input id="minRocPct" type="number" value="3" min="0" step="0.1"></label>
+    <label>最大價外距離 % <input id="maxOtmPct" type="number" value="45" min="0" step="1"></label>
+    <label>最低 Bid <input id="minBid" type="number" value="0.10" min="0" step="0.01"></label>
+    <label>最小 |Delta| <input id="minAbsDelta" type="number" value="0.03" min="0" step="0.01"></label>
+    <label>成交量<select id="volMode"><option value="all">全部</option><option value="positive">只看有成交量</option></select></label>
+    <label>Y 軸<select id="yMode"><option value="category">DTE 分列</option><option value="value">連續 DTE</option></select></label>
+    <label>點大小<select id="sizeMode"><option value="quantileThetaYield">Quantile(Theta yield)</option><option value="power035ThetaYield">Power 0.35</option><option value="sqrtThetaYield">sqrt(Theta yield)</option><option value="linearThetaYield">linear(Theta yield)</option></select></label>
+    <label>支撐/壓力線<select id="levelMode"><option value="auto">自動</option><option value="support">只支撐</option><option value="resistance">只壓力</option><option value="all">全部</option><option value="off">關閉</option></select></label>
+    <label>確認度 ≥ <input id="minLevelStrength" type="number" value="60" min="0" max="100" step="1"></label>
+    <label>IV Y Min <input id="ivYMin" type="number" placeholder="自動" min="0" step="10"></label>
+    <label>IV Y Max <input id="ivYMax" type="number" placeholder="自動" min="0" step="10"></label>
+
+    <label>Strike Min <input id="xMin" type="number" placeholder="自動" step="1"></label>
+    <label>Strike Max <input id="xMax" type="number" placeholder="自動" step="1"></label>
+    <label>DTE Min <input id="viewMinDte" type="number" placeholder="自動" step="1"></label>
+    <label>DTE Max <input id="viewMaxDte" type="number" placeholder="自動" step="1"></label>
+    <button id="resetView">清除軸範圍</button>
+    <button id="zoomCore" class="wide2">縮放到 OI 核心區</button>
+  </div>
+
+  <p id="summary" class="note"></p>
+  <p id="levelsStatus" class="info"></p>
+  <p id="error" class="err"></p>
+  <div id="chart"></div>
+  <div class="subcharts">
+    <div id="ivTermChart" class="subchart"></div>
+    <div id="thetaTermChart" class="subchart"></div>
+    <div id="ivSmileChart" class="subchart widechart"></div>
+  </div>
+  <div id="levelDetails"></div>
+  <p class="small">資料來源：本地 Python proxy <code>/api/options/live-chain</code> 代呼 Schwab <code>/marketdata/v1/chains</code>，token 來自 <code>~/.pi/agent/extensions/option-analysis/schwab_tokens.json</code>。</p>
+</div>
+<script>
+const chart = echarts.init(document.getElementById('chart'), null, {renderer:'canvas'});
+const ivTermChart = echarts.init(document.getElementById('ivTermChart'), null, {renderer:'canvas'});
+const thetaTermChart = echarts.init(document.getElementById('thetaTermChart'), null, {renderer:'canvas'});
+const ivSmileChart = echarts.init(document.getElementById('ivSmileChart'), null, {renderer:'canvas'});
+window.addEventListener('resize', () => { chart.resize(); ivTermChart.resize(); thetaTermChart.resize(); ivSmileChart.resize(); });
+let chain = null;
+let rows = [];
+let supportResistance = null;
+
+const $ = id => document.getElementById(id);
+const fmt = (n,d=0) => (n==null || Number.isNaN(Number(n))) ? '' : Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const num = (id, fallback=null) => { const v=$(id).value; if(v==='' || v==null) return fallback; const n=Number(v); return Number.isFinite(n)?n:fallback; };
+const showError = msg => { $('error').style.display='block'; $('error').textContent=msg; };
+const clearError = () => { $('error').style.display='none'; $('error').textContent=''; };
+const showLevelsStatus = msg => { $('levelsStatus').style.display=msg?'block':'none'; $('levelsStatus').textContent=msg || ''; };
+const padRange = (min,max,p=0.04) => { if(min==null||max==null) return [null,null]; if(min===max) return [Math.max(0,min-5),max+5]; const pad=(max-min)*p; return [Math.max(0,min-pad),max+pad]; };
+const isConfirmedLevel = level => level?.kind === 'confirmed_structure' || level?.category === 'confirmed';
+const isTacticalLevel = level => level?.kind === 'tactical_reference' || level?.category === 'tactical';
+const levelLabel = level => {
+  const type = typeof level === 'string' ? level : level?.type;
+  if(isTacticalLevel(level)) return level.confirmationLabel || (type === 'support' ? '防守價' : '壓力參考');
+  return type === 'support' ? '支撐' : type === 'resistance' ? '壓力' : type;
+};
+const bucketColor = classification => ({avoid:'#b91c1c',watch:'#f59e0b',conditional_sell:'#2563eb',conservative_sell:'#16a34a'}[classification] || '#555');
+const bucketLabel = classification => ({avoid:'避免',watch:'觀察',conditional_sell:'條件可賣',conservative_sell:'保守可賣'}[classification] || classification || '支撐區');
+const levelColor = level => { if(level?.kind === 'sell_put_bucket') return bucketColor(level.classification); const type = typeof level === 'string' ? level : level?.type; return type === 'support' ? '#1976d2' : type === 'resistance' ? '#d32f2f' : '#555'; };
+const levelScore = level => Number(level?.confirmationScore ?? level?.displayPriority ?? level?.strength ?? 0);
+const levelLineType = level => level?.kind === 'sell_put_bucket' ? 'solid' : (isConfirmedLevel(level) ? 'solid' : 'dotted');
+const levelLineWidth = level => level?.kind === 'sell_put_bucket' ? 2 : (isConfirmedLevel(level) ? 2 : 1);
+const levelCaption = level => level?.kind === 'sell_put_bucket' ? `${bucketLabel(level.classification)} ${level.range || ''}` : (isConfirmedLevel(level) ? `確認度 ${fmt(levelScore(level))}` : (level.confirmationLabel || '參考'));
+function shouldShowLevel(level,currentPrice,type){ const mode=$('levelMode').value, minStrength=Number($('minLevelStrength').value||60); if(!level || mode==='off') return false; if(isConfirmedLevel(level) && levelScore(level)<minStrength) return false; if(mode==='support') return level.type==='support'; if(mode==='resistance') return level.type==='resistance'; if(mode==='all' || currentPrice==null) return true; if(type==='PUT') return level.type==='support' && level.price<=currentPrice; if(type==='CALL') return level.type==='resistance' && level.price>=currentPrice; return true; }
+function dedupeLevels(levels){ const seen=new Set(); return levels.filter(l=>{ const k=`${l.type}-${l.kind}-${Number(l.price).toFixed(2)}`; if(seen.has(k)) return false; seen.add(k); return true; }); }
+function candidateLevels(currentPrice,type){ const filtered=dedupeLevels([...(supportResistance?.levels||[])]).filter(l=>shouldShowLevel(l,currentPrice,type)); return filtered.sort((a,b)=>Math.abs((a.price??0)-(currentPrice??a.price??0))-Math.abs((b.price??0)-(currentPrice??b.price??0)) || (isConfirmedLevel(b)-isConfirmedLevel(a)) || levelScore(b)-levelScore(a)).slice(0,8); }
+function displayLevels(currentPrice,type,xMin,xMax){ return candidateLevels(currentPrice,type).filter(l=>l.price>=xMin&&l.price<=xMax); }
+function nearestLevel(strike,levels){ if(!strike||!levels.length) return null; return levels.reduce((best,l)=>!best||Math.abs(l.price-strike)<Math.abs(best.price-strike)?l:best,null); }
+function bucketToLevel(bucket){ const center=Number(bucket?.center); if(!Number.isFinite(center)) return null; return {type:'support',kind:'sell_put_bucket',category:'sell_put_bucket',price:center,strength:Number(bucket?.score ?? 100),confirmationScore:Number(bucket?.score ?? 100),displayPriority:Number(bucket?.score ?? 100),classification:bucket?.classification,role:bucket?.role,range:bucket?.range,reason:bucket?.reason,distanceToSpotPct:bucket?.distanceToSpotPct,confirmationLabel:bucketLabel(bucket?.classification),sources:['soxl_support_snapshots']}; }
+function normalizeSoxlSnapshot(snapshot){ const buckets=snapshot?.sellPutSupportBuckets || []; return {symbol:'SOXL',status:'snapshot',asOf:snapshot?.asOf,spot:snapshot?.spot,source:snapshot?.source,sellPutSupportBuckets:buckets,levels:buckets.map(bucketToLevel).filter(Boolean)}; }
+const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const latexNum = (v,d=2) => Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '0';
+const clamp = (value,min,max) => Math.max(min, Math.min(max, value));
+function dteCredibility(contract, level){
+  if(!contract || !level || !isConfirmedLevel(level)) return null;
+  const base=Number(levelScore(level)||0), dte=Math.max(1, Number(contract.dte||1));
+  const spot=Number(supportResistance?.spot || chain?.underlying?.last || chain?.underlying?.mark || 0);
+  const atrPct=Number(supportResistance?.atrPct || level.calculationInputs?.atrPct || 3);
+  const tau= supportResistance?.highVelocity ? 45 : 75;
+  const timeFit=Math.exp(-dte/tau);
+  const bufferPct = level.type==='support'
+    ? (Number(level.price)-Number(contract.strike))/Number(level.price)*100
+    : (Number(contract.strike)-Number(level.price))/Number(level.price)*100;
+  const bufferFit=clamp(0.25 + (bufferPct + atrPct*0.25)/(atrPct*0.75), 0.15, 1.10);
+  const spotStrikeDistancePct = spot>0 ? Math.abs((spot-Number(contract.strike))/spot*100) : 0;
+  const dteVolBudgetPct = atrPct*Math.sqrt(dte);
+  const volDistanceFit=clamp(dteVolBudgetPct>0 ? spotStrikeDistancePct/dteVolBudgetPct : 0.15, 0.15, 1.20);
+  const adjusted=Math.round(base*Math.sqrt(timeFit*bufferFit*volDistanceFit));
+  return { adjusted: clamp(adjusted,0,100), base, dte, atrPct, tau, timeFit, bufferPct, bufferFit, spotStrikeDistancePct, dteVolBudgetPct, volDistanceFit };
+}
+function credibilityLabel(score){ if(score>=70) return '高'; if(score>=45) return '中'; if(score>=25) return '低'; return '很低'; }
+function renderLevelDetails(levels){
+  const box=$('levelDetails');
+  const all=dedupeLevels(levels||[]);
+  if(!all.length){ box.innerHTML=''; return; }
+  if(supportResistance?.status === 'snapshot' && (supportResistance?.sellPutSupportBuckets||[]).length){
+    box.innerHTML = `<h2>SOXL Sell Put 支撐區 Snapshot</h2>` + (supportResistance.sellPutSupportBuckets||[]).map((bucket,idx)=>`
+      <section class="level-card support" style="border-left-color:${bucketColor(bucket.classification)}">
+        <h3>${idx+1}. ${bucketLabel(bucket.classification)}｜${esc(bucket.range)}｜中心 ${fmt(bucket.center,2)}</h3>
+        <div class="level-meta">角色：${esc(bucket.role||'')}｜距現價 ${fmt(bucket.distanceToSpotPct,2)}%｜分數 ${fmt(bucket.score)}</div>
+        <div class="formula"><b>判斷：</b>${esc(bucket.reason||'')}</div>
+      </section>`).join('');
+    return;
+  }
+  const confirmed=all.filter(isConfirmedLevel);
+  const tactical=all.filter(isTacticalLevel);
+  const header = `<section class="level-card"><h3>支撐/壓力偵測模型</h3>
+    <div class="level-meta">Confirmed structure：3-bar local extrema on Low/High + 1D clustering，至少 2 次 touch。Tactical reference：rolling low/high，只作 SP strike 對照，不是確認支撐。</div>
+    <div class="level-grid"><div>Confirmed：${fmt(confirmed.length)} 條</div><div>Tactical：${fmt(tactical.length)} 條</div><div>ADR20：${fmt(supportResistance?.adr20,2)}</div><div>Cluster tolerance：${fmt(supportResistance?.clusterTolerance,2)}</div></div>
+  </section>`;
+  box.innerHTML = `<h2>支撐/壓力位計算細節</h2>${header}` + all.map((level,idx)=>{
+    const label=levelLabel(level), cls=esc(level.type), sources=(level.sources||[]).map(esc).join('、');
+    const members=(level.members||[]).slice(0,8).map(m=>`${esc(m.date)} ${fmt(m.price,2)}`).join('；');
+    const zone = isConfirmedLevel(level) && level.zoneLow!=null && level.zoneHigh!=null ? `${fmt(level.zoneLow,2)}–${fmt(level.zoneHigh,2)}` : fmt(level.price,2);
+    const titleRight = isConfirmedLevel(level) ? `確認度 ${fmt(levelScore(level))}` : esc(level.confirmationLabel || '參考');
+    const note = isConfirmedLevel(level)
+      ? `touch ${fmt(level.touchCount)}｜span ${fmt(level.touchSpanBars)} bars｜最後觸及 ${esc(level.lastTouchedDate||'')}`
+      : `${fmt(level.window)}D ${level.type==='support'?'low':'high'}｜${esc(level.lastTouchedDate||'')}｜未確認`;
+    return `<section class="level-card ${cls}">
+      <h3>${idx+1}. ${label} ${zone}｜${titleRight}</h3>
+      <div class="level-meta">${note}｜距現價 ${fmt(level.distanceToSpotPct,2)}%｜最近 Strike ${fmt(level.nearestStrike,2)}｜來源：${sources}</div>
+      <div class="level-grid">
+        <div>Primary：${fmt(level.price,2)}</div><div>距 daily close：${fmt(level.distanceToDailySpotPct,2)}%</div><div>距 quote：${fmt(level.distanceToQuoteSpotPct,2)}%</div><div>分類：${esc(level.kind||'')}</div>
+      </div>
+      <div class="formula"><b>判斷：</b>${esc(level.reason||'')}<br/><b>觸及明細：</b>${members || '—'}</div>
+    </section>`;
+  }).join('');
+}
+
+
+function safeNumber(v){ const n=Number(v); return Number.isFinite(n)?n:null; }
+function quoteTimeIso(ms){ const n=safeNumber(ms); return n ? new Date(n).toISOString() : null; }
+function flattenMap(symbol, map, optionType, snapshotUtc){
+  const out=[];
+  if(!map || typeof map !== 'object') return out;
+  for(const [expKey, strikes] of Object.entries(map)){
+    if(!strikes || typeof strikes !== 'object') continue;
+    for(const contracts of Object.values(strikes)){
+      if(!Array.isArray(contracts)) continue;
+      for(const c of contracts){
+        const bid=safeNumber(c.bid), ask=safeNumber(c.ask), strike=safeNumber(c.strikePrice);
+        const mid=(bid!=null && ask!=null) ? (bid+ask)/2 : null;
+        const spreadPct=(mid && mid>0 && bid!=null && ask!=null) ? (ask-bid)/mid*100 : null;
+        out.push({
+          snapshotUtc, underlying:symbol, optionType, contractSymbol:c.symbol, description:c.description,
+          expirationDate:String(c.expirationDate || String(expKey).split(':')[0]).slice(0,10),
+          dte:Number(c.daysToExpiration || 0), strike, bid, ask, last:safeNumber(c.last), mark:safeNumber(c.mark), mid, spreadPct,
+          bidSize:Number(c.bidSize || 0), askSize:Number(c.askSize || 0), volume:Number(c.totalVolume || 0), openInterest:Number(c.openInterest || 0),
+          iv:safeNumber(c.volatility), delta:safeNumber(c.delta), gamma:safeNumber(c.gamma), theta:safeNumber(c.theta), vega:safeNumber(c.vega), rho:safeNumber(c.rho), inTheMoney:c.inTheMoney
+        });
+      }
+    }
+  }
+  return out;
+}
+
+async function loadChain(){
+  clearError();
+  const symbol = $('symbol').value.trim().toUpperCase();
+  if(!/^[A-Z][A-Z0-9.-]{0,11}$/.test(symbol)) return showError('Symbol 格式不正確');
+  $('load').disabled=true; $('load').textContent='載入中...';
+  try{
+    const requestMinDte = Math.max(0, Number($('minDte').value || 0));
+    const requestMaxDte = Math.max(requestMinDte, Number($('maxDte').value || 45));
+    const res = await fetch('/api/options/live-chain?' + new URLSearchParams({symbol, minDte: String(requestMinDte), maxDte: String(requestMaxDte), strikeCount: '500'}));
+    const payload = await res.json().catch(() => ({}));
+    if(!res.ok){ throw new Error(payload.message || payload.error || `Local proxy HTTP ${res.status}`); }
+    chain = payload;
+    rows = payload.contracts || [];
+    supportResistance = null;
+    showLevelsStatus('正在載入支撐/壓力線...');
+    const strikes = [...new Set(rows.map(r=>r.strike).filter(v=>Number.isFinite(v)&&v>0))].sort((a,b)=>a-b).join(',');
+    try{
+      const quoteSpot = chain?.underlying?.last ?? chain?.underlying?.mark ?? '';
+      const levelsRes = symbol === 'SOXL'
+        ? await fetch('/api/soxl/support-snapshot')
+        : await fetch('/api/support-resistance?' + new URLSearchParams({symbol, strikes, quoteSpot}));
+      const levelsPayload = await levelsRes.json().catch(() => ({}));
+      if(!levelsRes.ok) throw new Error(levelsPayload.message || levelsPayload.error || `Local proxy HTTP ${levelsRes.status}`);
+      supportResistance = symbol === 'SOXL' ? normalizeSoxlSnapshot(levelsPayload) : levelsPayload;
+      showLevelsStatus(symbol === 'SOXL'
+        ? `SOXL D1 Sell Put 支撐區 ${fmt((supportResistance.sellPutSupportBuckets||[]).length)} 個（snapshot ${supportResistance.asOf||''}）`
+        : `支撐/壓力線 ${fmt((supportResistance.levels||[]).length)} 條（confirmed ${fmt((supportResistance.confirmedStructures||[]).length)}，tactical ${fmt((supportResistance.operationalTacticalReferences||[]).length)}，historical hidden ${fmt((supportResistance.historicalStructures||[]).length)}，${supportResistance.status}，${supportResistance.asOf||''}）`);
+    }catch(levelErr){
+      showLevelsStatus(`期權鏈已載入，但支撐/壓力線未載入：${String(levelErr?.message || levelErr)}`);
+    }
+    draw();
+  }catch(err){
+    showError(String(err?.message || err));
+  }finally{
+    $('load').disabled=false; $('load').textContent='載入 Schwab 期權鏈';
+  }
+}
+
+function otmDistancePct(row){
+  const spot = Number(chain?.underlying?.last ?? chain?.underlying?.mark ?? null);
+  const strike = Number(row?.strike);
+  if(!Number.isFinite(spot) || spot<=0 || !Number.isFinite(strike)) return null;
+  if(row.optionType==='PUT') return (spot-strike)/spot*100;
+  if(row.optionType==='CALL') return (strike-spot)/spot*100;
+  return null;
+}
+function isOtm(row){
+  const distance = otmDistancePct(row);
+  return distance == null ? true : distance > 0;
+}
+function rocPct(row){ const bid=Number(row?.bid), strike=Number(row?.strike); if(!Number.isFinite(bid)||!Number.isFinite(strike)||strike<=0) return null; return bid/strike*100; }
+function passesOtmQuality(row){
+  const maxOtmPct=num('maxOtmPct',45), minBid=num('minBid',0.10), minAbsDelta=num('minAbsDelta',0.03), minRocPct=num('minRocPct',3);
+  const distance = otmDistancePct(row);
+  const bid = Number(row?.bid), delta = Math.abs(Number(row?.delta)), roc = rocPct(row);
+  return (distance==null || distance<=maxOtmPct)
+    && (!Number.isFinite(minBid) || minBid<=0 || (Number.isFinite(bid) && bid>=minBid))
+    && (!Number.isFinite(minRocPct) || minRocPct<=0 || (roc!=null && roc>=minRocPct))
+    && (!Number.isFinite(minAbsDelta) || minAbsDelta<=0 || (Number.isFinite(delta) && delta>=minAbsDelta));
+}
+function filteredRows(){
+  const type=$('optionType').value, minDte=num('minDte',0), maxDte=num('maxDte',45), maxSpread=num('maxSpread',20), minOi=num('minOi',100), xMin=num('xMin',null), xMax=num('xMax',null), yMin=num('viewMinDte',null), yMax=num('viewMaxDte',null), volMode=$('volMode').value;
+  return rows.filter(r => r.optionType===type && isOtm(r) && passesOtmQuality(r) && r.strike!=null && r.mid!=null && r.openInterest>0 && r.dte>=minDte && r.dte<=maxDte && r.openInterest>=minOi && (r.spreadPct==null || r.spreadPct<=maxSpread) && (volMode==='all'||r.volume>0) && (xMin==null||r.strike>=xMin) && (xMax==null||r.strike<=xMax) && (yMin==null||r.dte>=yMin) && (yMax==null||r.dte<=yMax));
+}
+function weightedQuantile(rs,q){ const xs=[...rs].sort((a,b)=>a.strike-b.strike); const total=xs.reduce((s,r)=>s+r.openInterest,0); let acc=0; for(const r of xs){acc+=r.openInterest;if(acc>=total*q)return r.strike;} return xs.length?xs[xs.length-1].strike:null; }
+function thetaYieldRankMap(rs){ const yields=[...new Set(rs.map(thetaYieldPct).filter(Number.isFinite))].sort((a,b)=>a-b); const denom=Math.max(yields.length-1,1); return new Map(yields.map((v,i)=>[v,i/denom])); }
+function median(values){ const xs=values.filter(Number.isFinite).sort((a,b)=>a-b); if(!xs.length) return null; const m=Math.floor(xs.length/2); return xs.length%2?xs[m]:(xs[m-1]+xs[m])/2; }
+function percentileRank(values,value){
+  const xs=values.filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!xs.length || !Number.isFinite(value)) return null;
+  // Use mid-rank instead of <= count. With small same-DTE samples (often 4-6
+  // contracts), <= count overstates a data point's percentile and makes the
+  // red “目前” dot visually disagree with the interpolated boxplot quartiles.
+  const below=xs.filter(v=>v<value).length;
+  const equal=xs.filter(v=>v===value).length;
+  return (below + equal*0.5) / xs.length * 100;
+}
+function quantileSorted(xs,q){ if(!xs.length) return null; const pos=(xs.length-1)*q, base=Math.floor(pos), rest=pos-base; return xs[base+1]!==undefined ? xs[base]+rest*(xs[base+1]-xs[base]) : xs[base]; }
+function boxStats(values){ const xs=values.filter(Number.isFinite).sort((a,b)=>a-b); if(!xs.length) return null; const q1=quantileSorted(xs,.25), med=quantileSorted(xs,.5), q3=quantileSorted(xs,.75); const iqr=q3-q1, loFence=q1-1.5*iqr, hiFence=q3+1.5*iqr; const inside=xs.filter(v=>v>=loFence&&v<=hiFence); return {min:inside[0]??xs[0], q1, median:med, q3, max:inside[inside.length-1]??xs[xs.length-1], outliers:xs.filter(v=>v<loFence||v>hiFence), count:xs.length}; }
+function ivPct(row){ const v=Number(row.iv); if(!Number.isFinite(v)) return null; return v > 5 ? v : v*100; }
+function thetaYieldPct(row){ const theta=Math.abs(Number(row.theta)), strike=Number(row.strike); if(!Number.isFinite(theta)||!Number.isFinite(strike)||strike<=0) return null; return theta/strike*100; }
+function thetaAbs(row){ const theta=Math.abs(Number(row.theta)); return Number.isFinite(theta)?theta:null; }
+function boxPeerStats(values,self){ const box=boxStats(values); const med=box?.median ?? median(values); return {self, min:box?.min ?? null, q1:box?.q1 ?? null, median:med, q3:box?.q3 ?? null, max:box?.max ?? null, diff:self!=null&&med!=null?self-med:null, percentile:percentileRank(values,self), count:values.filter(Number.isFinite).length}; }
+function boxPeerStatsFullRange(values,self){ const xs=values.filter(Number.isFinite).sort((a,b)=>a-b); if(!xs.length) return {self:null,min:null,q1:null,median:null,q3:null,max:null,percentile:null,count:0}; const q1=quantileSorted(xs,.25), med=quantileSorted(xs,.5), q3=quantileSorted(xs,.75); return {self, min:xs[0], q1, median:med, q3, max:xs[xs.length-1], diff:self!=null&&med!=null?self-med:null, percentile:percentileRank(xs,self), count:xs.length}; }
+function ivPeerStats(row, universe){ const peers=universe.filter(r=>r.optionType===row.optionType && ivPct(r)!=null); const self=ivPct(row); return boxPeerStats(peers.map(ivPct), self); }
+function thetaContractDollars(row){ const theta=thetaAbs(row); return theta==null?null:theta*100; }
+function thetaPeerStats(row, universe){ const peers=universe.filter(r=>r.optionType===row.optionType && thetaContractDollars(r)!=null); const self=thetaContractDollars(row); return boxPeerStats(peers.map(thetaContractDollars), self); }
+function thetaYieldPeerStats(row, universe){ const peers=universe.filter(r=>thetaYieldPct(r)!=null); const self=thetaYieldPct(row); return boxPeerStats(peers.map(thetaYieldPct), self); }
+function oiPeerStats(row, universe){
+  const peers=universe.filter(r=>r.optionType===row.optionType && Number.isFinite(Number(r.openInterest)) && Number(r.openInterest)>0);
+  const rawValues=peers.map(r=>Number(r.openInterest));
+  const rawSelf=Number.isFinite(Number(row.openInterest)) && Number(row.openInterest)>0 ? Number(row.openInterest) : null;
+  const rawBox=boxStats(rawValues);
+  const toLog=v=>Number.isFinite(Number(v)) ? Math.log10(Number(v)+1) : null;
+  return {
+    self: toLog(rawSelf),
+    min: toLog(rawBox?.min),
+    q1: toLog(rawBox?.q1),
+    median: toLog(rawBox?.median),
+    q3: toLog(rawBox?.q3),
+    max: toLog(rawBox?.max),
+    diff: rawSelf!=null&&rawBox?.median!=null?rawSelf-rawBox.median:null,
+    percentile: percentileRank(rawValues,rawSelf),
+    count: rawValues.length,
+    outliers: (rawBox?.outliers||[]).map(toLog).filter(Number.isFinite),
+    rawSelf,
+  };
+}
+function oiLiquidityLabel(percentile){
+  if(!Number.isFinite(Number(percentile))) return '';
+  if(percentile < 25) return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#fee2e2;color:#991b1b;font-size:11px;font-weight:600">偏低</span>';
+  if(percentile <= 75) return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#e0f2fe;color:#075985;font-size:11px;font-weight:600">正常</span>';
+  return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:600">集中區</span>';
+}
+function spreadPeerStats(row, universe){
+  const peers=universe.filter(r=>r.optionType===row.optionType && Number.isFinite(Number(r.spreadPct)) && Number(r.spreadPct)>=0);
+  const self=Number.isFinite(Number(row.spreadPct)) ? Number(row.spreadPct) : null;
+  return boxPeerStats(peers.map(r=>Number(r.spreadPct)), self);
+}
+function spreadTradabilityLabel(spreadPct){
+  const spread=Number(spreadPct);
+  if(!Number.isFinite(spread)) return '';
+  if(spread <= 10) return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:600">佳</span>';
+  if(spread <= 20) return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600">可接受</span>';
+  return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#fee2e2;color:#991b1b;font-size:11px;font-weight:600">偏寬</span>';
+}
+function percentileBadge(percentile,{highLabel='偏高',lowLabel='偏低',midLabel='正常'}={}){
+  const pct=Number(percentile);
+  if(!Number.isFinite(pct)) return '';
+  if(pct < 25) return `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#e0f2fe;color:#075985;font-size:11px;font-weight:600">${lowLabel}</span>`;
+  if(pct <= 75) return `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#f1f5f9;color:#334155;font-size:11px;font-weight:600">${midLabel}</span>`;
+  return `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600">${highLabel}</span>`;
+}
+function formatLogOi(v){ return fmt(Math.max(0, Math.round(Math.pow(10, Number(v))-1))); }
+function deltaRiskBadge(delta){
+  const abs=Math.abs(Number(delta));
+  if(!Number.isFinite(abs)) return '';
+  if(abs < 0.15) return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:600">低風險</span>';
+  if(abs <= 0.30) return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600">中性</span>';
+  return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#fee2e2;color:#991b1b;font-size:11px;font-weight:600">高敏感</span>';
+}
+function renderTooltipBoxplot(stats,{digits=1,unit='%',color='#2563eb',valueFormatter=null}={}){
+  if(!stats || ![stats.min,stats.q1,stats.median,stats.q3,stats.max,stats.self].every(v=>Number.isFinite(Number(v)))) return '';
+  const min=Number(stats.min), q1=Number(stats.q1), med=Number(stats.median), q3=Number(stats.q3), max=Number(stats.max), self=Number(stats.self);
+  const domainMin=Math.min(min,self), domainMax=Math.max(max,self), span=Math.max(domainMax-domainMin,1e-9);
+  const sx=v=>clamp(10+(Number(v)-domainMin)/span*180,10,190);
+  const selfX=sx(self);
+  const f=valueFormatter || ((v)=>`${fmt(v,digits)}${unit}`);
+  const outlierDots=(stats.outliers||[])
+    .filter(v=>Number.isFinite(Number(v)))
+    .sort((a,b)=>a-b)
+    .filter((v,i,arr)=>i===0 || Math.abs(v-arr[i-1])>1e-6)
+    .slice(0,18)
+    .map(v=>`<circle cx="${sx(v)}" cy="17" r="2.5" fill="#7c3aed" fill-opacity="0.72"/>`)
+    .join('');
+  return `<div style="margin:6px auto 0;width:220px">
+    <svg width="220" height="34" viewBox="0 0 220 34" role="img" aria-label="總體分佈 boxplot" style="display:block;overflow:visible">
+      <line x1="${sx(min)}" y1="17" x2="${sx(max)}" y2="17" stroke="#94a3b8" stroke-width="2"/>
+      <line x1="${sx(min)}" y1="11" x2="${sx(min)}" y2="23" stroke="#64748b" stroke-width="2"/>
+      <line x1="${sx(max)}" y1="11" x2="${sx(max)}" y2="23" stroke="#64748b" stroke-width="2"/>
+      <rect x="${sx(q1)}" y="8" width="${Math.max(1,sx(q3)-sx(q1))}" height="18" rx="3" fill="${color}22" stroke="${color}" stroke-width="1.5"/>
+      <line x1="${sx(med)}" y1="7" x2="${sx(med)}" y2="27" stroke="${color}" stroke-width="2"/>
+      ${outlierDots}
+      <circle cx="${selfX}" cy="17" r="4" fill="#ef4444" stroke="#fff" stroke-width="1.5"/>
+      <text x="${selfX}" y="5" text-anchor="middle" font-size="9" fill="#ef4444">目前</text>
+    </svg>
+  </div>`;
+}
+function renderPricePositionLine({strike, spot, pullbackRef, support, refs=[], tableRefs=[]}){
+  const baseRefs=Array.isArray(refs)&&refs.length ? refs : [
+    {label:'支撐',value:Number(support),color:'#16a34a',row:'bottom'},
+    {label:'回撤',value:Number(pullbackRef),color:'#2563eb',row:'bottom'},
+  ];
+  const rawPoints=[
+    ...baseRefs,
+    {label:'Strike',value:Number(strike),color:'#f97316',row:'top'},
+    {label:'現價',value:Number(spot),color:'#111827',row:'top'},
+  ].filter(p=>Number.isFinite(p.value));
+  if(rawPoints.length<2) return '';
+  const values=rawPoints.map(p=>p.value), min=Math.min(...values), max=Math.max(...values), span=Math.max(max-min,1e-9), pad=span*0.12;
+  const domainMin=min-pad, domainMax=max+pad, domainSpan=Math.max(domainMax-domainMin,1e-9);
+  const x=v=>18+(v-domainMin)/domainSpan*234;
+  const groups=[];
+  rawPoints.forEach(p=>{
+    const px=clamp(x(p.value),18,252);
+    const existing=groups.find(g=>Math.abs(g.value-p.value)<0.01 && g.items.some(i=>i.row===p.row));
+    const entry={label:p.label,value:p.value,displayValue:p.displayValue,color:p.color,row:p.row,x:px};
+    if(existing){
+      existing.items.push(entry);
+      existing.x=existing.items.reduce((s,i)=>s+i.x,0)/existing.items.length;
+      existing.value=existing.items.reduce((s,i)=>s+i.value,0)/existing.items.length;
+    } else {
+      groups.push({value:p.value,x:px,items:[entry]});
+    }
+  });
+  const distanceRows=(Array.isArray(tableRefs)&&tableRefs.length?tableRefs:baseRefs)
+    .concat([{label:'現價',value:Number(spot),color:'#111827'}])
+    .filter(p=>Number.isFinite(p.value))
+    .filter((p,idx,arr)=>arr.findIndex(x=>x.label===p.label&&Math.abs(x.value-p.value)<0.01)===idx)
+    .sort((a,b)=>a.value-b.value);
+  const distPct=v=>Number.isFinite(Number(strike))&&Number(strike)!==0 ? (Number(v)-Number(strike))/Number(strike)*100 : null;
+  const distFmt=v=>{const d=distPct(v); return d==null?'':`${d>=0?'+':''}${fmt(d,2)}%`;};
+  const tableCell='padding:2px 4px;border-top:1px solid #e2e8f0;white-space:nowrap;text-align:right';
+  const distanceTable=distanceRows.length?`<table style="margin-top:6px;border-collapse:collapse;font-size:9px;color:#334155;width:100%;table-layout:fixed"><thead><tr><th style="padding:2px 4px;color:#64748b;font-weight:600;text-align:left">項目</th>${distanceRows.map(p=>`<th style="padding:2px 4px;color:${p.color};font-weight:600;text-align:right;white-space:nowrap">${p.label}</th>`).join('')}</tr></thead><tbody><tr><td style="${tableCell};text-align:left;color:#64748b">價格</td>${distanceRows.map(p=>`<td style="${tableCell}">${fmt(p.value,2)}</td>`).join('')}</tr><tr><td style="${tableCell};text-align:left;color:#64748b">距 Strike</td>${distanceRows.map(p=>`<td style="${tableCell}">${distFmt(p.value)}</td>`).join('')}</tr></tbody></table>`:'';
+  const ticks=groups.map(g=>{
+    const px=g.x, anchor=px<34?'start':px>232?'end':'middle';
+    const top=g.items.filter(i=>i.row==='top');
+    const bottom=g.items.filter(i=>i.row==='bottom');
+    const mainColor=(top[0]||bottom[0])?.color || '#475569';
+    const lineColor=g.items.length>1?'#64748b':mainColor;
+    const pointY=top.length && !bottom.length ? 31 : bottom.length && !top.length ? 39 : 35;
+    const renderRow=(items,labelY,valueY)=>{
+      if(!items.length) return '';
+      const values=[...new Set(items.map(i=>i.displayValue || fmt(i.value,2)))];
+      return `<text x="${px}" y="${labelY}" text-anchor="${anchor}" font-size="9" fill="${items[0].color}" font-weight="600">${items.map(i=>i.label).join('/')}</text><text x="${px}" y="${valueY}" text-anchor="${anchor}" font-size="9" fill="#475569">${values.join('/')}</text>`;
+    };
+    return `<g><line x1="${px}" y1="31" x2="${px}" y2="39" stroke="${lineColor}" stroke-width="1.2" opacity="0.85"/><circle cx="${px}" cy="${pointY}" r="4.5" fill="${lineColor}" stroke="#fff" stroke-width="1.5"/>${renderRow(top,10,22)}${renderRow(bottom,56,68)}</g>`;
+  }).join('');
+  return `<div style="margin-top:8px;width:100%;max-width:100%;overflow:hidden"><svg width="100%" height="76" viewBox="0 0 270 76" role="img" aria-label="價格位置線" style="display:block;overflow:hidden"><line x1="18" y1="35" x2="252" y2="35" stroke="#cbd5e1" stroke-width="2"/>${ticks}</svg>${distanceTable}</div>`;
+}
+
+function renderThetaChart(rs){
+  const thetaRows=rs.filter(r=>thetaYieldPct(r)!=null && r.strike!=null && r.openInterest>=0);
+  if(!thetaRows.length){ thetaTermChart.clear(); return; }
+  const termType=$('optionType').value;
+  const dtes=[...new Set(thetaRows.map(r=>r.dte))].sort((a,b)=>a-b);
+  const dteLabels=dtes.map(String);
+  const boxes=[];
+  const outliers=[];
+  dtes.forEach((d,idx)=>{
+    const stats=boxStats(thetaRows.filter(r=>r.dte===d&&r.optionType===termType).map(thetaYieldPct));
+    if(stats){ boxes.push({value:[stats.min,stats.q1,stats.median,stats.q3,stats.max], count:stats.count, dte:d}); stats.outliers.forEach(v=>outliers.push([idx,v,d])); }
+    else boxes.push({value:[null,null,null,null,null], count:0, dte:d});
+  });
+  const medLine=dtes.map((d,idx)=>[idx, boxes[idx]?.value?.[2] ?? null]);
+  thetaTermChart.setOption({animation:false,title:{text:`每日時間價值衰減率｜${termType}｜DTE × Theta`,subtext:'Theta / 履約價的標準化每日衰減率；越高不等於越安全，短 DTE 通常 Gamma 風險也較高。',left:14,top:8},legend:{top:52},grid:{left:72,right:32,top:96,bottom:55},tooltip:{trigger:'item',confine:true,formatter:p=>{if(p.seriesType==='boxplot'){const v=p.data.value, d=p.data.dte; return `<b>${termType}｜${d} DTE</b><br/>樣本數 ${fmt(p.data.count)}<br/>每日衰減率下緣 ${fmt(v[0],3)}%｜Q1 ${fmt(v[1],3)}%<br/>中位數 ${fmt(v[2],3)}%｜Q3 ${fmt(v[3],3)}%<br/>上緣 ${fmt(v[4],3)}%<br/><span style="color:#555">解讀：以履約價標準化後，同 DTE 的時間衰減相對位置。</span>`; } if(p.seriesName.includes('離群')) return `<b>時間衰減率離群值</b><br/>DTE ${p.data[2]}｜${fmt(p.data[1],3)}%/日<br/><span style="color:#555">離群值可能來自短 DTE、接近價平或報價噪音。</span>`; return `<b>${termType} 每日衰減率中位數</b><br/>DTE ${dteLabels[p.data[0]]}｜${fmt(p.data[1],3)}%/日<br/><span style="color:#555">以履約價標準化，方便跨 Strike 比較。</span>`; }},xAxis:{type:'category',name:'DTE',data:dteLabels,boundaryGap:true},yAxis:{type:'value',name:'每日衰減率（% / 日）',scale:true},dataZoom:[{type:'slider',xAxisIndex:0,bottom:18,height:18},{type:'inside',xAxisIndex:0}],series:[{name:`${termType} 每日衰減率箱型`,type:'boxplot',data:boxes,itemStyle:{color:'#ecfdf5',borderColor:'#059669'}},{name:`${termType} 每日衰減率中位數`,type:'line',data:medLine,connectNulls:true,smooth:true,symbolSize:7,lineStyle:{type:'solid',width:2},itemStyle:{color:'#059669'}},{name:`${termType} 衰減率離群值`,type:'scatter',data:outliers,symbolSize:7,itemStyle:{color:'#f59e0b'}}]}, true);
+}
+function renderIvCharts(rs){
+  const ivRows=rs.filter(r=>ivPct(r)!=null && r.strike!=null && r.openInterest>=0);
+  if(!ivRows.length){ ivTermChart.clear(); ivSmileChart.clear(); return; }
+  const dtes=[...new Set(ivRows.map(r=>r.dte))].sort((a,b)=>a-b);
+  const termType=$('optionType').value;
+  const dteLabels=dtes.map(String);
+  const boxes=[];
+  const outliers=[];
+  dtes.forEach((d,idx)=>{
+    const stats=boxStats(ivRows.filter(r=>r.dte===d&&r.optionType===termType).map(ivPct));
+    if(stats){
+      boxes.push({value:[stats.min,stats.q1,stats.median,stats.q3,stats.max], count:stats.count, dte:d});
+      stats.outliers.forEach(v=>outliers.push([idx,v,d]));
+    }else{
+      boxes.push({value:[null,null,null,null,null], count:0, dte:d});
+    }
+  });
+  const termMedian=dtes.map((d,idx)=>[idx, boxes[idx]?.value?.[2] ?? null]);
+  const otherType=termType==='PUT'?'CALL':'PUT';
+  const otherMedian=dtes.map((d,idx)=>[idx, median(ivRows.filter(r=>r.dte===d&&r.optionType===otherType).map(ivPct))]);
+  const ivYMin=num('ivYMin', null), ivYMax=num('ivYMax', null);
+  ivTermChart.setOption({animation:false,title:{text:`IV Term Structure｜${termType} IV Box Plot by DTE`,left:14,top:8},legend:{top:36},grid:{left:60,right:40,top:78,bottom:55},tooltip:{trigger:'item',confine:true,formatter:p=>{if(p.seriesType==='boxplot'){const v=p.data.value, d=p.data.dte; return `<b>${termType}｜${d} DTE</b><br/>樣本數 ${fmt(p.data.count)}<br/>下緣 ${fmt(v[0],1)}%｜Q1 ${fmt(v[1],1)}%<br/>Median ${fmt(v[2],1)}%｜Q3 ${fmt(v[3],1)}%<br/>上緣 ${fmt(v[4],1)}%`; } if(p.seriesName.includes('outlier')) return `<b>${termType} outlier</b><br/>DTE ${p.data[2]}｜IV ${fmt(p.data[1],1)}%`; if(p.seriesName.includes(termType)) return `<b>${termType} median</b><br/>DTE ${dteLabels[p.data[0]]}｜IV ${fmt(p.data[1],1)}%`; return `<b>${otherType} median</b><br/>DTE ${dteLabels[p.data[0]]}｜IV ${fmt(p.data[1],1)}%`; }},xAxis:{type:'category',name:'DTE',data:dteLabels,boundaryGap:true},yAxis:{type:'value',name:'IV %',scale:true,min:ivYMin,max:ivYMax},dataZoom:[{type:'slider',xAxisIndex:0,bottom:18,height:18},{type:'inside',xAxisIndex:0},{type:'slider',yAxisIndex:0,right:8,width:16,filterMode:'none'},{type:'inside',yAxisIndex:0,filterMode:'none'}],series:[{name:`${termType} IV box`,type:'boxplot',data:boxes,itemStyle:{color:termType==='PUT'?'#dbeafe':'#fee2e2',borderColor:termType==='PUT'?'#1976d2':'#d32f2f'}},{name:`${termType} median`,type:'line',data:termMedian,connectNulls:true,smooth:true,symbolSize:7,lineStyle:{type:'solid',width:2},itemStyle:{color:termType==='PUT'?'#1976d2':'#d32f2f'}},{name:`${termType} outlier`,type:'scatter',data:outliers,symbolSize:7,itemStyle:{color:'#7e57c2'}},{name:`${otherType} median`,type:'line',data:otherMedian,connectNulls:true,smooth:true,symbolSize:6,lineStyle:{type:'dashed'},itemStyle:{color:otherType==='PUT'?'#1976d2':'#d32f2f'}}]}, true);
+  const smileType=$('optionType').value;
+  const smileRows=ivRows.filter(r=>r.optionType===smileType);
+  const smileStrikes=smileRows.map(r=>r.strike).filter(Number.isFinite);
+  const currentPrice = chain?.underlying?.last ?? chain?.underlying?.mark ?? null;
+  const refLevels=candidateLevels(currentPrice,smileType);
+  const refPrices=[currentPrice, ...refLevels.map(l=>l.price)].filter(Number.isFinite);
+  const xValues=[...smileStrikes, ...refPrices];
+  const smileMin=Math.min(...xValues), smileMax=Math.max(...xValues);
+  const [smileXMin, smileXMax]=padRange(smileMin, smileMax, 0.04);
+  const refLines=[];
+  if(currentPrice!=null){
+    refLines.push({xAxis:currentPrice,name:'現價',lineStyle:{color:'#111',type:'solid',width:2},label:{formatter:`現價 ${fmt(currentPrice,2)}`,position:'insideEndTop'}});
+  }
+  refLevels.forEach(l=>refLines.push({xAxis:l.price,name:`${levelLabel(l)} ${fmt(l.price,2)}`,lineStyle:{color:levelColor(l),type:levelLineType(l),width:levelLineWidth(l)},label:{formatter:`${levelLabel(l)} ${fmt(l.price,2)}\n${levelCaption(l)}`,position:l.type==='support'?'insideEndBottom':'insideEndTop'}}));
+  const series=dtes.map(d=>({name:`${d} DTE`,type:'scatter',data:smileRows.filter(r=>r.dte===d).map(r=>({value:[r.strike,ivPct(r),r.openInterest,r.volume],raw:r})),symbolSize:v=>5+Math.sqrt(Math.max(0,v[2]||0))/16,emphasis:{focus:'series'}})).filter(s=>s.data.length);
+  const referenceSeries={name:'現價/支撐參考線',type:'scatter',data:[],symbolSize:0,silent:true,tooltip:{show:false},markLine:{symbol:'none',silent:true,data:refLines}};
+  const smileSeries=[...series, referenceSeries];
+  ivSmileChart.setOption({animation:false,title:{text:`IV Smile / Skew｜${smileType}｜Strike × IV`,left:14,top:8},legend:{type:'scroll',top:36,selected:{'現價/支撐參考線':true}},grid:{left:60,right:40,top:82,bottom:55},tooltip:{trigger:'item',confine:true,formatter:p=>{const r=p.data.raw; const st=ivPeerStats(r,ivRows); return `<b>${r.contractSymbol}</b><br/>DTE ${r.dte}｜Strike ${fmt(r.strike,2)} ${r.optionType}<br/>IV ${fmt(st.self,1)}%｜Q1/Median/Q3 ${fmt(st.q1,1)}% / ${fmt(st.median,1)}% / ${fmt(st.q3,1)}%<br/>差值 ${fmt(st.diff,1)}%｜分位 ${fmt(st.percentile,0)}%｜樣本 ${fmt(st.count)}<br/>OI ${fmt(r.openInterest)}｜Volume ${fmt(r.volume)}`;}},xAxis:{type:'value',name:'Strike',min:smileXMin,max:smileXMax,scale:true},yAxis:{type:'value',name:'IV %',scale:true},dataZoom:[{type:'slider',xAxisIndex:0,bottom:18,height:18},{type:'inside',xAxisIndex:0}],series:smileSeries}, true);
+}
+function symbolSizeFactory(maxThetaYield, rankMap){ const mode=$('sizeMode').value; return val => { const thetaYield=Number(val[8]); const normalized=maxThetaYield>0&&Number.isFinite(thetaYield)?Math.max(0,thetaYield/maxThetaYield):0; if(mode==='quantileThetaYield') return 6+(rankMap.get(thetaYield)??0)*38; if(mode==='power035ThetaYield') return 5+Math.pow(normalized,0.35)*38; if(mode==='linearThetaYield') return 5+normalized*36; return 5+Math.sqrt(normalized)*36; }; }
+function draw(){
+  const rs=filteredRows();
+  const totalOi=rs.reduce((s,r)=>s+r.openInterest,0), totalVol=rs.reduce((s,r)=>s+r.volume,0), type=$('optionType').value;
+  const currentPrice = chain?.underlying?.last ?? chain?.underlying?.mark ?? null;
+  const currentPriceAsOf = chain?.underlying?.quoteTimeIso || chain?.snapshotUtc || '';
+  if(!rs.length){ $('summary').innerHTML = chain ? `價外/品質篩選後顯示 <span class="stat">0</span> 張 ${type}；支撐/壓力線 ${fmt((supportResistance?.levels||[]).length)} 條` : '尚未載入資料。'; renderLevelDetails(supportResistance?.levels||[]); renderIvCharts(rows); renderThetaChart([]); chart.clear(); chart.setOption({title:{text:chain?'沒有符合條件的合約':'請先載入 Schwab option chain',left:'center',top:'middle'}}); return; }
+  const strikes=rs.map(r=>r.strike), dtes=rs.map(r=>r.dte), thetaYields=rs.map(thetaYieldPct).filter(Number.isFinite), maxThetaYield=Math.max(0,...thetaYields), ranks=thetaYieldRankMap(rs);
+  let [xAutoMin,xAutoMax]=padRange(Math.min(...strikes),Math.max(...strikes),0.05);
+  const autoLevels=candidateLevels(currentPrice,type);
+  if(currentPrice!=null && $('xMin').value==='') xAutoMin=Math.min(xAutoMin,currentPrice);
+  if(currentPrice!=null && $('xMax').value==='') xAutoMax=Math.max(xAutoMax,currentPrice);
+  if(autoLevels.length && $('xMin').value==='') xAutoMin=Math.min(xAutoMin,...autoLevels.map(l=>l.price));
+  if(autoLevels.length && $('xMax').value==='') xAutoMax=Math.max(xAutoMax,...autoLevels.map(l=>l.price));
+  const [yAutoMin,yAutoMax]=padRange(Math.min(...dtes),Math.max(...dtes),0.12);
+  const xMin=num('xMin',xAutoMin), xMax=num('xMax',xAutoMax), yMin=num('viewMinDte',Math.floor(yAutoMin)), yMax=num('viewMaxDte',Math.ceil(yAutoMax));
+  const yMode=$('yMode').value, dteCats=[...new Set(rs.map(r=>r.dte))].sort((a,b)=>a-b).map(String);
+  const data=rs.map(r=>({value:yMode==='category'?[r.strike,String(r.dte),r.openInterest,r.spreadPct??999,r.volume,r.bid,r.ask,r.mid,thetaYieldPct(r)]:[r.strike,r.dte,r.openInterest,r.spreadPct??999,r.volume,r.bid,r.ask,r.mid,thetaYieldPct(r)], itemStyle:{borderColor:r.volume>0?'#111':'transparent',borderWidth:r.volume>0?1:0,opacity:.72}, raw:r}));
+  const shownLevels=displayLevels(currentPrice,type,xMin,xMax);
+  renderIvCharts(rows);
+  renderThetaChart(rs);
+  renderLevelDetails(supportResistance?.levels||[]);
+  $('summary').innerHTML = chain ? `顯示 <span class="stat">${fmt(rs.length)}</span> 張 ${type} 價外合約；DTE ≤ ${fmt(num('maxDte',45),0)}，Spread ≤ ${fmt(num('maxSpread',20),0)}%，OI ≥ ${fmt(num('minOi',100),0)}，ROC ≥ ${fmt(num('minRocPct',3),1)}%；最大價外距離 ${fmt(num('maxOtmPct',45),0)}%，最低 Bid ${fmt(num('minBid',0.10),2)}，最小 |Delta| ${fmt(num('minAbsDelta',0.03),2)}；總 OI <span class="stat">${fmt(totalOi)}</span>；總成交量 <span class="stat">${fmt(totalVol)}</span>；全鏈 ${fmt(rows.length)} 張；現價 ${fmt(currentPrice,2)}（${currentPriceAsOf}）；支撐/壓力線 ${fmt((supportResistance?.levels||[]).length)} 條，目前顯示 ${fmt(shownLevels.length)} 條` : '尚未載入資料。';
+  const markLines=[]; if(currentPrice!=null && currentPrice>=xMin && currentPrice<=xMax) markLines.push({xAxis:currentPrice,name:`${chain.symbol} 現價`,label:{formatter:`${chain.symbol} 現價 ${fmt(currentPrice,2)}\n${currentPriceAsOf}`,position:'insideEndTop'}});
+  shownLevels.forEach(level=>{ const label=levelLabel(level); markLines.push({xAxis:level.price,name:`${label} ${fmt(level.price,2)}`,lineStyle:{type:levelLineType(level),color:levelColor(level),width:levelLineWidth(level)},label:{formatter:`${label} ${fmt(level.price,2)}\n${levelCaption(level)}`,position:level.type==='support'?'insideEndBottom':'insideEndTop'}}); });
+  chart.setOption({animation:false,title:{text:`${chain.symbol} ${type}｜Strike × DTE × Theta yield bubble × Bid/Ask Spread`,left:16,top:10},grid:{left:72,right:128,top:80,bottom:105},tooltip:{trigger:'item',confine:true,formatter:p=>{
+  const r=p.data.raw;
+  const dteSampleCount=rs.filter(x=>x.optionType===r.optionType&&x.dte===r.dte).length;
+  const bidStrike=r.strike?r.bid/r.strike:null, midStrike=r.strike?r.mid/r.strike:null;
+  const oiStats=oiPeerStats(r,rows), spreadStats=spreadPeerStats(r,rows), ivStats=ivPeerStats(r,rows), thetaStats=thetaPeerStats(r,rows), thetaYieldStats=thetaYieldPeerStats(r,rows);
+  const spreadLine=spreadStats.self!=null?`Spread ${fmt(r.spreadPct,1)}%${spreadTradabilityLabel(spreadStats.self)}｜P${fmt(spreadStats.percentile,0)}`:`Spread ${fmt(r.spreadPct,1)}%`;
+  const oiLine=oiStats.self!=null?`OI ${fmt(r.openInterest)}${oiLiquidityLabel(oiStats.percentile)}｜P${fmt(oiStats.percentile,0)}`:`OI ${fmt(r.openInterest)}`;
+  const ivLine=ivStats.self!=null?`IV ${fmt(ivStats.self,1)}%${percentileBadge(ivStats.percentile,{highLabel:'IV 偏高',lowLabel:'IV 偏低'})}｜P${fmt(ivStats.percentile,0)}`:'';
+  const thetaLine=thetaStats.self!=null?`Theta $${fmt(thetaStats.self,0)}/天/張${percentileBadge(thetaStats.percentile,{highLabel:'收入快/風險高',midLabel:'正常',lowLabel:'收入慢'})}｜P${fmt(thetaStats.percentile,0)}`:'';
+  const thetaYieldLine=thetaYieldStats.self!=null?`Theta yield ${fmt(thetaYieldStats.self,3)}%/天${percentileBadge(thetaYieldStats.percentile,{highLabel:'Yield 高',lowLabel:'Yield 低'})}｜P${fmt(thetaYieldStats.percentile,0)}`:'';
+  const allLevels=dedupeLevels([...(shownLevels||[]), ...((supportResistance?.levels)||[])]).filter(l=>Number.isFinite(Number(l.price)));
+  const refPoint=(l)=>{const use=String(l.referenceUse||''), cap=String(l.confirmationLabel||'');if(l.type==='support'&&isConfirmedLevel(l)) return {label:'支撐',value:Number(l.price),color:'#16a34a',row:'bottom'};if(l.type==='support'&&isTacticalLevel(l)&&(use.includes('short_dte')||cap.includes('短線'))) return {label:'短防',value:Number(l.price),color:'#0ea5e9',row:'top'};if(l.type==='support'&&isTacticalLevel(l)&&(use.includes('pullback')||cap.includes('回撤')||cap.includes('深層'))) return {label:'回撤',value:Number(l.price),color:'#2563eb',row:'bottom'};return null;};
+  const nearbyRefs=allLevels.map(refPoint).filter(Boolean).sort((a,b)=>a.value-b.value);
+  const supportRefs=nearbyRefs.filter(p=>p.label==='支撐');
+  const axisRefs=supportRefs.map(p=>({...p,label:'支撐',color:'#16a34a',row:'bottom'}));
+  const tableSupportRefs=[...supportRefs].sort((a,b)=>Math.abs(a.value-r.strike)-Math.abs(b.value-r.strike)).slice(0,2).sort((a,b)=>a.value-b.value);
+  const levelText=(axisRefs.length||currentPrice)?renderPricePositionLine({strike:r.strike,spot:currentPrice,refs:axisRefs,tableRefs:tableSupportRefs}):'';
+  const cell='display:flex;justify-content:space-between;gap:10px;padding:2px 0;border-bottom:1px solid #f1f5f9';
+  const panel='border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fff;height:100%;box-sizing:border-box';
+  const left=`<div style="${panel}"><div style="font-weight:700;margin-bottom:6px;color:#0f172a">合約</div>
+    <div style="${cell}"><span>Strike</span><b>${fmt(r.strike,2)} ${r.optionType}</b></div>
+    <div style="${cell}"><span>Bid/Ask/Mid</span><b>${fmt(r.bid,2)} / ${fmt(r.ask,2)} / ${fmt(r.mid,2)}</b></div>
+    <div style="${cell}"><span>ROC / Mid ROC</span><b>${fmt(rocPct(r),2)}% / ${fmt(midStrike*100,2)}%</b></div>
+    <div style="${cell}"><span>Delta</span><b>${r.delta??''}${deltaRiskBadge(r.delta)}</b></div>
+    <div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0"><span>Volume</span><b>${fmt(r.volume)}</b></div>
+  </div>`;
+  const right=`<div style="${panel}"><div style="font-weight:700;margin-bottom:6px;color:#0f172a">流動性</div>
+    <div style="font-weight:600">${spreadLine}</div>${spreadStats.self!=null?renderTooltipBoxplot(spreadStats,{digits:1,unit:'%',color:'#f97316'}):''}
+    <div style="font-weight:600;margin-top:6px">${oiLine}</div>${oiStats.self!=null?renderTooltipBoxplot(oiStats,{digits:0,unit:'',color:'#7c3aed',valueFormatter:formatLogOi}):''}
+  </div>`;
+  const riskPanel=`<div style="${panel}"><div style="font-weight:700;margin-bottom:6px;color:#0f172a">風險</div>
+    ${ivLine?`<div style="font-weight:600">${ivLine}</div>${renderTooltipBoxplot(ivStats,{digits:1,unit:'%',color:'#2563eb'})}`:''}
+    ${thetaLine?`<div style="font-weight:600;margin-top:6px">${thetaLine}</div>${renderTooltipBoxplot(thetaStats,{digits:0,unit:'/天/張',color:'#059669',valueFormatter:(v)=>`$${fmt(v,0)}`})}`:''}
+    ${thetaYieldLine?`<div style="font-weight:600;margin-top:6px">${thetaYieldLine}</div>${renderTooltipBoxplot(thetaYieldStats,{digits:3,unit:'%/天',color:'#10b981'})}`:''}
+  </div>`;
+  const distancePanel=`<div style="${panel}"><div style="font-weight:700;margin-bottom:6px;color:#0f172a">Distance Table</div>${levelText}</div>`;
+  return `<div style="width:560px;max-width:560px;box-sizing:border-box">
+    <div style="font-weight:700;margin-bottom:6px">${r.contractSymbol}｜權利金: $${fmt((r.bid||0)*100,0)}｜${r.expirationDate}｜DTE:${r.dte}｜合約數 ${fmt(dteSampleCount)}</div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:8px;line-height:1.45;align-items:stretch">${left}${right}</div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:10px;line-height:1.45;align-items:stretch">${riskPanel}${distancePanel}</div>
+  </div>`;}},toolbox:{right:16,top:10,feature:{dataZoom:{yAxisIndex:yMode==='category'?false:'none'},restore:{},saveAsImage:{}}},visualMap:{type:'piecewise',right:15,top:120,dimension:3,itemWidth:14,itemHeight:14,pieces:[{lte:10,label:'spread ≤10%',color:'#2ca25f'},{gt:10,lte:30,label:'10–30%',color:'#fdae61'},{gt:30,lte:60,label:'30–60%',color:'#f46d43'},{gt:60,label:'>60%',color:'#b2182b'}]},xAxis:{type:'value',name:'Strike',min:xMin,max:xMax,scale:true,splitLine:{lineStyle:{color:'#ddd'}}},yAxis:yMode==='category'?{type:'category',name:'DTE',data:dteCats,boundaryGap:true,splitLine:{show:true,lineStyle:{color:'#ddd'}}}:{type:'value',name:'DTE',min:yMin,max:yMax,scale:true,splitLine:{lineStyle:{color:'#ddd'}}},dataZoom:[{type:'slider',xAxisIndex:0,bottom:35,height:22,filterMode:'none'},{type:'inside',xAxisIndex:0,filterMode:'none'},...(yMode==='category'?[]:[{type:'slider',yAxisIndex:0,right:78,width:18,filterMode:'none'},{type:'inside',yAxisIndex:0,filterMode:'none'}])],series:[{name:`${type} contracts`,type:'scatter',data,encode:{x:0,y:1},symbolSize:symbolSizeFactory(maxThetaYield,ranks),markLine:{symbol:'none',lineStyle:{type:'dashed',color:'#111'},data:markLines}}]}, true);
+}
+function zoomCore(){ const rs=filteredRows(); if(!rs.length) return; let [lo,hi]=padRange(weightedQuantile(rs,.05), weightedQuantile(rs,.95), .08); $('xMin').value=Math.floor(lo); $('xMax').value=Math.ceil(hi); draw(); }
+$('load').onclick=loadChain; $('zoomCore').onclick=zoomCore; $('resetView').onclick=()=>{['xMin','xMax','viewMinDte','viewMaxDte','ivYMin','ivYMax'].forEach(id=>$(id).value='');draw();};
+['optionType','minDte','maxDte','maxSpread','minOi','minRocPct','maxOtmPct','minBid','minAbsDelta','volMode','yMode','sizeMode','levelMode','minLevelStrength','ivYMin','ivYMax','xMin','xMax','viewMinDte','viewMaxDte'].forEach(id=>$(id).addEventListener('change', draw));
+$('symbol').addEventListener('input', e => { e.target.value=e.target.value.toUpperCase(); });
+loadChain();
+</script>

@@ -30,6 +30,7 @@ import {
 } from '@mui/material';
 
 import { fetchOptionChain } from '../api/options';
+import { fetchSupportResistance, fetchSoxlSupportSnapshot } from '../api/supportResistance';
 
 echarts.use([
   CanvasRenderer,
@@ -52,6 +53,8 @@ const DEFAULT_FILTERS = {
   optionType: 'PUT',
   yMode: 'value',
   sizeMode: 'quantileRatio',
+  showLevels: 'auto',
+  minLevelStrength: 60,
   strikeMin: '',
   strikeMax: '',
   viewMinDte: '',
@@ -110,12 +113,119 @@ const buildSymbolSize = ({ maxRatio, rankMap, sizeMode }) => (value) => {
   return 5 + Math.sqrt(normalized) * 36;
 };
 
+const LEVEL_LABELS = {
+  support: '支撐',
+  resistance: '壓力',
+};
+
+const LEVEL_COLORS = {
+  support: '#1976d2',
+  resistance: '#d32f2f',
+};
+
+const BUCKET_COLORS = {
+  avoid: '#b91c1c',
+  watch: '#f59e0b',
+  conditional_sell: '#2563eb',
+  conservative_sell: '#16a34a',
+};
+
+const BUCKET_LABELS = {
+  avoid: '避免',
+  watch: '觀察',
+  conditional_sell: '條件可賣',
+  conservative_sell: '保守可賣',
+};
+
+const bucketLabel = (classification) => BUCKET_LABELS[classification] || classification || '支撐區';
+
+const bucketToLevel = (bucket) => {
+  const price = Number(bucket?.center);
+  if (!Number.isFinite(price)) return null;
+  return {
+    type: 'support',
+    kind: 'sell_put_bucket',
+    price,
+    strength: Number(bucket?.score ?? 100),
+    classification: bucket?.classification,
+    role: bucket?.role,
+    range: bucket?.range,
+    reason: bucket?.reason,
+    distanceToSpotPct: bucket?.distanceToSpotPct,
+  };
+};
+
+const normalizeSoxlSupportSnapshot = (snapshot) => {
+  const buckets = snapshot?.sellPutSupportBuckets || [];
+  return {
+    symbol: 'SOXL',
+    status: 'snapshot',
+    asOf: snapshot?.asOf,
+    spot: snapshot?.spot,
+    sellPutSupportBuckets: buckets,
+    levels: buckets.map(bucketToLevel).filter(Boolean),
+  };
+};
+
+const buildNearestStrike = (price, strikes) => {
+  if (!price || !strikes.length) return { nearestStrike: null, nearestStrikeDistancePct: null };
+  const nearestStrike = strikes.reduce((best, strike) => (
+    Math.abs(strike - price) < Math.abs(best - price) ? strike : best
+  ), strikes[0]);
+  return {
+    nearestStrike,
+    nearestStrikeDistancePct: Math.abs(nearestStrike - price) / price * 100,
+  };
+};
+
+const enrichLevelsWithStrikes = (levels, strikes) => levels.map((level) => {
+  if (level.nearestStrike !== null && level.nearestStrike !== undefined) return level;
+  return { ...level, ...buildNearestStrike(level.price, strikes) };
+});
+
+const shouldShowLevel = ({ level, mode, optionType, currentPrice, minStrength }) => {
+  if (!level || mode === 'off') return false;
+  if ((level.strength ?? 0) < minStrength) return false;
+  if (mode === 'support') return level.type === 'support';
+  if (mode === 'resistance') return level.type === 'resistance';
+  if (mode === 'all') return true;
+  if (currentPrice === null || currentPrice === undefined) return true;
+  if (optionType === 'PUT') return level.type === 'support' && level.price <= currentPrice;
+  if (optionType === 'CALL') return level.type === 'resistance' && level.price >= currentPrice;
+  return true;
+};
+
+const selectDisplayLevels = ({ levels, filters, currentPrice, xMin, xMax }) => {
+  const minStrength = parseNumber(filters.minLevelStrength, 60);
+  return [...levels]
+    .filter((level) => level.price >= xMin && level.price <= xMax)
+    .filter((level) => shouldShowLevel({
+      level,
+      mode: filters.showLevels,
+      optionType: filters.optionType,
+      currentPrice,
+      minStrength,
+    }))
+    .sort((a, b) => (b.strength ?? 0) - (a.strength ?? 0))
+    .slice(0, 5);
+};
+
+const findNearestLevel = (strike, levels) => {
+  if (!strike || !levels.length) return null;
+  return levels.reduce((best, level) => {
+    if (!best) return level;
+    return Math.abs(level.price - strike) < Math.abs(best.price - strike) ? level : best;
+  }, null);
+};
+
 function BobblePage() {
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const [symbolInput, setSymbolInput] = useState('SOXL');
   const [loadedSymbol, setLoadedSymbol] = useState('');
   const [chain, setChain] = useState(null);
+  const [supportResistance, setSupportResistance] = useState(null);
+  const [levelsError, setLevelsError] = useState('');
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -130,13 +240,28 @@ function BobblePage() {
     if (!normalizedSymbol) return;
     setLoading(true);
     setError('');
+    setLevelsError('');
+    setSupportResistance(null);
     try {
-      const payload = await fetchOptionChain(normalizedSymbol);
+      const [chainResult, levelsResult] = await Promise.allSettled([
+        fetchOptionChain(normalizedSymbol),
+        normalizedSymbol === 'SOXL' ? fetchSoxlSupportSnapshot() : fetchSupportResistance(normalizedSymbol),
+      ]);
+      if (chainResult.status !== 'fulfilled') throw chainResult.reason;
+
+      const payload = chainResult.value;
       setChain(payload);
       setLoadedSymbol(payload.symbol || normalizedSymbol);
+
+      if (levelsResult.status === 'fulfilled') {
+        setSupportResistance(normalizedSymbol === 'SOXL' ? normalizeSoxlSupportSnapshot(levelsResult.value) : levelsResult.value);
+      } else {
+        setLevelsError(levelsResult.reason?.response?.data?.detail || levelsResult.reason?.message || '支撐/壓力線載入失敗');
+      }
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || 'Failed to load option chain');
       setChain(null);
+      setSupportResistance(null);
       setLoadedSymbol('');
     } finally {
       setLoading(false);
@@ -189,6 +314,11 @@ function BobblePage() {
 
   const currentPrice = chain?.underlying?.last ?? chain?.underlying?.mark ?? null;
   const currentPriceAsOf = chain?.underlying?.quoteTimeIso || chain?.snapshotUtc || '';
+  const allStrikes = useMemo(() => [...new Set((chain?.contracts || [])
+    .map((row) => row.strike)
+    .filter((strike) => Number.isFinite(strike) && strike > 0))]
+    .sort((a, b) => a - b), [chain]);
+  const priceLevels = useMemo(() => enrichLevelsWithStrikes(supportResistance?.levels || [], allStrikes), [allStrikes, supportResistance]);
 
   useEffect(() => {
     const chart = chartInstanceRef.current;
@@ -234,6 +364,7 @@ function BobblePage() {
       raw: row,
     }));
 
+    const displayLevels = selectDisplayLevels({ levels: priceLevels, filters, currentPrice, xMin, xMax });
     const markLines = [];
     if (currentPrice !== null && currentPrice >= xMin && currentPrice <= xMax) {
       markLines.push({
@@ -245,6 +376,25 @@ function BobblePage() {
         },
       });
     }
+    displayLevels.forEach((level) => {
+      const label = LEVEL_LABELS[level.type] || level.type;
+      const isBucket = level.kind === 'sell_put_bucket';
+      markLines.push({
+        xAxis: level.price,
+        name: `${isBucket ? bucketLabel(level.classification) : label} ${formatNumber(level.price, 2)}`,
+        lineStyle: {
+          type: isBucket || level.strength >= 75 ? 'solid' : 'dashed',
+          color: isBucket ? (BUCKET_COLORS[level.classification] || '#555') : (LEVEL_COLORS[level.type] || '#555'),
+          width: isBucket || level.strength >= 75 ? 2 : 1,
+        },
+        label: {
+          formatter: isBucket
+            ? `${bucketLabel(level.classification)} ${level.range || formatNumber(level.price, 2)}`
+            : `${label} ${formatNumber(level.price, 2)}\n強度 ${formatNumber(level.strength)}`,
+          position: level.type === 'support' ? 'insideEndBottom' : 'insideEndTop',
+        },
+      });
+    });
 
     chart.setOption({
       animation: false,
@@ -261,7 +411,12 @@ function BobblePage() {
           const row = params.data.raw;
           const bidStrike = row.strike ? row.bid / row.strike : null;
           const midStrike = row.strike ? row.mid / row.strike : null;
-          return `<b>${row.contractSymbol}</b><br/>Expiration: ${row.expirationDate}｜DTE: ${row.dte}<br/>Strike: ${formatNumber(row.strike, 2)} ${row.optionType}<br/>OI: ${formatNumber(row.openInterest)}｜Volume: ${formatNumber(row.volume)}<br/>Bid / Ask / Mid: ${formatNumber(row.bid, 2)} / ${formatNumber(row.ask, 2)} / ${formatNumber(row.mid, 2)}<br/>權利金/Strike：${formatNumber(bidStrike, 4)}（Bid/Strike）｜${formatNumber(midStrike, 4)}（Mid/Strike）<br/>Spread: ${formatNumber(row.spreadPct, 1)}%<br/>Delta: ${row.delta ?? ''}｜IV: ${row.iv ?? ''}`;
+          const nearestLevel = findNearestLevel(row.strike, displayLevels);
+          const levelDistancePct = nearestLevel && row.strike ? Math.abs(nearestLevel.price - row.strike) / row.strike * 100 : null;
+          const levelText = nearestLevel
+            ? `<br/>最近${LEVEL_LABELS[nearestLevel.type] || nearestLevel.type}：${formatNumber(nearestLevel.price, 2)}｜強度 ${formatNumber(nearestLevel.strength)}｜距 Strike ${formatNumber(levelDistancePct, 2)}%`
+            : '';
+          return `<b>${row.contractSymbol}</b><br/>Expiration: ${row.expirationDate}｜DTE: ${row.dte}<br/>Strike: ${formatNumber(row.strike, 2)} ${row.optionType}<br/>OI: ${formatNumber(row.openInterest)}｜Volume: ${formatNumber(row.volume)}<br/>Bid / Ask / Mid: ${formatNumber(row.bid, 2)} / ${formatNumber(row.ask, 2)} / ${formatNumber(row.mid, 2)}<br/>權利金/Strike：${formatNumber(bidStrike, 4)}（Bid/Strike）｜${formatNumber(midStrike, 4)}（Mid/Strike）<br/>Spread: ${formatNumber(row.spreadPct, 1)}%<br/>Delta: ${row.delta ?? ''}｜IV: ${row.iv ?? ''}${levelText}`;
         },
       },
       toolbox: {
@@ -332,7 +487,7 @@ function BobblePage() {
         },
       }],
     }, true);
-  }, [chain, currentPrice, currentPriceAsOf, filteredRows, filters, loadedSymbol]);
+  }, [chain, currentPrice, currentPriceAsOf, filteredRows, filters, loadedSymbol, priceLevels]);
 
   const applyCoreZoom = () => {
     const baseRows = (chain?.contracts || []).filter((row) => (
@@ -361,7 +516,7 @@ function BobblePage() {
             Bobble｜Option Chain 宏觀泡泡圖
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            輸入 symbol 後由後端代呼 Schwab API。X 軸 = Strike，Y 軸 = DTE，泡泡大小 = Mid/Strike，顏色 = bid/ask spread%。
+            輸入 symbol 後由後端代呼 Schwab API。X 軸 = Strike，Y 軸 = DTE，泡泡大小 = Mid/Strike，顏色 = bid/ask spread%；支撐/壓力線由後端用一年 OHLCV 計算。
           </Typography>
           <Card variant="outlined">
             <CardContent>
@@ -397,6 +552,10 @@ function BobblePage() {
                 <Grid item xs={12} md={2.3}>
                   <FormControl fullWidth size="small"><InputLabel>點大小</InputLabel><Select label="點大小" value={filters.sizeMode} onChange={setFilter('sizeMode')}><MenuItem value="quantileRatio">Quantile(Mid/Strike)</MenuItem><MenuItem value="power035Ratio">Power 0.35</MenuItem><MenuItem value="sqrtRatio">sqrt(Mid/Strike)</MenuItem><MenuItem value="linearRatio">linear(Mid/Strike)</MenuItem></Select></FormControl>
                 </Grid>
+                <Grid item xs={6} md={1.8}>
+                  <FormControl fullWidth size="small"><InputLabel>支撐/壓力線</InputLabel><Select label="支撐/壓力線" value={filters.showLevels} onChange={setFilter('showLevels')}><MenuItem value="auto">自動</MenuItem><MenuItem value="support">只支撐</MenuItem><MenuItem value="resistance">只壓力</MenuItem><MenuItem value="all">全部</MenuItem><MenuItem value="off">關閉</MenuItem></Select></FormControl>
+                </Grid>
+                <Grid item xs={6} md={1.4}><TextField fullWidth size="small" label="線強度 ≥" value={filters.minLevelStrength} onChange={setFilter('minLevelStrength')} /></Grid>
                 <Grid item xs={6} md={1.4}><TextField fullWidth size="small" label="Strike Min" value={filters.strikeMin} onChange={setFilter('strikeMin')} /></Grid>
                 <Grid item xs={6} md={1.4}><TextField fullWidth size="small" label="Strike Max" value={filters.strikeMax} onChange={setFilter('strikeMax')} /></Grid>
                 <Grid item xs={6} md={1.4}><TextField fullWidth size="small" label="DTE Min" value={filters.viewMinDte} onChange={setFilter('viewMinDte')} /></Grid>
@@ -413,12 +572,20 @@ function BobblePage() {
         </Box>
 
         {error && <Alert severity="error" sx={{ width: '100%', maxWidth: 1250 }}>{error}</Alert>}
+        {levelsError && <Alert severity="warning" sx={{ width: '100%', maxWidth: 1250 }}>期權鏈已載入，但支撐/壓力線未載入：{levelsError}</Alert>}
+        {supportResistance?.status === 'degraded' && !levelsError && (
+          <Alert severity="info" sx={{ width: '100%', maxWidth: 1250 }}>
+            支撐/壓力線為降級結果：{(supportResistance.warnings || []).join('、') || '資料不足或強度篩選後無高品質價位'}
+          </Alert>
+        )}
 
         <Box sx={{ width: '100%', maxWidth: 1250 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             顯示 <strong>{formatNumber(filteredRows.length)}</strong> 張 {filters.optionType}；總 OI <strong>{formatNumber(totalOi)}</strong>；總成交量 <strong>{formatNumber(totalVolume)}</strong>
             {chain?.summary ? `；全鏈 ${formatNumber(chain.summary.contracts)} 張，${formatNumber(chain.summary.expirations)} 個到期日` : ''}
             {currentPrice !== null ? `；現價 ${formatNumber(currentPrice, 2)}（${currentPriceAsOf}）` : ''}
+            {supportResistance?.levels ? `；支撐/壓力線 ${formatNumber(priceLevels.length)} 條（${supportResistance.status}）` : ''}
+            {supportResistance?.sellPutSupportBuckets ? `；Sell Put 支撐區 ${formatNumber(supportResistance.sellPutSupportBuckets.length)} 個（${supportResistance.asOf || ''}）` : ''}
           </Typography>
           <Box ref={chartRef} sx={{ width: '100%', height: 760, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }} />
         </Box>
