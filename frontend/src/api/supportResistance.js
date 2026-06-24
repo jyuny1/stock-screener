@@ -27,6 +27,6 @@ export const fetchSupportResistance = async (symbol, params = {}) => {
 };
 
 export const fetchSoxlSupportSnapshot = async () => {
-  const response = await apiClient.get('/soxl/support-snapshot', { timeout: 60000 });
+  const response = await apiClient.get('/v1/soxl/support-snapshot', { timeout: 60000 });
   return response.data;
 };

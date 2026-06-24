@@ -696,7 +696,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload, status = public_error_payload("support_resistance_failed", exc)
                 self.send_json(payload, status)
             return
-        if parsed.path == "/api/soxl/support-snapshot":
+        if parsed.path in ("/api/soxl/support-snapshot", "/api/v1/soxl/support-snapshot"):
             try:
                 self.send_json(fetch_soxl_support_snapshot(self.soxl_d1_database_name))
             except Exception as exc:

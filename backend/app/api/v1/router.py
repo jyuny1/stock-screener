@@ -46,6 +46,8 @@ _include("ticker_validation", prefix="/ticker-validation", tags=["ticker-validat
 _include("filter_presets", prefix="/filter-presets", tags=["filter-presets"])
 _include("features", prefix="/features", tags=["features"])
 _include("options", prefix="/options", tags=["options"])
+_include("soxl", prefix="/soxl", tags=["soxl"])
+_include("support_resistance", prefix="/support-resistance", tags=["support-resistance"])
 
 _include("cache", tags=["cache"])
 _include("fundamentals", tags=["fundamentals"])
