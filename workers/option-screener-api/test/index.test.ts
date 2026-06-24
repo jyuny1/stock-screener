@@ -175,8 +175,10 @@ const makeEnv = (): Env => ({
       as_of_date: '2026-06-05',
       rows_total: 3,
       chunks: [{ path: 'markets/us/scan/chunks/chunk-0001.json', count: 3 }],
+      api_chunks: [{ path: 'markets/us/scan/api-chunks/chunk-0001.json', count: 3 }],
     },
     'static-data/markets/us/scan/chunks/chunk-0001.json': { rows },
+    'static-data/markets/us/scan/api-chunks/chunk-0001.json': { rows },
   }) as unknown as R2Bucket,
 });
 

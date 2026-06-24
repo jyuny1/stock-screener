@@ -27,6 +27,20 @@ from app.services.preset_screens import PRESET_SCREENS
 STATIC_SITE_SCHEMA_VERSION = "static-site-v2"
 SCAN_BUNDLE_SCHEMA_VERSION = "static-scan-v1"
 SCAN_CHUNK_SIZE = 1000
+SCAN_API_FIELDS = (
+    "symbol",
+    "current_price",
+    "volume",
+    "adv_usd",
+    "price_change_1d",
+    "rs_trend",
+    "rs_rating",
+    "adr_percent",
+    "ma_alignment",
+    "market_cap",
+    "gics_sector",
+    "ibd_industry_group",
+)
 DEFAULT_MARKET = "US"
 DEFAULT_MARKET_DISPLAY = "United States"
 SCHWAB_MARKETDATA_BASE_URL = "https://api.schwabapi.com/marketdata/v1"
@@ -1392,6 +1406,10 @@ def _filter_options(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     }
 
 
+def _scan_api_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {field: row.get(field) for field in SCAN_API_FIELDS}
+
+
 def _build_scan(
     output_dir: Path,
     *,
@@ -1408,8 +1426,11 @@ def _build_scan(
 ) -> dict[str, Any]:
     scan_dir = output_dir / "markets" / "us" / "scan"
     chunks_dir = scan_dir / "chunks"
+    api_chunks_dir = scan_dir / "api-chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
+    api_chunks_dir.mkdir(parents=True, exist_ok=True)
     chunk_refs = []
+    api_chunk_refs = []
     for index in range(0, len(rows), SCAN_CHUNK_SIZE):
         chunk = rows[index:index + SCAN_CHUNK_SIZE]
         chunk_num = index // SCAN_CHUNK_SIZE + 1
@@ -1430,6 +1451,18 @@ def _build_scan(
             "rows": chunk,
         })
         chunk_refs.append({"path": rel.as_posix(), "count": len(chunk)})
+
+        api_rel = Path("markets/us/scan/api-chunks") / f"chunk-{chunk_num:04d}.json"
+        api_chunk = [_scan_api_row(row) for row in chunk]
+        _write_json(output_dir / api_rel, {
+            "schema_version": SCAN_BUNDLE_SCHEMA_VERSION,
+            "generated_at": generated_at,
+            "as_of_date": as_of_date,
+            "chunk_index": chunk_num,
+            "fields": list(SCAN_API_FIELDS),
+            "rows": api_chunk,
+        })
+        api_chunk_refs.append({"path": api_rel.as_posix(), "count": len(api_chunk)})
 
     default_filters = {"minVolume": None}
     manifest = {
@@ -1453,6 +1486,7 @@ def _build_scan(
         "filter_options": _filter_options(rows),
         "preset_screens": PRESET_SCREENS,
         "chunks": chunk_refs,
+        "api_chunks": api_chunk_refs,
         "initial_rows": rows[:50],
         "preview_rows": rows[:10],
         "charts": {"path": "markets/us/charts/manifest.json", "limit": 0, "symbols_total": 0, "available": False},

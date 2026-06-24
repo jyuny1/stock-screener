@@ -214,7 +214,9 @@ const loadRows = async (env: Env): Promise<CachedRows> => {
     readR2Json<Record<string, unknown>>(env, 'markets/us/scan/manifest.json'),
   ]);
 
-  const chunks = Array.isArray(scanManifest.chunks) ? scanManifest.chunks : [];
+  const chunks = Array.isArray(scanManifest.api_chunks)
+    ? scanManifest.api_chunks
+    : (Array.isArray(scanManifest.chunks) ? scanManifest.chunks : []);
   const chunkPayloads = await Promise.all(chunks.map((chunk) => {
     if (!chunk || typeof chunk !== 'object' || typeof (chunk as { path?: unknown }).path !== 'string') {
       throw new Error('invalid scan chunk manifest entry');
