@@ -113,7 +113,7 @@ function decisionZonesFromBuckets(snapshot,xMin,xMax){
   });
   return [...grouped.values()]
     .map(z=>({...z, low:Math.max(z.low,xMin), high:Math.min(z.high,xMax)}))
-    .filter(z=>z.classification !== 'avoid')
+    .filter(z=>!['avoid','tail_reference'].includes(z.classification))
     .filter(z=>Number.isFinite(z.low)&&Number.isFinite(z.high)&&z.high>z.low)
     .sort((a,b)=>order.indexOf(a.classification)-order.indexOf(b.classification));
 }
