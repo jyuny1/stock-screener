@@ -126,6 +126,12 @@ def _normalize_intraday(candles: list[dict[str, Any]], symbol: str, created_at: 
     return rows
 
 
+def _keep_latest_trading_dates(rows: list[dict[str, Any]], days: int) -> list[dict[str, Any]]:
+    dates = sorted({str(row["trading_date"]) for row in rows})
+    keep = set(dates[-days:]) if days > 0 else set(dates)
+    return [row for row in rows if row["trading_date"] in keep]
+
+
 def _schema_sql() -> list[str]:
     return [
         "CREATE TABLE IF NOT EXISTS soxl_intraday_candles (symbol TEXT NOT NULL DEFAULT 'SOXL', ts INTEGER NOT NULL, trading_date TEXT NOT NULL, datetime_et TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL, session TEXT NOT NULL DEFAULT 'regular', provider TEXT NOT NULL DEFAULT 'schwab', created_at TEXT NOT NULL, PRIMARY KEY (symbol, ts))",
@@ -209,7 +215,10 @@ def main() -> int:
         "needExtendedHoursData": "false",
         "needPreviousClose": "true",
     })
-    intraday = _normalize_intraday(intraday_raw, symbol, created_at)
+    intraday = _keep_latest_trading_dates(
+        _normalize_intraday(intraday_raw, symbol, created_at),
+        args.intraday_period_days,
+    )
     daily = _normalize_daily(daily_raw, symbol, created_at)
     if not daily:
         raise RuntimeError("No daily candles returned")
