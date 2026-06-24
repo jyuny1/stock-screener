@@ -82,3 +82,7 @@ backend/tests/load/baselines/current_run.json
 
 # Wrangler local state
 .wrangler/
+
+# Local agent and scratch files
+AGENTS.md
+tmp/

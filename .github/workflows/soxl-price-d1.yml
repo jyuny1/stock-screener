@@ -1,0 +1,148 @@
+name: SOXL Price D1 Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      d1_database_name:
+        description: "Optional SOXL price D1 database name override. Defaults to SOXL_PRICE_D1_DATABASE_NAME repo variable."
+        required: false
+        type: string
+        default: ""
+      intraday_period_days:
+        description: "Schwab 1-minute period days. Valid values: 1, 2, 3, 4, 5, 10."
+        required: false
+        type: choice
+        default: "10"
+        options: ["1", "2", "3", "4", "5", "10"]
+      daily_period_years:
+        description: "Schwab daily history years."
+        required: false
+        type: choice
+        default: "5"
+        options: ["1", "2", "3", "5", "10", "15", "20"]
+      intraday_retention_days:
+        description: "D1 retention days for 1-minute candles."
+        required: false
+        type: string
+        default: "180"
+  schedule:
+    # Weekdays after the regular US session. This job is independent from static-site.
+    - cron: "0 23 * * 1-5"
+
+concurrency:
+  # Schwab refresh tokens are single-use; share the lock with other Schwab workflows.
+  group: schwab-token-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  import-soxl-price-d1:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    env:
+      SOXL_D1_DATABASE_NAME: ${{ inputs.d1_database_name || vars.SOXL_PRICE_D1_DATABASE_NAME }}
+      INTRADAY_PERIOD_DAYS: ${{ inputs.intraday_period_days || '10' }}
+      DAILY_PERIOD_YEARS: ${{ inputs.daily_period_years || '5' }}
+      INTRADAY_RETENTION_DAYS: ${{ inputs.intraday_retention_days || '180' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate workflow settings
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          SCHWAB_SECRET_WRITE_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            SCHWAB_CLIENT_ID \
+            SCHWAB_CLIENT_SECRET \
+            SCHWAB_REFRESH_TOKEN \
+            SCHWAB_SECRET_WRITE_TOKEN \
+            SOXL_D1_DATABASE_NAME; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required SOXL D1 workflow setting: ${name}" >&2
+              missing=1
+            fi
+          done
+          case "$INTRADAY_RETENTION_DAYS" in
+            ''|*[!0-9]*) echo "intraday_retention_days must be numeric" >&2; missing=1 ;;
+          esac
+          echo "SOXL D1 target: ${SOXL_D1_DATABASE_NAME}"
+          exit "$missing"
+
+      - name: Refresh Schwab token and persist rotation
+        env:
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m app.scripts.refresh_schwab_oauth_token \
+            --access-token-file /tmp/schwab-access-token.txt \
+            --refresh-token-file /tmp/schwab-new-refresh-token.txt
+          echo "::add-mask::$(cat /tmp/schwab-access-token.txt)"
+          echo "::add-mask::$(cat /tmp/schwab-new-refresh-token.txt)"
+          echo "SCHWAB_ACCESS_TOKEN=$(cat /tmp/schwab-access-token.txt)" >> "$GITHUB_ENV"
+          cat /tmp/schwab-new-refresh-token.txt | gh secret set SCHWAB_REFRESH_TOKEN \
+            --repo "${{ github.repository }}" \
+            --app actions
+
+      - name: Build SOXL price D1 import SQL
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m app.scripts.build_soxl_price_d1_import \
+            --symbol SOXL \
+            --intraday-period-days "$INTRADAY_PERIOD_DAYS" \
+            --daily-period-years "$DAILY_PERIOD_YEARS" \
+            --retention-days "$INTRADAY_RETENTION_DAYS" \
+            --output /tmp/soxl-price-d1.sql
+          test -s /tmp/soxl-price-d1.sql
+
+      - name: Import SOXL price data into D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --file /tmp/soxl-price-d1.sql
+
+      - name: Validate SOXL D1 import
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
+            "SELECT 'daily' AS table_name, COUNT(*) AS rows_total, MAX(trading_date) AS latest_date FROM soxl_daily_candles UNION ALL SELECT 'intraday' AS table_name, COUNT(*) AS rows_total, MAX(trading_date) AS latest_date FROM soxl_intraday_candles" \
+            > /tmp/soxl-d1-counts.json
+          cat /tmp/soxl-d1-counts.json
+          python - <<'PY'
+          import json
+          payload = json.load(open('/tmp/soxl-d1-counts.json', encoding='utf-8'))
+          rows = payload[0].get('results', []) if payload else []
+          counts = {row['table_name']: int(row['rows_total'] or 0) for row in rows}
+          if counts.get('daily', 0) <= 0 or counts.get('intraday', 0) <= 0:
+              raise SystemExit(f'SOXL D1 import validation failed: {rows}')
+          print({'validated_counts': counts})
+          PY
