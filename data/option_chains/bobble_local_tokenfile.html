@@ -97,8 +97,25 @@ function dedupeLevels(levels){ const seen=new Set(); return levels.filter(l=>{ c
 function candidateLevels(currentPrice,type){ const filtered=dedupeLevels([...(supportResistance?.levels||[])]).filter(l=>shouldShowLevel(l,currentPrice,type)); return filtered.sort((a,b)=>Math.abs((a.price??0)-(currentPrice??a.price??0))-Math.abs((b.price??0)-(currentPrice??b.price??0)) || (isConfirmedLevel(b)-isConfirmedLevel(a)) || levelScore(b)-levelScore(a)).slice(0,8); }
 function displayLevels(currentPrice,type,xMin,xMax){ return candidateLevels(currentPrice,type).filter(l=>l.price>=xMin&&l.price<=xMax); }
 function nearestLevel(strike,levels){ if(!strike||!levels.length) return null; return levels.reduce((best,l)=>!best||Math.abs(l.price-strike)<Math.abs(best.price-strike)?l:best,null); }
+function parseBucketRange(range){ const parts=String(range||'').split('-').map(v=>Number(v.trim())).filter(Number.isFinite); return parts.length===2 ? {low:Math.min(parts[0],parts[1]), high:Math.max(parts[0],parts[1])} : null; }
 function bucketToLevel(bucket){ const center=Number(bucket?.center); if(!Number.isFinite(center)) return null; return {type:'support',kind:'sell_put_bucket',category:'sell_put_bucket',price:center,strength:Number(bucket?.score ?? 100),confirmationScore:Number(bucket?.score ?? 100),displayPriority:Number(bucket?.score ?? 100),classification:bucket?.classification,role:bucket?.role,range:bucket?.range,reason:bucket?.reason,distanceToSpotPct:bucket?.distanceToSpotPct,confirmationLabel:bucketLabel(bucket?.classification),sources:['soxl_support_snapshots']}; }
-function normalizeSoxlSnapshot(snapshot){ const buckets=snapshot?.sellPutSupportBuckets || []; return {symbol:'SOXL',status:'snapshot',asOf:snapshot?.asOf,spot:snapshot?.spot,source:snapshot?.source,sellPutSupportBuckets:buckets,levels:buckets.map(bucketToLevel).filter(Boolean)}; }
+function normalizeSoxlSnapshot(snapshot){ const buckets=snapshot?.sellPutSupportBuckets || []; return {symbol:'SOXL',status:'snapshot',asOf:snapshot?.asOf,spot:snapshot?.spot,source:snapshot?.source,sellPutSupportBuckets:buckets,levels:[]}; }
+function decisionZonesFromBuckets(snapshot,xMin,xMax){
+  if(snapshot?.status !== 'snapshot') return [];
+  const order=['conservative_sell','conditional_sell','watch','avoid'];
+  const grouped=new Map();
+  (snapshot.sellPutSupportBuckets||[]).forEach(bucket=>{
+    const r=parseBucketRange(bucket.range); if(!r) return;
+    const key=bucket.classification || 'zone';
+    const current=grouped.get(key) || {classification:key, low:r.low, high:r.high, count:0};
+    current.low=Math.min(current.low,r.low); current.high=Math.max(current.high,r.high); current.count+=1;
+    grouped.set(key,current);
+  });
+  return [...grouped.values()]
+    .map(z=>({...z, low:Math.max(z.low,xMin), high:Math.min(z.high,xMax)}))
+    .filter(z=>Number.isFinite(z.low)&&Number.isFinite(z.high)&&z.high>z.low)
+    .sort((a,b)=>order.indexOf(a.classification)-order.indexOf(b.classification));
+}
 const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const latexNum = (v,d=2) => Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '0';
 const clamp = (value,min,max) => Math.max(min, Math.min(max, value));
@@ -481,11 +498,12 @@ function draw(){
   const xMin=num('xMin',xAutoMin), xMax=num('xMax',xAutoMax), yMin=num('viewMinDte',Math.floor(yAutoMin)), yMax=num('viewMaxDte',Math.ceil(yAutoMax));
   const yMode=$('yMode').value, dteCats=[...new Set(rs.map(r=>r.dte))].sort((a,b)=>a-b).map(String);
   const data=rs.map(r=>({value:yMode==='category'?[r.strike,String(r.dte),r.openInterest,r.spreadPct??999,r.volume,r.bid,r.ask,r.mid,thetaYieldPct(r)]:[r.strike,r.dte,r.openInterest,r.spreadPct??999,r.volume,r.bid,r.ask,r.mid,thetaYieldPct(r)], itemStyle:{borderColor:r.volume>0?'#111':'transparent',borderWidth:r.volume>0?1:0,opacity:.72}, raw:r}));
-  const shownLevels=displayLevels(currentPrice,type,xMin,xMax);
+  const decisionZones=decisionZonesFromBuckets(supportResistance,xMin,xMax);
+  const shownLevels=supportResistance?.status === 'snapshot' ? [] : displayLevels(currentPrice,type,xMin,xMax);
   renderIvCharts(rows);
   renderThetaChart(rs);
   renderLevelDetails(supportResistance?.levels||[]);
-  $('summary').innerHTML = chain ? `顯示 <span class="stat">${fmt(rs.length)}</span> 張 ${type} 價外合約；DTE ≤ ${fmt(num('maxDte',45),0)}，Spread ≤ ${fmt(num('maxSpread',20),0)}%，OI ≥ ${fmt(num('minOi',100),0)}，ROC ≥ ${fmt(num('minRocPct',3),1)}%；最大價外距離 ${fmt(num('maxOtmPct',45),0)}%，最低 Bid ${fmt(num('minBid',0.10),2)}，最小 |Delta| ${fmt(num('minAbsDelta',0.03),2)}；總 OI <span class="stat">${fmt(totalOi)}</span>；總成交量 <span class="stat">${fmt(totalVol)}</span>；全鏈 ${fmt(rows.length)} 張；現價 ${fmt(currentPrice,2)}（${currentPriceAsOf}）；支撐/壓力線 ${fmt((supportResistance?.levels||[]).length)} 條，目前顯示 ${fmt(shownLevels.length)} 條` : '尚未載入資料。';
+  $('summary').innerHTML = chain ? `顯示 <span class="stat">${fmt(rs.length)}</span> 張 ${type} 價外合約；DTE ≤ ${fmt(num('maxDte',45),0)}，Spread ≤ ${fmt(num('maxSpread',20),0)}%，OI ≥ ${fmt(num('minOi',100),0)}，ROC ≥ ${fmt(num('minRocPct',3),1)}%；最大價外距離 ${fmt(num('maxOtmPct',45),0)}%，最低 Bid ${fmt(num('minBid',0.10),2)}，最小 |Delta| ${fmt(num('minAbsDelta',0.03),2)}；總 OI <span class="stat">${fmt(totalOi)}</span>；總成交量 <span class="stat">${fmt(totalVol)}</span>；全鏈 ${fmt(rows.length)} 張；現價 ${fmt(currentPrice,2)}（${currentPriceAsOf}）；${supportResistance?.status==='snapshot' ? `Sell Put 決策區 ${fmt(decisionZones.length)} 個（${supportResistance.asOf||''}）` : `支撐/壓力線 ${fmt((supportResistance?.levels||[]).length)} 條，目前顯示 ${fmt(shownLevels.length)} 條`}` : '尚未載入資料。';
   const markLines=[]; if(currentPrice!=null && currentPrice>=xMin && currentPrice<=xMax) markLines.push({xAxis:currentPrice,name:`${chain.symbol} 現價`,label:{formatter:`${chain.symbol} 現價 ${fmt(currentPrice,2)}\n${currentPriceAsOf}`,position:'insideEndTop'}});
   shownLevels.forEach(level=>{ const label=levelLabel(level); markLines.push({xAxis:level.price,name:`${label} ${fmt(level.price,2)}`,lineStyle:{type:levelLineType(level),color:levelColor(level),width:levelLineWidth(level)},label:{formatter:`${label} ${fmt(level.price,2)}\n${levelCaption(level)}`,position:level.type==='support'?'insideEndBottom':'insideEndTop'}}); });
   chart.setOption({animation:false,title:{text:`${chain.symbol} ${type}｜Strike × DTE × Theta yield bubble × Bid/Ask Spread`,left:16,top:10},grid:{left:72,right:128,top:80,bottom:105},tooltip:{trigger:'item',confine:true,formatter:p=>{
@@ -528,7 +546,7 @@ function draw(){
     <div style="font-weight:700;margin-bottom:6px">${r.contractSymbol}｜權利金: $${fmt((r.bid||0)*100,0)}｜${r.expirationDate}｜DTE:${r.dte}｜合約數 ${fmt(dteSampleCount)}</div>
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:8px;line-height:1.45;align-items:stretch">${left}${right}</div>
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:10px;line-height:1.45;align-items:stretch">${riskPanel}${distancePanel}</div>
-  </div>`;}},toolbox:{right:16,top:10,feature:{dataZoom:{yAxisIndex:yMode==='category'?false:'none'},restore:{},saveAsImage:{}}},visualMap:{type:'piecewise',right:15,top:120,dimension:3,itemWidth:14,itemHeight:14,pieces:[{lte:10,label:'spread ≤10%',color:'#2ca25f'},{gt:10,lte:30,label:'10–30%',color:'#fdae61'},{gt:30,lte:60,label:'30–60%',color:'#f46d43'},{gt:60,label:'>60%',color:'#b2182b'}]},xAxis:{type:'value',name:'Strike',min:xMin,max:xMax,scale:true,splitLine:{lineStyle:{color:'#ddd'}}},yAxis:yMode==='category'?{type:'category',name:'DTE',data:dteCats,boundaryGap:true,splitLine:{show:true,lineStyle:{color:'#ddd'}}}:{type:'value',name:'DTE',min:yMin,max:yMax,scale:true,splitLine:{lineStyle:{color:'#ddd'}}},dataZoom:[{type:'slider',xAxisIndex:0,bottom:35,height:22,filterMode:'none'},{type:'inside',xAxisIndex:0,filterMode:'none'},...(yMode==='category'?[]:[{type:'slider',yAxisIndex:0,right:78,width:18,filterMode:'none'},{type:'inside',yAxisIndex:0,filterMode:'none'}])],series:[{name:`${type} contracts`,type:'scatter',data,encode:{x:0,y:1},symbolSize:symbolSizeFactory(maxThetaYield,ranks),markLine:{symbol:'none',lineStyle:{type:'dashed',color:'#111'},data:markLines}}]}, true);
+  </div>`;}},toolbox:{right:16,top:10,feature:{dataZoom:{yAxisIndex:yMode==='category'?false:'none'},restore:{},saveAsImage:{}}},visualMap:{type:'piecewise',right:15,top:120,dimension:3,itemWidth:14,itemHeight:14,pieces:[{lte:10,label:'spread ≤10%',color:'#2ca25f'},{gt:10,lte:30,label:'10–30%',color:'#fdae61'},{gt:30,lte:60,label:'30–60%',color:'#f46d43'},{gt:60,label:'>60%',color:'#b2182b'}]},xAxis:{type:'value',name:'Strike',min:xMin,max:xMax,scale:true,splitLine:{lineStyle:{color:'#ddd'}}},yAxis:yMode==='category'?{type:'category',name:'DTE',data:dteCats,boundaryGap:true,splitLine:{show:true,lineStyle:{color:'#ddd'}}}:{type:'value',name:'DTE',min:yMin,max:yMax,scale:true,splitLine:{lineStyle:{color:'#ddd'}}},dataZoom:[{type:'slider',xAxisIndex:0,bottom:35,height:22,filterMode:'none'},{type:'inside',xAxisIndex:0,filterMode:'none'},...(yMode==='category'?[]:[{type:'slider',yAxisIndex:0,right:78,width:18,filterMode:'none'},{type:'inside',yAxisIndex:0,filterMode:'none'}])],series:[{name:`${type} contracts`,type:'scatter',data,encode:{x:0,y:1},symbolSize:symbolSizeFactory(maxThetaYield,ranks),markLine:{symbol:'none',lineStyle:{type:'dashed',color:'#111'},data:markLines},markArea:{silent:true,itemStyle:{opacity:0.10},data:markAreas}}]}, true);
 }
 function zoomCore(){ const rs=filteredRows(); if(!rs.length) return; let [lo,hi]=padRange(weightedQuantile(rs,.05), weightedQuantile(rs,.95), .08); $('xMin').value=Math.floor(lo); $('xMax').value=Math.ceil(hi); draw(); }
 $('load').onclick=loadChain; $('zoomCore').onclick=zoomCore; $('resetView').onclick=()=>{['xMin','xMax','viewMinDte','viewMaxDte','ivYMin','ivYMax'].forEach(id=>$(id).value='');draw();};
