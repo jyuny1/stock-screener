@@ -298,6 +298,40 @@ jobs:
           test -s "$sql_file"
           npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --file "$sql_file"
 
+      - name: Validate option D1 snapshot date
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
+          SELECT
+            (SELECT value FROM metadata WHERE key = 'as_of_date') AS option_snapshot_date,
+            (SELECT value FROM metadata WHERE key = 'underlying_reference_date') AS underlying_reference_date,
+            MAX(snapshot_date) AS latest_snapshot_date,
+            MAX(asof) AS latest_asof,
+            SUM(CASE WHEN snapshot_date = (SELECT value FROM metadata WHERE key = 'as_of_date') THEN 1 ELSE 0 END) AS snapshot_rows
+          FROM option_contract_liquidity_snapshots
+          " > /tmp/option-d1-snapshot-validation.json
+          python - <<'PY'
+          import json
+          row = json.load(open('/tmp/option-d1-snapshot-validation.json', encoding='utf-8'))[0]['results'][0]
+          option_snapshot_date = str(row.get('option_snapshot_date') or '')[:10]
+          latest_snapshot_date = str(row.get('latest_snapshot_date') or '')[:10]
+          latest_asof_date = str(row.get('latest_asof') or '')[:10]
+          snapshot_rows = int(row.get('snapshot_rows') or 0)
+          if not option_snapshot_date:
+              raise SystemExit(f"missing option D1 metadata as_of_date: {row}")
+          if latest_snapshot_date != option_snapshot_date:
+              raise SystemExit(f"latest snapshot mismatch: {row}")
+          if latest_asof_date and latest_asof_date != option_snapshot_date:
+              raise SystemExit(f"option chain asof date does not match snapshot_date: {row}")
+          if snapshot_rows <= 0:
+              raise SystemExit(f"latest option snapshot has no rows: {row}")
+          print(row)
+          PY
+
       - name: Recalculate option volume and PCR aggregates from D1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

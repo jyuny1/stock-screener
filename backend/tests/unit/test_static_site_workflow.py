@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.scripts.build_static_site_from_artifacts import (
     _enrich_rows_with_option_pcr,
+    _write_option_contract_d1_import_sql,
     build_static_site_from_artifacts,
 )
 
@@ -73,6 +74,41 @@ def test_option_pcr_enrichment_skips_when_schwab_refresh_fails(monkeypatch) -> N
     assert rows[0]["option_pcr_volume_14_28dte_error"].startswith("Option PCR enrichment skipped")
     assert rows[0]["option_pcr_volume_14_28dte_provider"] == "schwab"
     assert rows[1]["option_pcr_volume_14_28dte"] == 0.8
+
+
+def test_option_d1_import_uses_option_snapshot_date_not_underlying_reference(tmp_path: Path) -> None:
+    rows = [
+        {
+            "symbol": "AAPL",
+            "_option_contracts_14_28dte": [
+                {
+                    "option_type": "PUT",
+                    "contract_symbol": "AAPL 260626P00100000",
+                    "expiration_date": "2026-06-26",
+                    "strike": 100,
+                    "bid": 1.0,
+                    "ask": 1.2,
+                    "volume": 10,
+                    "open_interest": 100,
+                    "asof": "2026-06-24T03:35:00+00:00",
+                }
+            ],
+        }
+    ]
+
+    _write_option_contract_d1_import_sql(
+        rows,
+        output_dir=tmp_path,
+        generated_at="2026-06-24T03:35:00Z",
+        as_of_date="2026-06-24",
+        underlying_reference_date="2026-06-23",
+    )
+
+    sql = (tmp_path / "markets/us/options/option-contract-liquidity-d1.sql").read_text(encoding="utf-8")
+    assert "('as_of_date', '2026-06-24')" in sql
+    assert "('underlying_reference_date', '2026-06-23')" in sql
+    assert "'2026-06-24', 'AAPL', 'PUT'" in sql
+    assert "'2026-06-23', 'AAPL', 'PUT'" not in sql
 
 
 def test_artifact_native_static_export_matches_frontend_contract(tmp_path: Path) -> None:
