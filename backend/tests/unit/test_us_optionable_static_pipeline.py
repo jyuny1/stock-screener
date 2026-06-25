@@ -297,9 +297,9 @@ def test_workflows_default_static_us_to_optionable():
     assert "DATABASE_URL" not in weekly
     assert "build_static_site_from_artifacts" in static
     assert "--foundation-update \"$FOUNDATION_UPDATE_BUNDLE\"" in static
-    assert "Refresh Schwab token and persist rotation" in static
-    assert "SCHWAB_SECRET_WRITE_TOKEN" in static
-    assert "refresh_schwab_oauth_token" in static
+    assert "Request Schwab access token from broker" in static
+    assert "SCHWAB_TOKEN_BROKER_URL" in static
+    assert "refresh_schwab_oauth_token" not in static
     assert "cron: '0 * * * *'" in optionable
     assert "target is every other Sunday 20:00 America/New_York" in optionable
     assert "TZ=Asia/Taipei" in optionable
