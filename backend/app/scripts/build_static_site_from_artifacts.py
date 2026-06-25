@@ -426,7 +426,13 @@ def _option_pcr_error_fields(message: str) -> dict[str, Any]:
     }
 
 
-def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]], *, tracked_symbols: list[str]) -> int:
+def _enrich_rows_with_option_pcr(
+    rows: list[dict[str, Any]],
+    *,
+    tracked_symbols: list[str],
+    option_snapshot_at: datetime | None = None,
+) -> int:
+    snapshot_at = option_snapshot_at or datetime.now(timezone.utc)
     rows_by_symbol = {str(row.get("symbol") or "").upper().strip(): row for row in rows if row.get("symbol")}
     target_rows = [rows_by_symbol[symbol] for symbol in tracked_symbols if symbol in rows_by_symbol]
     started_at = time.monotonic()
@@ -456,13 +462,13 @@ def _enrich_rows_with_option_pcr(rows: list[dict[str, Any]], *, tracked_symbols:
         if index == 1 or index % 25 == 0 or index == len(target_rows):
             _log("Option PCR enrichment progress", index=index, total=len(target_rows), symbol=symbol, updated=updated, errors=errors, elapsed_seconds=round(time.monotonic() - started_at, 1))
         try:
-            row.update(_fetch_option_pcr(symbol, access_token=access_token))
+            row.update(_fetch_option_pcr(symbol, access_token=access_token, today=snapshot_at))
             updated += 1
         except error.HTTPError as exc:
             if exc.code in (401, 403):
                 try:
                     access_token = _refresh_schwab_access_token()
-                    row.update(_fetch_option_pcr(symbol, access_token=access_token))
+                    row.update(_fetch_option_pcr(symbol, access_token=access_token, today=snapshot_at))
                     updated += 1
                     if OPTION_PCR_REQUEST_INTERVAL_SECONDS and index < len(target_rows) - 1:
                         time.sleep(OPTION_PCR_REQUEST_INTERVAL_SECONDS)
@@ -704,6 +710,7 @@ def _write_option_contract_d1_import_sql(
     output_dir: Path,
     generated_at: str,
     as_of_date: str,
+    underlying_reference_date: str | None = None,
     retention_days: int = 90,
 ) -> dict[str, Any]:
     sql_path = output_dir / "markets/us/options/option-contract-liquidity-d1.sql"
@@ -765,6 +772,7 @@ def _write_option_contract_d1_import_sql(
         f"('schema_version', 'option-contract-liquidity-d1-v4'), "
         f"('generated_at', {_sql_literal(generated_at)}), "
         f"('as_of_date', {_sql_literal(today_key)}), "
+        f"('underlying_reference_date', {_sql_literal(underlying_reference_date or '')}), "
         f"('min_dte', {_sql_literal(str(OPTION_PCR_MIN_DTE))}), "
         f"('max_dte', {_sql_literal(str(OPTION_PCR_MAX_DTE))}), "
         f"('retention_days', {_sql_literal(str(retention_days))})",
@@ -906,6 +914,7 @@ def _merge_option_contract_sqlite(
     output_dir: Path,
     generated_at: str,
     as_of_date: str,
+    underlying_reference_date: str | None = None,
     retention_days: int = 90,
 ) -> dict[str, Any]:
     db_path = output_dir / "markets/us/options/option-contract-liquidity.sqlite"
@@ -1108,6 +1117,7 @@ def _merge_option_contract_sqlite(
             "schema_version": "option-contract-liquidity-sqlite-v4",
             "generated_at": generated_at,
             "as_of_date": today_key,
+            "underlying_reference_date": underlying_reference_date or "",
             "min_dte": str(OPTION_PCR_MIN_DTE),
             "max_dte": str(OPTION_PCR_MAX_DTE),
             "retention_days": str(retention_days),
@@ -1631,27 +1641,49 @@ def build_static_site_from_artifacts(
         ))
     rows = _sort_rows(rows)
     _log("Built and sorted scan rows", rows=len(rows), elapsed_seconds=round(time.monotonic() - started_at, 1))
-    option_history_date = scan_as_of_date or price_as_of_date or as_of_date
-    _log("Building option tracking pool", as_of_date=option_history_date)
+    underlying_reference_date = scan_as_of_date or price_as_of_date or as_of_date
+    option_snapshot_at = datetime.now(timezone.utc).replace(microsecond=0)
+    option_snapshot_date = option_snapshot_at.date().isoformat()
+    _log(
+        "Building option tracking pool",
+        option_snapshot_date=option_snapshot_date,
+        underlying_reference_date=underlying_reference_date,
+    )
     option_tracking_pool = _build_option_tracking_pool(
         rows,
         generated_at=generated_at,
-        as_of_date=option_history_date,
+        as_of_date=option_snapshot_date,
     )
     _log("Built option tracking pool", active_count=option_tracking_pool["active_count"], max_symbols=option_tracking_pool["max_symbols"])
-    _enrich_rows_with_option_pcr(rows, tracked_symbols=option_tracking_pool["active_symbols"])
+    _enrich_rows_with_option_pcr(
+        rows,
+        tracked_symbols=option_tracking_pool["active_symbols"],
+        option_snapshot_at=option_snapshot_at,
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _log("Writing option tracking pool")
     _write_option_tracking_pool(output_dir, option_tracking_pool)
     _log("Merging option aggregate history")
-    _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _merge_option_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_snapshot_date)
     _log("Merging option contract SQLite")
-    _merge_option_contract_sqlite(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _merge_option_contract_sqlite(
+        rows,
+        output_dir=output_dir,
+        generated_at=generated_at,
+        as_of_date=option_snapshot_date,
+        underlying_reference_date=underlying_reference_date,
+    )
     _log("Writing option D1 import SQL")
-    _write_option_contract_d1_import_sql(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _write_option_contract_d1_import_sql(
+        rows,
+        output_dir=output_dir,
+        generated_at=generated_at,
+        as_of_date=option_snapshot_date,
+        underlying_reference_date=underlying_reference_date,
+    )
     _log("Merging option contract JSON history")
-    _merge_option_contract_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_history_date)
+    _merge_option_contract_history(rows, output_dir=output_dir, generated_at=generated_at, as_of_date=option_snapshot_date)
     _drop_private_option_contract_payloads(rows)
     _log("Building scan payload")
     scan_manifest = _build_scan(
