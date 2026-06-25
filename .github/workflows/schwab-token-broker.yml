@@ -1,0 +1,82 @@
+name: Schwab Token Broker
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: schwab-token-broker
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-deploy:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/schwab-token-broker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TOKEN_ENCRYPTION_KEY: ${{ secrets.SCHWAB_BROKER_TOKEN_ENCRYPTION_KEY }}
+      SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+      SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+      ADMIN_BOOTSTRAP_TOKEN: ${{ secrets.SCHWAB_BROKER_ADMIN_BOOTSTRAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: workers/schwab-token-broker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Validate deployment settings
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TOKEN_ENCRYPTION_KEY SCHWAB_CLIENT_ID SCHWAB_CLIENT_SECRET ADMIN_BOOTSTRAP_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required deployment setting: ${name}" >&2
+              missing=1
+            fi
+          done
+          case "$(printf '%s' "$TOKEN_ENCRYPTION_KEY" | wc -c | tr -d ' ')" in
+            16|24|32) ;;
+            *) echo "SCHWAB_BROKER_TOKEN_ENCRYPTION_KEY must be 16, 24, or 32 bytes" >&2; missing=1 ;;
+          esac
+          exit "$missing"
+
+      - name: Configure Cloudflare account
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          path = Path('wrangler.jsonc')
+          raw = path.read_text(encoding='utf-8')
+          raw = raw.replace(
+              '  "name": "stock-schwab-token-broker",',
+              '  "name": "stock-schwab-token-broker",\n  "account_id": "' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '",',
+          )
+          path.write_text(raw, encoding='utf-8')
+          PY
+
+      - name: Deploy Worker
+        run: npx wrangler deploy
+
+      - name: Configure Worker secrets
+        run: |
+          printf '%s' "$TOKEN_ENCRYPTION_KEY" | npx wrangler secret put TOKEN_ENCRYPTION_KEY
+          printf '%s' "$SCHWAB_CLIENT_ID" | npx wrangler secret put SCHWAB_CLIENT_ID
+          printf '%s' "$SCHWAB_CLIENT_SECRET" | npx wrangler secret put SCHWAB_CLIENT_SECRET
+          printf '%s' "$ADMIN_BOOTSTRAP_TOKEN" | npx wrangler secret put ADMIN_BOOTSTRAP_TOKEN
