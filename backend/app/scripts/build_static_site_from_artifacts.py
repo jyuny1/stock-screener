@@ -18,6 +18,7 @@ import sqlite3
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib import error, parse, request
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ OPTION_CHAIN_TRACKING_TOP_N = 500
 OPTION_CHAIN_TRACKING_RETENTION_DAYS = 90
 OPTION_CHAIN_MAX_FETCH_SYMBOLS = 500
 OPTION_PCR_REQUEST_INTERVAL_SECONDS = 0.5
+MARKET_TIME_ZONE = ZoneInfo("America/New_York")
 
 
 def _log(message: str, **fields: Any) -> None:
@@ -1642,7 +1644,7 @@ def build_static_site_from_artifacts(
     rows = _sort_rows(rows)
     _log("Built and sorted scan rows", rows=len(rows), elapsed_seconds=round(time.monotonic() - started_at, 1))
     underlying_reference_date = scan_as_of_date or price_as_of_date or as_of_date
-    option_snapshot_at = datetime.now(timezone.utc).replace(microsecond=0)
+    option_snapshot_at = datetime.now(MARKET_TIME_ZONE).replace(microsecond=0)
     option_snapshot_date = option_snapshot_at.date().isoformat()
     _log(
         "Building option tracking pool",
