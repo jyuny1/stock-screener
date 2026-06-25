@@ -50,12 +50,14 @@ def test_static_site_workflow_is_us_only_artifact_native_and_uses_rclone() -> No
     assert "cloudflare/pages-action@v1" in content
     assert "deployments: write" in content
     assert "actions: write" in content
-    assert "group: schwab-token-refresh" in content
-    assert "Share the Schwab token rotation lock" in content
-    assert "Refresh Schwab token and persist rotation" in content
-    assert "refresh_schwab_oauth_token" in content
-    assert "SCHWAB_SECRET_WRITE_TOKEN" in content
-    assert "Schwab token rotation failed; static site will continue" in content
+    assert "group: schwab-token-broker" in content
+    assert "SCHWAB_TOKEN_BROKER_URL" in content
+    assert "Request Schwab access token from broker" in content
+    assert "audience=schwab-token-broker" in content
+    assert "/v1/schwab/access-token" in content
+    assert "SCHWAB_ACCESS_TOKEN=${access_token}" in content
+    assert "refresh_schwab_oauth_token" not in content
+    assert "SCHWAB_SECRET_WRITE_TOKEN" not in content
 
 
 def test_option_pcr_enrichment_skips_when_schwab_refresh_fails(monkeypatch) -> None:
