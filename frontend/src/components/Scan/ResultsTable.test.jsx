@@ -25,8 +25,8 @@ vi.mock('@tanstack/react-virtual', () => ({
   }),
 }));
 vi.mock('./RSSparkline', () => ({
-  default: ({ data, trend }) => (
-    <span data-testid="rs-sparkline">RS:{data?.length ?? 'none'}:{trend}</span>
+  default: ({ data, trend, tooltipLabel = 'RS', disableTooltip = false }) => (
+    <span data-testid="rs-sparkline">{tooltipLabel}:{data?.length ?? 'none'}:{trend}:{disableTooltip ? 'no-tip' : 'tip'}</span>
   ),
 }));
 vi.mock('./PriceSparkline', () => ({
@@ -69,7 +69,7 @@ describe('ResultsTable', () => {
     });
 
     it('renders price and trend sparkline columns', () => {
-      expect(screen.getByText('RS:30:1')).toBeInTheDocument();
+      expect(screen.getByText('RS:30:1:tip')).toBeInTheDocument();
       expect(screen.getByText('Price:30:1:1.23')).toBeInTheDocument();
     });
 
@@ -117,7 +117,7 @@ describe('ResultsTable', () => {
       renderWithProviders(<ResultsTable {...defaultProps} results={[youngIpoRow]} />);
 
       expect(screen.getByText('New IPO')).toBeInTheDocument();
-      expect(screen.getByText('RS:30:1')).toBeInTheDocument();
+      expect(screen.getByText('RS:30:1:tip')).toBeInTheDocument();
       expect(screen.getByText('Price:30:1:2.5')).toBeInTheDocument();
       expect(screen.queryByText('50')).not.toBeInTheDocument();
       expect(screen.getByText('10.0%')).toBeInTheDocument();
@@ -164,6 +164,29 @@ describe('ResultsTable', () => {
       expect(screen.queryByText('Themes')).not.toBeInTheDocument();
       expect(screen.queryByText('AI Infrastructure')).not.toBeInTheDocument();
       expect(screen.queryByText('+1')).not.toBeInTheDocument();
+    });
+
+    it('renders option liquidity and PCR 7D trend sparklines with non-RS labels', () => {
+      const history = [1, 1.1, 1.2, 1.15, 1.25, 1.3, 1.4];
+      renderWithProviders(
+        <ResultsTable
+          {...defaultProps}
+          results={[{
+            ...fullSeRow,
+            option_pcr_volume_14_28dte: 1.4,
+            option_pcr_volume_14_28dte_history: history,
+            option_put_volume_14_28dte: 1400,
+            option_put_volume_14_28dte_history: [1000, 1100, 1200, 1150, 1250, 1300, 1400],
+            option_put_oi_14_28dte: 2400,
+            option_put_oi_14_28dte_history: [2000, 2100, 2200, 2150, 2250, 2300, 2400],
+            option_put_liquidity_history_dates: ['2026-06-24', '2026-06-25', '2026-06-26', '2026-06-27', '2026-06-28', '2026-06-29', '2026-06-30'],
+          }]}
+        />
+      );
+
+      expect(screen.getByText('PCR 14–28D:7:1:no-tip')).toBeInTheDocument();
+      expect(screen.getByText('Put Vol 14–28D:7:1:no-tip')).toBeInTheDocument();
+      expect(screen.getByText('Put OI 14–28D:7:1:no-tip')).toBeInTheDocument();
     });
   });
 

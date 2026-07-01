@@ -182,46 +182,93 @@ const getOptionLiquidityTrend = (values) => {
   return 0;
 };
 
-const OptionLiquidityVisual = ({ value, history, dates, label }) => {
+const formatOptionTrendChange = (values) => {
+  if (!Array.isArray(values) || values.length < 2) return null;
+  const first = Number(values[0]);
+  const last = Number(values[values.length - 1]);
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
+  if (first === 0) return last === 0 ? '0.0%' : 'n/a';
+  const change = ((last - first) / first) * 100;
+  const sign = change >= 0 ? '+' : '';
+  return `${sign}${change.toFixed(1)}%`;
+};
+
+const defaultOptionValueFormatter = (value) => formatLargeNumber(value);
+const pcrValueFormatter = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(2) : '-';
+};
+
+const buildOptionTrendTooltip = ({ label, value, history, dates, valueFormatter }) => {
+  const hasTrend = Array.isArray(history) && history.length >= 7;
+  const latest = value != null ? valueFormatter(value) : '-';
+  if (!hasTrend) {
+    return `${label}: ${latest}. 7D trend will appear after ${Math.max(0, 7 - (history?.length || 0))} more snapshot(s).`;
+  }
+  const first = history[0];
+  const last = history[history.length - 1];
+  const change = formatOptionTrendChange(history);
+  return (
+    <Box>
+      <Typography variant="subtitle2" component="div">{label} 7D trend</Typography>
+      <Typography variant="caption" component="div">
+        {dates?.[0] || '-'} → {dates?.[dates.length - 1] || '-'}
+      </Typography>
+      <Typography variant="caption" component="div">
+        {valueFormatter(first)} → {valueFormatter(last)}{change ? ` (${change})` : ''}
+      </Typography>
+      <Typography variant="caption" component="div">Latest: {latest}</Typography>
+    </Box>
+  );
+};
+
+const OptionMetricTrendVisual = ({
+  value,
+  history,
+  dates,
+  label,
+  valueFormatter = defaultOptionValueFormatter,
+  showScaleBar = true,
+}) => {
   const cleanHistory = Array.isArray(history)
-    ? history.map((item) => Number(item || 0)).filter((item) => Number.isFinite(item))
+    ? history.map((item) => (item == null ? null : Number(item))).filter((item) => Number.isFinite(item))
     : [];
   const hasTrend = cleanHistory.length >= 7;
-  const compact = formatLargeNumber(value);
+  const compact = value != null ? valueFormatter(value) : '-';
   const barWidth = value != null ? Math.min(100, Math.max(8, Math.log10(Number(value) + 1) * 18)) : 0;
-  const tooltip = hasTrend
-    ? `${label} 7D trend (${dates?.[0] || '-'} → ${dates?.[dates.length - 1] || '-'})`
-    : `${label}: ${compact}. 7D trend will appear after ${Math.max(0, 7 - cleanHistory.length)} more snapshot(s).`;
+  const tooltip = buildOptionTrendTooltip({
+    label,
+    value,
+    history: cleanHistory,
+    dates,
+    valueFormatter,
+  });
 
   if (value == null && !hasTrend) {
     return <Box sx={{ color: 'text.disabled', fontSize: 10 }}>-</Box>;
   }
 
-  if (hasTrend) {
-    return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
-        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1 }}>
-          {compact}
-        </Typography>
-        <RSSparkline
-          data={cleanHistory}
-          trend={getOptionLiquidityTrend(cleanHistory)}
-          width={76}
-          height={18}
-        />
-      </Box>
-    );
-  }
-
   return (
     <Tooltip title={tooltip} arrow placement="top">
-      <Box sx={{ width: 76, mx: 'auto', cursor: 'help' }}>
+      <Box sx={{ width: 76, mx: 'auto', cursor: 'help', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
         <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', fontSize: 10, lineHeight: 1.1 }}>
           {compact}
         </Typography>
-        <Box sx={{ mt: 0.25, height: 4, bgcolor: 'action.hover', borderRadius: 999, overflow: 'hidden' }}>
-          <Box sx={{ height: '100%', width: `${barWidth}%`, bgcolor: 'info.main', borderRadius: 999 }} />
-        </Box>
+        {hasTrend ? (
+          <RSSparkline
+            data={cleanHistory}
+            trend={getOptionLiquidityTrend(cleanHistory)}
+            width={76}
+            height={18}
+            tooltipLabel={label}
+            tooltipWindow="7d"
+            disableTooltip
+          />
+        ) : showScaleBar ? (
+          <Box sx={{ mt: 0.25, height: 4, width: '100%', bgcolor: 'action.hover', borderRadius: 999, overflow: 'hidden' }}>
+            <Box sx={{ height: '100%', width: `${barWidth}%`, bgcolor: 'info.main', borderRadius: 999 }} />
+          </Box>
+        ) : null}
       </Box>
     </Tooltip>
   );
@@ -414,14 +461,20 @@ const VirtualTableRow = memo(function VirtualTableRow({
 
       <TableCell
         align="center"
-        title={row.option_pcr_volume_14_28dte_asof ? `As of ${row.option_pcr_volume_14_28dte_asof}` : undefined}
-        sx={{ fontFamily: 'monospace', width: 80, minWidth: 80 }}
+        sx={{ p: '4px', fontFamily: 'monospace', width: 80, minWidth: 80 }}
       >
-        {row.option_pcr_volume_14_28dte != null ? row.option_pcr_volume_14_28dte.toFixed(2) : '-'}
+        <OptionMetricTrendVisual
+          label="PCR 14–28D"
+          value={row.option_pcr_volume_14_28dte}
+          history={row.option_pcr_volume_14_28dte_history}
+          dates={row.option_put_liquidity_history_dates}
+          valueFormatter={pcrValueFormatter}
+          showScaleBar={false}
+        />
       </TableCell>
 
       <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
-        <OptionLiquidityVisual
+        <OptionMetricTrendVisual
           label="Put Vol 14–28D"
           value={row.option_put_volume_14_28dte}
           history={row.option_put_volume_14_28dte_history}
@@ -430,7 +483,7 @@ const VirtualTableRow = memo(function VirtualTableRow({
       </TableCell>
 
       <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
-        <OptionLiquidityVisual
+        <OptionMetricTrendVisual
           label="Put OI 14–28D"
           value={row.option_put_oi_14_28dte}
           history={row.option_put_oi_14_28dte_history}
@@ -477,8 +530,10 @@ const VirtualTableRow = memo(function VirtualTableRow({
          prevProps.row.option_pcr_volume_14_28dte_asof === nextProps.row.option_pcr_volume_14_28dte_asof &&
          prevProps.row.option_put_volume_14_28dte === nextProps.row.option_put_volume_14_28dte &&
          prevProps.row.option_put_oi_14_28dte === nextProps.row.option_put_oi_14_28dte &&
+         (prevProps.row.option_pcr_volume_14_28dte_history || []).join('|') === (nextProps.row.option_pcr_volume_14_28dte_history || []).join('|') &&
          (prevProps.row.option_put_volume_14_28dte_history || []).join('|') === (nextProps.row.option_put_volume_14_28dte_history || []).join('|') &&
          (prevProps.row.option_put_oi_14_28dte_history || []).join('|') === (nextProps.row.option_put_oi_14_28dte_history || []).join('|') &&
+         (prevProps.row.option_put_liquidity_history_dates || []).join('|') === (nextProps.row.option_put_liquidity_history_dates || []).join('|') &&
          prevProps.row.gics_sector === nextProps.row.gics_sector &&
          prevProps.row.ibd_industry_group === nextProps.row.ibd_industry_group &&
          prevProps.row.ibd_group_rank === nextProps.row.ibd_group_rank &&
