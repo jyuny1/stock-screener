@@ -351,8 +351,21 @@ jobs:
         run: |
           set -euo pipefail
           aggregate_json="/tmp/option-put-liquidity-aggregate.json"
-          npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --command \
-            "CREATE INDEX IF NOT EXISTS idx_opt_liq_snapshot_date_dte ON option_contract_liquidity_snapshots(snapshot_date, dte_at_snapshot)"
+          symbol_filter="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('frontend/public/static-data')
+          pool_path = root / 'markets/us/options/option-chain-tracking-pool.json'
+          symbols = []
+          if pool_path.exists():
+              payload = json.loads(pool_path.read_text(encoding='utf-8'))
+              symbols = [str(symbol).upper().strip() for symbol in payload.get('active_symbols') or []]
+          symbols = sorted({symbol.replace("'", "''") for symbol in symbols if symbol})
+          if not symbols:
+              raise SystemExit('No option-chain tracking symbols found for D1 aggregate repair')
+          print(','.join(f"'{symbol}'" for symbol in symbols))
+          PY
+          )"
           npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
           WITH recent_dates AS (
             SELECT DISTINCT snapshot_date
@@ -377,6 +390,7 @@ jobs:
             FROM option_contract_liquidity_snapshots
             WHERE dte_at_snapshot BETWEEN 0 AND 90
               AND snapshot_date IN (SELECT snapshot_date FROM recent_dates)
+              AND underlying_symbol IN (${symbol_filter})
           ),
           scoped AS (
             SELECT * FROM bucketed WHERE bucket IS NOT NULL
