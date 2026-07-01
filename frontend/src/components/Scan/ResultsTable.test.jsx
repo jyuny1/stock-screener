@@ -185,7 +185,8 @@ describe('ResultsTable', () => {
         />
       );
 
-      expect(screen.getByText(/90D PCR/)).toBeInTheDocument();
+      expect(screen.getByText('90D')).toBeInTheDocument();
+      expect(screen.getByText('1.73')).toBeInTheDocument();
       expect(screen.getByText('0-30')).toBeInTheDocument();
       expect(screen.getByText('31-60')).toBeInTheDocument();
       expect(screen.getByText('61-90')).toBeInTheDocument();

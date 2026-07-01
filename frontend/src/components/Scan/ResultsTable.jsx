@@ -125,7 +125,7 @@ const columns = [
   { id: 'rs_trend', label: 'RS Trend', sortable: true, width: 110 },
   { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
   { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
-  { id: 'option_pcr_trend_30d', label: 'PCR 30D', sortable: false, width: 190 },
+  { id: 'option_pcr_trend_30d', label: 'PCR 30D', sortable: false, width: 140 },
   { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
   // MCap column header label is overridden per-render based on the USD/Local
   // toggle; keep the underlying sort key stable at 'market_cap' so the

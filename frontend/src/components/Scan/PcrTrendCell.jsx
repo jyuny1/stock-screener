@@ -116,14 +116,28 @@ function normalizeTotal(row) {
   };
 }
 
-function BucketRow({ label, bucket, compact = false }) {
+function BucketSummary({ label, bucket }) {
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: compact ? '34px 32px 22px 1fr' : '48px 42px 28px 1fr', alignItems: 'center', columnGap: 0.5 }}>
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: compact ? 9 : 10, lineHeight: 1 }}>{label}</Typography>
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: compact ? 9 : 10, lineHeight: 1, textAlign: 'right' }}>{formatPcr(bucket.current)}</Typography>
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: compact ? 9 : 10, lineHeight: 1, textAlign: 'center' }}>{bucket.symbol}</Typography>
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: compact ? 9 : 10, lineHeight: 1, letterSpacing: -0.5 }} title="PCR 30D bar sparkline">
-        {barSparkline(bucket.history, { width: compact ? 10 : 16 })}
+    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.35, minWidth: 0 }}>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1, color: 'text.secondary' }}>
+        {label}
+      </Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>
+        {formatPcr(bucket.current)}
+      </Typography>
+    </Box>
+  );
+}
+
+function BucketRow({ label, bucket }) {
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: '74px 48px 48px 54px 1fr', alignItems: 'center', columnGap: 1 }}>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1.15 }}>{label}</Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1.15, textAlign: 'right', fontWeight: 700 }}>{formatPcr(bucket.current)}</Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1.15, textAlign: 'right' }}>{formatChange(bucket.change)}</Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1.15, textAlign: 'center' }}>{bucket.symbol}</Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1.15, letterSpacing: -0.4 }} title="PCR 30D bar sparkline">
+        {barSparkline(bucket.history, { width: 18 })}
       </Typography>
     </Box>
   );
@@ -138,6 +152,13 @@ function TooltipContent({ total, buckets, dates }) {
       <Typography variant="caption" component="div" color="text.secondary" sx={{ mb: 1 }}>
         x 軸為近 30 個 snapshot，y 軸為每日 PCR；期間 {startDate} → {endDate}
       </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '74px 48px 48px 54px 1fr', columnGap: 1, mb: 0.5 }}>
+        {['Bucket', 'PCR', '30D Δ', 'Dir', 'Trend'].map((label) => (
+          <Typography key={label} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: 10, textAlign: label === 'Bucket' ? 'left' : label === 'Trend' ? 'left' : 'right' }}>
+            {label}
+          </Typography>
+        ))}
+      </Box>
       {[{ key: TOTAL_KEY, label: total.legacy ? 'Legacy≤45' : 'DTE≤90', bucket: total }, ...buckets].map(({ key, label, bucket }) => (
         <Box key={key} sx={{ mb: 0.75 }}>
           <BucketRow label={label} bucket={bucket} />
@@ -171,21 +192,21 @@ function PcrTrendCell({ row }) {
       placement="top"
       title={<TooltipContent total={total} buckets={buckets} dates={dates} />}
     >
-      <Box sx={{ width: 180, cursor: 'help', mx: 'auto' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 0.5 }}>
-          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, lineHeight: 1 }}>
-            {total.legacy ? '≤45 PCR' : '90D PCR'} {formatPcr(total.current)}
+      <Box sx={{ width: 132, cursor: 'help', mx: 'auto', py: 0.25 }}>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, whiteSpace: 'nowrap' }}>
+          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1, color: 'text.secondary' }}>
+            {total.legacy ? '≤45' : '90D'}
           </Typography>
-          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1 }}>
+          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 800, lineHeight: 1 }}>
+            {formatPcr(total.current)}
+          </Typography>
+          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1 }}>
             {total.symbol} {formatChange(total.change)}
           </Typography>
         </Box>
-        <Typography variant="caption" component="div" sx={{ fontFamily: 'monospace', fontSize: 10, lineHeight: 1.05, letterSpacing: -0.5, textAlign: 'left' }}>
-          PCR {barSparkline(total.history, { width: 18 })}
-        </Typography>
-        <Box sx={{ mt: 0.2, display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 0.75, rowGap: 0.1 }}>
+        <Box sx={{ mt: 0.45, display: 'flex', flexWrap: 'wrap', columnGap: 0.85, rowGap: 0.25 }}>
           {buckets.map(({ key, label, bucket }) => (
-            <BucketRow key={key} label={label} bucket={bucket} compact />
+            <BucketSummary key={key} label={label} bucket={bucket} />
           ))}
         </Box>
       </Box>
