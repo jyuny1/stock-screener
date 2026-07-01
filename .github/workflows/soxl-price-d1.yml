@@ -166,6 +166,40 @@ jobs:
               raise SystemExit(f'SOXL D1 import validation failed: {rows}')
           print({'validated_counts': counts})
           PY
+          npx --yes wrangler@latest d1 execute "$SOXL_D1_DATABASE_NAME" --remote --json --command \
+            "SELECT s.as_of, s.spot, m.value AS latest_intraday_date, s.daily_support_json, s.intraday_support_json, s.merged_support_json, s.sell_put_buckets_json, length(s.daily_support_json) AS daily_len, length(s.intraday_support_json) AS intraday_len, length(s.merged_support_json) AS merged_len, length(s.sell_put_buckets_json) AS buckets_len FROM soxl_support_snapshots s LEFT JOIN soxl_price_metadata m ON m.key = 'latest_intraday_date' ORDER BY s.as_of DESC LIMIT 1" \
+            > /tmp/soxl-d1-support-validation.json
+          python - <<'PY'
+          import json
+          payload = json.load(open('/tmp/soxl-d1-support-validation.json', encoding='utf-8'))
+          rows = payload[0].get('results', []) if payload else []
+          if not rows:
+              raise SystemExit('SOXL D1 support snapshot validation failed: no latest support row')
+          row = rows[0]
+          if row.get('latest_intraday_date') and row.get('as_of') != row.get('latest_intraday_date'):
+              raise SystemExit(f"SOXL support as_of mismatch: {row}")
+          max_json_bytes = 512 * 1024
+          for name in ('daily', 'intraday', 'merged', 'buckets'):
+              size = int(row.get(f'{name}_len') or 0)
+              if size <= 2 or size > max_json_bytes:
+                  raise SystemExit(f'SOXL {name} support JSON size invalid: {size}')
+          daily = json.loads(row['daily_support_json'])
+          intraday = json.loads(row['intraday_support_json'])
+          merged = json.loads(row['merged_support_json'])
+          buckets = json.loads(row['sell_put_buckets_json'])
+          if not daily.get('status') or not intraday.get('status') or not merged.get('status'):
+              raise SystemExit('SOXL support JSON missing status fields')
+          if not isinstance(buckets.get('sellPutSupportBuckets'), list) or not buckets['sellPutSupportBuckets']:
+              raise SystemExit('SOXL sell-put support buckets are empty')
+          print({
+              'validated_support_snapshot': {
+                  'as_of': row.get('as_of'),
+                  'spot': row.get('spot'),
+                  'json_lengths': {name: row.get(f'{name}_len') for name in ('daily', 'intraday', 'merged', 'buckets')},
+                  'bucket_count': len(buckets['sellPutSupportBuckets']),
+              }
+          })
+          PY
 
       - name: Export SOXL D1 daily candles artifact
         env:
