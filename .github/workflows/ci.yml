@@ -12,6 +12,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  docker-image-changes:
+    name: Docker image change detection
+    runs-on: ubuntu-latest
+    outputs:
+      publish_images: ${{ steps.detect.outputs.publish_images }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect whether Docker images need publishing
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "publish_images=true" >> "$GITHUB_OUTPUT"
+            echo "Version tag detected; Docker images will be published."
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "publish_images=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request; Docker image publishing is disabled."
+            exit 0
+          fi
+
+          before="${{ github.event.before }}"
+          after="${{ github.sha }}"
+          if [[ -z "${before}" || "${before}" =~ ^0+$ ]]; then
+            before="${after}^"
+          fi
+
+          git diff --name-only "${before}" "${after}" > /tmp/ci-changed-files.txt
+          echo "Changed files:"
+          cat /tmp/ci-changed-files.txt
+
+          if grep -Eq '^(backend/|frontend/|scripts/(run_docker_assistant_compose_smoke|docker-compose-enabled-markets)\.sh$|docker-compose(\..*)?\.yml$|Makefile$|\.dockerignore$)' /tmp/ci-changed-files.txt; then
+            echo "publish_images=true" >> "$GITHUB_OUTPUT"
+            echo "Runtime or Docker-relevant changes detected; Docker images will be published."
+          else
+            echo "publish_images=false" >> "$GITHUB_OUTPUT"
+            echo "No runtime or Docker-relevant changes detected; Docker image publishing will be skipped."
+          fi
+
   backend:
     name: Backend Quality Gates
     runs-on: ubuntu-latest
@@ -91,8 +138,8 @@ jobs:
 
   publish-images:
     name: Publish Docker Images
-    needs: [backend, frontend, assistant-compose-smoke]
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [backend, frontend, assistant-compose-smoke, docker-image-changes]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && needs.docker-image-changes.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
