@@ -277,16 +277,6 @@ jobs:
         if: ${{ inputs.deploy }}
         run: cd frontend && npm ci
 
-      - name: Configure Pages static-data proxy
-        env:
-          STATIC_DATA_BASE_URL: ${{ vars.STATIC_DATA_BASE_URL }}
-        run: |
-          set -euo pipefail
-          target="${STATIC_DATA_BASE_URL%/}"
-          mkdir -p frontend/public
-          printf '/static-data/* %s/:splat 200\n' "$target" > frontend/public/_redirects
-          cat frontend/public/_redirects
-
       - name: Build static frontend
         if: ${{ inputs.deploy }}
         env:
