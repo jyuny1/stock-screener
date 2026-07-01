@@ -22,6 +22,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import RSSparkline from './RSSparkline';
 import PriceSparkline from './PriceSparkline';
+import PcrTrendCell from './PcrTrendCell';
 import FieldAvailabilityChip from './FieldAvailabilityChip';
 import MarketBadge from './MarketBadge';
 import AddToWatchlistMenu from '../common/AddToWatchlistMenu';
@@ -32,7 +33,7 @@ import {
 } from '../../utils/formatUtils';
 
 // Row height constant for virtualization
-const ROW_HEIGHT = 48;
+const ROW_HEIGHT = 88;
 const SYMBOL_COLUMN_WIDTH = 210;
 
 // MCap column display modes. USD is the default per 3axp: cross-market
@@ -82,9 +83,7 @@ const columnHelp = {
   eps_growth_qq: { zh: 'EPS成長', description: '近期 EPS 成長率。' },
   sales_growth_qq: { zh: '營收成長', description: '近期營收成長率。' },
   adr_percent: { zh: '平均日振幅', description: 'Average Daily Range 百分比，用於衡量日內波動。' },
-  option_pcr_volume_14_28dte: { zh: 'PCR', description: 'Schwab option chain 中 14–28 DTE 的 Put 成交量加總 / Call 成交量加總。' },
-  option_put_volume_14_28dte: { zh: 'Put Vol', description: 'Schwab option chain 中 14–28 DTE 的 Put 成交量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
-  option_put_oi_14_28dte: { zh: 'Put OI', description: 'Schwab option chain 中 14–28 DTE 的 Put 未平倉量加總；滿 7 日 history 後會自動切換為趨勢 sparkline。' },
+  option_pcr_trend_30d: { zh: 'PCR 30D 趨勢', description: '近 30 個 snapshot 的 Put/Call Volume Ratio 趨勢。主視覺為 DTE≤90 total PCR；下方以 0–30、31–60、61–90 DTE 桶顯示各桶 PCR bar sparkline。' },
   ma_alignment: { zh: '均線排列', description: '價格與主要均線是否呈多頭排列。' },
   vcp_detected: { zh: 'VCP型態', description: '是否偵測到波動收縮型態 VCP。' },
   vcp_score: { zh: 'VCP分', description: 'VCP 型態品質分數。' },
@@ -126,9 +125,7 @@ const columns = [
   { id: 'rs_trend', label: 'RS Trend', sortable: true, width: 110 },
   { id: 'rs_rating', label: 'RS', sortable: true, width: 40 },
   { id: 'adr_percent', label: 'ADR', sortable: true, width: 50 },
-  { id: 'option_pcr_volume_14_28dte', label: 'PCR', sortable: true, width: 80 },
-  { id: 'option_put_volume_14_28dte', label: 'Put Vol', sortable: true, width: 90 },
-  { id: 'option_put_oi_14_28dte', label: 'Put OI', sortable: true, width: 90 },
+  { id: 'option_pcr_trend_30d', label: 'PCR 30D', sortable: false, width: 190 },
   { id: 'ma_alignment', label: 'MA', sortable: false, width: 35 },
   // MCap column header label is overridden per-render based on the USD/Local
   // toggle; keep the underlying sort key stable at 'market_cap' so the
@@ -172,107 +169,8 @@ const HIDDEN_SCAN_COLUMN_IDS = new Set([
   'rating',
 ]);
 
-const getOptionLiquidityTrend = (values) => {
-  if (!Array.isArray(values) || values.length < 2) return 0;
-  const first = Number(values[0] || 0);
-  const last = Number(values[values.length - 1] || 0);
-  if (!first && !last) return 0;
-  if (last > first * 1.05) return 1;
-  if (last < first * 0.95) return -1;
-  return 0;
-};
+const pcrTrendSignature = (row) => JSON.stringify(row.option_pcr_trend_30d || null);
 
-const formatOptionTrendChange = (values) => {
-  if (!Array.isArray(values) || values.length < 2) return null;
-  const first = Number(values[0]);
-  const last = Number(values[values.length - 1]);
-  if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
-  if (first === 0) return last === 0 ? '0.0%' : 'n/a';
-  const change = ((last - first) / first) * 100;
-  const sign = change >= 0 ? '+' : '';
-  return `${sign}${change.toFixed(1)}%`;
-};
-
-const defaultOptionValueFormatter = (value) => formatLargeNumber(value);
-const pcrValueFormatter = (value) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(2) : '-';
-};
-
-const buildOptionTrendTooltip = ({ label, value, history, dates, valueFormatter }) => {
-  const hasTrend = Array.isArray(history) && history.length >= 7;
-  const latest = value != null ? valueFormatter(value) : '-';
-  if (!hasTrend) {
-    return `${label}: ${latest}. 7D trend will appear after ${Math.max(0, 7 - (history?.length || 0))} more snapshot(s).`;
-  }
-  const first = history[0];
-  const last = history[history.length - 1];
-  const change = formatOptionTrendChange(history);
-  return (
-    <Box>
-      <Typography variant="subtitle2" component="div">{label} 7D trend</Typography>
-      <Typography variant="caption" component="div">
-        {dates?.[0] || '-'} → {dates?.[dates.length - 1] || '-'}
-      </Typography>
-      <Typography variant="caption" component="div">
-        {valueFormatter(first)} → {valueFormatter(last)}{change ? ` (${change})` : ''}
-      </Typography>
-      <Typography variant="caption" component="div">Latest: {latest}</Typography>
-    </Box>
-  );
-};
-
-const OptionMetricTrendVisual = ({
-  value,
-  history,
-  dates,
-  label,
-  valueFormatter = defaultOptionValueFormatter,
-  showScaleBar = true,
-}) => {
-  const cleanHistory = Array.isArray(history)
-    ? history.map((item) => (item == null ? null : Number(item))).filter((item) => Number.isFinite(item))
-    : [];
-  const hasTrend = cleanHistory.length >= 7;
-  const compact = value != null ? valueFormatter(value) : '-';
-  const barWidth = value != null ? Math.min(100, Math.max(8, Math.log10(Number(value) + 1) * 18)) : 0;
-  const tooltip = buildOptionTrendTooltip({
-    label,
-    value,
-    history: cleanHistory,
-    dates,
-    valueFormatter,
-  });
-
-  if (value == null && !hasTrend) {
-    return <Box sx={{ color: 'text.disabled', fontSize: 10 }}>-</Box>;
-  }
-
-  return (
-    <Tooltip title={tooltip} arrow placement="top">
-      <Box sx={{ width: 76, mx: 'auto', cursor: 'help', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
-        <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', fontSize: 10, lineHeight: 1.1 }}>
-          {compact}
-        </Typography>
-        {hasTrend ? (
-          <RSSparkline
-            data={cleanHistory}
-            trend={getOptionLiquidityTrend(cleanHistory)}
-            width={76}
-            height={18}
-            tooltipLabel={label}
-            tooltipWindow="7d"
-            disableTooltip
-          />
-        ) : showScaleBar ? (
-          <Box sx={{ mt: 0.25, height: 4, width: '100%', bgcolor: 'action.hover', borderRadius: 999, overflow: 'hidden' }}>
-            <Box sx={{ height: '100%', width: `${barWidth}%`, bgcolor: 'info.main', borderRadius: 999 }} />
-          </Box>
-        ) : null}
-      </Box>
-    </Tooltip>
-  );
-};
 
 const getStatusChipProps = (row) => {
   const isInsufficientHistoryRow =
@@ -459,36 +357,8 @@ const VirtualTableRow = memo(function VirtualTableRow({
         {row.adr_percent != null ? `${row.adr_percent.toFixed(1)}%` : '-'}
       </TableCell>
 
-      <TableCell
-        align="center"
-        sx={{ p: '4px', fontFamily: 'monospace', width: 80, minWidth: 80 }}
-      >
-        <OptionMetricTrendVisual
-          label="PCR 14–28D"
-          value={row.option_pcr_volume_14_28dte}
-          history={row.option_pcr_volume_14_28dte_history}
-          dates={row.option_put_liquidity_history_dates}
-          valueFormatter={pcrValueFormatter}
-          showScaleBar={false}
-        />
-      </TableCell>
-
-      <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
-        <OptionMetricTrendVisual
-          label="Put Vol 14–28D"
-          value={row.option_put_volume_14_28dte}
-          history={row.option_put_volume_14_28dte_history}
-          dates={row.option_put_liquidity_history_dates}
-        />
-      </TableCell>
-
-      <TableCell align="center" sx={{ p: '4px', width: 90, minWidth: 90 }}>
-        <OptionMetricTrendVisual
-          label="Put OI 14–28D"
-          value={row.option_put_oi_14_28dte}
-          history={row.option_put_oi_14_28dte_history}
-          dates={row.option_put_liquidity_history_dates}
-        />
+      <TableCell align="center" sx={{ p: '4px', width: 190, minWidth: 190 }}>
+        <PcrTrendCell row={row} />
       </TableCell>
 
       <TableCell align="center" sx={{ width: 35, minWidth: 35 }}>
@@ -526,13 +396,8 @@ const VirtualTableRow = memo(function VirtualTableRow({
          prevProps.row.rs_rating === nextProps.row.rs_rating &&
          prevProps.row.current_price === nextProps.row.current_price &&
          prevProps.row.price_change_1d === nextProps.row.price_change_1d &&
-         prevProps.row.option_pcr_volume_14_28dte === nextProps.row.option_pcr_volume_14_28dte &&
-         prevProps.row.option_pcr_volume_14_28dte_asof === nextProps.row.option_pcr_volume_14_28dte_asof &&
-         prevProps.row.option_put_volume_14_28dte === nextProps.row.option_put_volume_14_28dte &&
-         prevProps.row.option_put_oi_14_28dte === nextProps.row.option_put_oi_14_28dte &&
-         (prevProps.row.option_pcr_volume_14_28dte_history || []).join('|') === (nextProps.row.option_pcr_volume_14_28dte_history || []).join('|') &&
-         (prevProps.row.option_put_volume_14_28dte_history || []).join('|') === (nextProps.row.option_put_volume_14_28dte_history || []).join('|') &&
-         (prevProps.row.option_put_oi_14_28dte_history || []).join('|') === (nextProps.row.option_put_oi_14_28dte_history || []).join('|') &&
+         pcrTrendSignature(prevProps.row) === pcrTrendSignature(nextProps.row) &&
+         prevProps.row.option_pcr_volume_dte0_90_total === nextProps.row.option_pcr_volume_dte0_90_total &&
          (prevProps.row.option_put_liquidity_history_dates || []).join('|') === (nextProps.row.option_put_liquidity_history_dates || []).join('|') &&
          prevProps.row.gics_sector === nextProps.row.gics_sector &&
          prevProps.row.ibd_industry_group === nextProps.row.ibd_industry_group &&

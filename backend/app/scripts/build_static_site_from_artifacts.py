@@ -46,13 +46,18 @@ DEFAULT_MARKET = "US"
 DEFAULT_MARKET_DISPLAY = "United States"
 SCHWAB_MARKETDATA_BASE_URL = "https://api.schwabapi.com/marketdata/v1"
 SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
-OPTION_PCR_MIN_DTE = 0
-OPTION_PCR_MAX_DTE = 90
+OPTION_CHAIN_MIN_DTE = 0
+OPTION_CHAIN_MAX_DTE = 90
 OPTION_CHAIN_TRACKING_TOP_N = 500
 OPTION_CHAIN_TRACKING_RETENTION_DAYS = 90
 OPTION_CHAIN_MAX_FETCH_SYMBOLS = 500
 OPTION_PCR_REQUEST_INTERVAL_SECONDS = 0.5
 MARKET_TIME_ZONE = ZoneInfo("America/New_York")
+OPTION_PCR_BUCKETS = (
+    ("dte0_30", 0, 30),
+    ("dte31_60", 31, 60),
+    ("dte61_90", 61, 90),
+)
 
 
 def _log(message: str, **fields: Any) -> None:
@@ -362,10 +367,33 @@ def _normalize_option_contract(
     return normalized
 
 
+def _aggregate_option_contracts_by_dte(
+    put_contracts: list[dict[str, Any]],
+    call_contracts: list[dict[str, Any]],
+    *,
+    min_dte: int,
+    max_dte: int,
+) -> dict[str, Any]:
+    puts = [contract for contract in put_contracts if isinstance(contract.get("dte_at_snapshot"), int) and min_dte <= contract["dte_at_snapshot"] <= max_dte]
+    calls = [contract for contract in call_contracts if isinstance(contract.get("dte_at_snapshot"), int) and min_dte <= contract["dte_at_snapshot"] <= max_dte]
+    put_volume = sum(_int_value(contract.get("volume")) for contract in puts)
+    call_volume = sum(_int_value(contract.get("volume")) for contract in calls)
+    return {
+        "pcr": (put_volume / call_volume) if call_volume > 0 else None,
+        "put_volume": put_volume,
+        "call_volume": call_volume,
+        "put_oi": sum(_int_value(contract.get("open_interest")) for contract in puts),
+        "call_oi": sum(_int_value(contract.get("open_interest")) for contract in calls),
+        "put_contract_count": len(puts),
+        "call_contract_count": len(calls),
+        "contract_count": len(puts) + len(calls),
+    }
+
+
 def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None = None) -> dict[str, Any]:
     now = today or datetime.now(timezone.utc)
-    from_date = (now.date() + timedelta(days=OPTION_PCR_MIN_DTE)).isoformat()
-    to_date = (now.date() + timedelta(days=OPTION_PCR_MAX_DTE)).isoformat()
+    from_date = (now.date() + timedelta(days=OPTION_CHAIN_MIN_DTE)).isoformat()
+    to_date = (now.date() + timedelta(days=OPTION_CHAIN_MAX_DTE)).isoformat()
     query = parse.urlencode({
         "symbol": symbol,
         "contractType": "ALL",
@@ -383,8 +411,6 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
         payload = json.loads(response.read().decode("utf-8"))
     puts = _flatten_option_contracts(payload.get("putExpDateMap"))
     calls = _flatten_option_contracts(payload.get("callExpDateMap"))
-    put_volume = sum(_int_value(contract.get("totalVolume")) for contract in puts)
-    call_volume = sum(_int_value(contract.get("totalVolume")) for contract in calls)
     expirations = {
         str(contract.get("expirationDate"))[:10]
         for contract in [*puts, *calls]
@@ -400,31 +426,77 @@ def _fetch_option_pcr(symbol: str, *, access_token: str, today: datetime | None 
         _normalize_option_contract(symbol, contract, option_type="CALL", asof=asof, snapshot_date=snapshot_date)
         for contract in calls
     ]
+    bucket_aggregates = {
+        key: _aggregate_option_contracts_by_dte(put_contracts, call_contracts, min_dte=min_dte, max_dte=max_dte)
+        for key, min_dte, max_dte in OPTION_PCR_BUCKETS
+    }
+    legacy_45 = _aggregate_option_contracts_by_dte(put_contracts, call_contracts, min_dte=0, max_dte=45)
+    total_90 = _aggregate_option_contracts_by_dte(put_contracts, call_contracts, min_dte=0, max_dte=90)
+    option_pcr_trend_30d = {
+        "dates": [snapshot_date],
+        **{
+            key: {
+                "current": aggregate.get("pcr"),
+                "previous30d": aggregate.get("pcr"),
+                "change30d": 0,
+                "changePct30d": 0,
+                "history": [aggregate.get("pcr")],
+                "putVol": aggregate.get("put_volume"),
+                "callVol": aggregate.get("call_volume"),
+                "putOi": aggregate.get("put_oi"),
+                "callOi": aggregate.get("call_oi"),
+                "contractCount": aggregate.get("contract_count"),
+                "asof": asof,
+            }
+            for key, aggregate in {**bucket_aggregates, "dte0_90_total": total_90}.items()
+        },
+    }
+    result = {
+        "option_pcr_trend_30d": option_pcr_trend_30d,
+        "option_pcr_volume_dte0_90_total": total_90.get("pcr"),
+        "option_put_volume_dte0_90_total": total_90.get("put_volume"),
+        "option_call_volume_dte0_90_total": total_90.get("call_volume"),
+        "option_put_oi_dte0_90_total": total_90.get("put_oi"),
+        "option_call_oi_dte0_90_total": total_90.get("call_oi"),
+        "option_pcr_volume_dte0_90_total_asof": asof,
+        "option_pcr_volume_dte0_90_total_provider": "schwab",
+    }
+    for key, aggregate in bucket_aggregates.items():
+        result.update({
+            f"option_pcr_volume_{key}": aggregate.get("pcr"),
+            f"option_put_volume_{key}": aggregate.get("put_volume"),
+            f"option_call_volume_{key}": aggregate.get("call_volume"),
+            f"option_put_oi_{key}": aggregate.get("put_oi"),
+            f"option_call_oi_{key}": aggregate.get("call_oi"),
+            f"option_contracts_{key}_count": aggregate.get("contract_count"),
+            f"option_pcr_volume_{key}_asof": asof,
+        })
     return {
-        "option_pcr_volume_14_28dte": (put_volume / call_volume) if call_volume > 0 else None,
-        "option_put_volume_14_28dte": put_volume,
-        "option_call_volume_14_28dte": call_volume,
-        "option_put_oi_14_28dte": sum(_int_value(contract.get("openInterest")) for contract in puts),
-        "option_call_oi_14_28dte": sum(_int_value(contract.get("openInterest")) for contract in calls),
-        "option_pcr_volume_14_28dte_expirations": len(expirations),
-        "option_pcr_volume_14_28dte_contracts": len(puts) + len(calls),
-        "option_pcr_volume_14_28dte_min_dte": OPTION_PCR_MIN_DTE,
-        "option_pcr_volume_14_28dte_max_dte": OPTION_PCR_MAX_DTE,
-        "option_pcr_volume_14_28dte_asof": asof,
-        "option_pcr_volume_14_28dte_provider": "schwab",
-        "option_put_contracts_14_28dte_count": len(put_contracts),
-        "option_call_contracts_14_28dte_count": len(call_contracts),
-        "_option_put_contracts_14_28dte": put_contracts,
-        "_option_contracts_14_28dte": [*put_contracts, *call_contracts],
+        **result,
+        "option_pcr_volume_dte45": legacy_45.get("pcr"),
+        "option_put_volume_dte45": legacy_45.get("put_volume"),
+        "option_call_volume_dte45": legacy_45.get("call_volume"),
+        "option_put_oi_dte45": legacy_45.get("put_oi"),
+        "option_call_oi_dte45": legacy_45.get("call_oi"),
+        "option_pcr_volume_dte45_expirations": len(expirations),
+        "option_pcr_volume_dte45_contracts": len(puts) + len(calls),
+        "option_pcr_volume_dte45_min_dte": OPTION_CHAIN_MIN_DTE,
+        "option_pcr_volume_dte45_max_dte": 45,
+        "option_pcr_volume_dte45_asof": asof,
+        "option_pcr_volume_dte45_provider": "schwab",
+        "option_put_contracts_dte45_count": len(put_contracts),
+        "option_call_contracts_dte45_count": len(call_contracts),
+        "_option_put_contracts_dte45": put_contracts,
+        "_option_contracts_dte45": [*put_contracts, *call_contracts],
     }
 
 
 def _option_pcr_error_fields(message: str) -> dict[str, Any]:
     return {
-        "option_pcr_volume_14_28dte_error": message[:200],
-        "option_pcr_volume_14_28dte_provider": "schwab",
-        "option_pcr_volume_14_28dte_min_dte": OPTION_PCR_MIN_DTE,
-        "option_pcr_volume_14_28dte_max_dte": OPTION_PCR_MAX_DTE,
+        "option_pcr_volume_dte45_error": message[:200],
+        "option_pcr_volume_dte45_provider": "schwab",
+        "option_pcr_volume_dte45_min_dte": OPTION_CHAIN_MIN_DTE,
+        "option_pcr_volume_dte45_max_dte": 45,
     }
 
 
@@ -445,7 +517,7 @@ def _enrich_rows_with_option_pcr(
     except Exception as exc:  # noqa: BLE001 - static export must not fail on optional enrichment
         message = f"Option PCR enrichment skipped: {exc}"
         for row in target_rows:
-            if row.get("option_pcr_volume_14_28dte") is None:
+            if row.get("option_pcr_volume_dte45") is None:
                 row.update(_option_pcr_error_fields(message))
         _log(message, rows=len(target_rows))
         return 0
@@ -454,7 +526,7 @@ def _enrich_rows_with_option_pcr(
     errors = 0
     skipped = 0
     for index, row in enumerate(target_rows, start=1):
-        if row.get("option_pcr_volume_14_28dte") is not None and row.get("_option_contracts_14_28dte") is not None:
+        if row.get("option_pcr_volume_dte45") is not None and row.get("_option_contracts_dte45") is not None:
             skipped += 1
             continue
         symbol = str(row.get("symbol") or "").upper().strip()
@@ -526,15 +598,15 @@ def _merge_option_history(
     today_key = str(as_of_date)
     for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
-        if not symbol or row.get("option_put_volume_14_28dte") is None:
+        if not symbol or row.get("option_put_volume_dte45") is None:
             continue
         entries = [entry for entry in history.get(symbol, []) if isinstance(entry, dict) and entry.get("date") != today_key]
         entries.append({
             "date": today_key,
-            "put_volume": row.get("option_put_volume_14_28dte"),
-            "put_oi": row.get("option_put_oi_14_28dte"),
-            "pcr": row.get("option_pcr_volume_14_28dte"),
-            "asof": row.get("option_pcr_volume_14_28dte_asof"),
+            "put_volume": row.get("option_put_volume_dte45"),
+            "put_oi": row.get("option_put_oi_dte45"),
+            "pcr": row.get("option_pcr_volume_dte45"),
+            "asof": row.get("option_pcr_volume_dte45_asof"),
         })
         entries = sorted(entries, key=lambda item: str(item.get("date") or ""))[-window_days:]
         history[symbol] = entries
@@ -542,8 +614,8 @@ def _merge_option_history(
     for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
         entries = history.get(symbol, [])[-window_days:]
-        row["option_put_volume_14_28dte_history"] = [entry.get("put_volume") for entry in entries]
-        row["option_put_oi_14_28dte_history"] = [entry.get("put_oi") for entry in entries]
+        row["option_put_volume_dte45_history"] = [entry.get("put_volume") for entry in entries]
+        row["option_put_oi_dte45_history"] = [entry.get("put_oi") for entry in entries]
         row["option_put_liquidity_history_dates"] = [entry.get("date") for entry in entries]
 
     payload = {
@@ -635,7 +707,7 @@ def _merge_option_contract_history(
 
     for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
-        contracts = row.get("_option_put_contracts_14_28dte")
+        contracts = row.get("_option_put_contracts_dte45")
         if not symbol or not isinstance(contracts, list):
             continue
         normalized_contracts = [contract for contract in contracts if isinstance(contract, dict)]
@@ -666,8 +738,8 @@ def _merge_option_contract_history(
         "schema_version": "option-put-contract-liquidity-latest-v1",
         "generated_at": generated_at,
         "as_of_date": today_key,
-        "min_dte": OPTION_PCR_MIN_DTE,
-        "max_dte": OPTION_PCR_MAX_DTE,
+        "min_dte": OPTION_CHAIN_MIN_DTE,
+        "max_dte": OPTION_CHAIN_MAX_DTE,
         "rows": latest,
     }
     history_payload = {
@@ -675,19 +747,26 @@ def _merge_option_contract_history(
         "generated_at": generated_at,
         "as_of_date": today_key,
         "window_days": window_days,
-        "min_dte": OPTION_PCR_MIN_DTE,
-        "max_dte": OPTION_PCR_MAX_DTE,
+        "min_dte": OPTION_CHAIN_MIN_DTE,
+        "max_dte": OPTION_CHAIN_MAX_DTE,
         "rows": history,
     }
     _write_json(output_dir / "markets/us/options/put-contract-liquidity-latest.json", latest_payload)
     _write_json(output_dir / "markets/us/options/put-contract-liquidity-history.json", history_payload)
     for row in rows:
-        row.pop("_option_put_contracts_14_28dte", None)
+        row.pop("_option_put_contracts_dte45", None)
     return {"latest": latest_payload, "history": history_payload}
 
 
 def _drop_private_option_contract_payloads(rows: list[dict[str, Any]]) -> None:
-    """Remove transient full option-chain payloads before writing scan JSON."""
+    """Remove transient full option-chain payloads before writing scan JSON.
+
+    The full per-contract arrays are needed while building the SQLite/D1 option
+    snapshots and the dedicated option-contract history files.  They must not be
+    embedded in scan chunks or scan manifest preview rows: a single 500-symbol
+    enrichment can otherwise inflate static scan artifacts by hundreds of MB and
+    make the API Worker exceed Cloudflare CPU/memory limits when loading rows.
+    """
 
     for row in rows:
         row.pop("_option_put_contracts_14_28dte", None)
@@ -775,15 +854,15 @@ def _write_option_contract_d1_import_sql(
         f"('generated_at', {_sql_literal(generated_at)}), "
         f"('as_of_date', {_sql_literal(today_key)}), "
         f"('underlying_reference_date', {_sql_literal(underlying_reference_date or '')}), "
-        f"('min_dte', {_sql_literal(str(OPTION_PCR_MIN_DTE))}), "
-        f"('max_dte', {_sql_literal(str(OPTION_PCR_MAX_DTE))}), "
+        f"('min_dte', {_sql_literal(str(OPTION_CHAIN_MIN_DTE))}), "
+        f"('max_dte', {_sql_literal(str(OPTION_CHAIN_MAX_DTE))}), "
         f"('retention_days', {_sql_literal(str(retention_days))})",
     ]
     inserted = 0
     summaries: dict[str, dict[str, Any]] = {}
     for row in rows:
         symbol = str(row.get("symbol") or "").upper().strip()
-        contracts = row.get("_option_contracts_14_28dte")
+        contracts = row.get("_option_contracts_dte45")
         if not symbol or not isinstance(contracts, list):
             continue
         for contract in contracts:
@@ -1004,7 +1083,7 @@ def _merge_option_contract_sqlite(
         summaries: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = str(row.get("symbol") or "").upper().strip()
-            contracts = row.get("_option_contracts_14_28dte")
+            contracts = row.get("_option_contracts_dte45")
             if not symbol or not isinstance(contracts, list):
                 continue
             for contract in contracts:
@@ -1120,8 +1199,8 @@ def _merge_option_contract_sqlite(
             "generated_at": generated_at,
             "as_of_date": today_key,
             "underlying_reference_date": underlying_reference_date or "",
-            "min_dte": str(OPTION_PCR_MIN_DTE),
-            "max_dte": str(OPTION_PCR_MAX_DTE),
+            "min_dte": str(OPTION_CHAIN_MIN_DTE),
+            "max_dte": str(OPTION_CHAIN_MAX_DTE),
             "retention_days": str(retention_days),
         }
         conn.executemany(
@@ -1388,18 +1467,31 @@ def _scan_row(
         "rs_sparkline": rs_sparkline,
         "rs_sparkline_data": rs_sparkline,
         "rs_trend": metrics.get("rs_trend", _trend(rs_sparkline)),
-        "option_pcr_volume_14_28dte": metrics.get("option_pcr_volume_14_28dte"),
-        "option_put_volume_14_28dte": metrics.get("option_put_volume_14_28dte"),
-        "option_call_volume_14_28dte": metrics.get("option_call_volume_14_28dte"),
-        "option_put_oi_14_28dte": metrics.get("option_put_oi_14_28dte"),
-        "option_call_oi_14_28dte": metrics.get("option_call_oi_14_28dte"),
-        "option_pcr_volume_14_28dte_expirations": metrics.get("option_pcr_volume_14_28dte_expirations"),
-        "option_pcr_volume_14_28dte_contracts": metrics.get("option_pcr_volume_14_28dte_contracts"),
-        "option_pcr_volume_14_28dte_min_dte": metrics.get("option_pcr_volume_14_28dte_min_dte"),
-        "option_pcr_volume_14_28dte_max_dte": metrics.get("option_pcr_volume_14_28dte_max_dte"),
-        "option_pcr_volume_14_28dte_asof": metrics.get("option_pcr_volume_14_28dte_asof"),
-        "option_pcr_volume_14_28dte_provider": metrics.get("option_pcr_volume_14_28dte_provider"),
-        "option_pcr_volume_14_28dte_error": metrics.get("option_pcr_volume_14_28dte_error"),
+        "option_pcr_trend_30d": metrics.get("option_pcr_trend_30d"),
+        "option_pcr_volume_dte0_30": metrics.get("option_pcr_volume_dte0_30"),
+        "option_pcr_volume_dte31_60": metrics.get("option_pcr_volume_dte31_60"),
+        "option_pcr_volume_dte61_90": metrics.get("option_pcr_volume_dte61_90"),
+        "option_pcr_volume_dte0_90_total": metrics.get("option_pcr_volume_dte0_90_total"),
+        "option_put_volume_dte0_30": metrics.get("option_put_volume_dte0_30"),
+        "option_call_volume_dte0_30": metrics.get("option_call_volume_dte0_30"),
+        "option_put_volume_dte31_60": metrics.get("option_put_volume_dte31_60"),
+        "option_call_volume_dte31_60": metrics.get("option_call_volume_dte31_60"),
+        "option_put_volume_dte61_90": metrics.get("option_put_volume_dte61_90"),
+        "option_call_volume_dte61_90": metrics.get("option_call_volume_dte61_90"),
+        "option_put_volume_dte0_90_total": metrics.get("option_put_volume_dte0_90_total"),
+        "option_call_volume_dte0_90_total": metrics.get("option_call_volume_dte0_90_total"),
+        "option_pcr_volume_dte45": metrics.get("option_pcr_volume_dte45"),
+        "option_put_volume_dte45": metrics.get("option_put_volume_dte45"),
+        "option_call_volume_dte45": metrics.get("option_call_volume_dte45"),
+        "option_put_oi_dte45": metrics.get("option_put_oi_dte45"),
+        "option_call_oi_dte45": metrics.get("option_call_oi_dte45"),
+        "option_pcr_volume_dte45_expirations": metrics.get("option_pcr_volume_dte45_expirations"),
+        "option_pcr_volume_dte45_contracts": metrics.get("option_pcr_volume_dte45_contracts"),
+        "option_pcr_volume_dte45_min_dte": metrics.get("option_pcr_volume_dte45_min_dte"),
+        "option_pcr_volume_dte45_max_dte": metrics.get("option_pcr_volume_dte45_max_dte"),
+        "option_pcr_volume_dte45_asof": metrics.get("option_pcr_volume_dte45_asof"),
+        "option_pcr_volume_dte45_provider": metrics.get("option_pcr_volume_dte45_provider"),
+        "option_pcr_volume_dte45_error": metrics.get("option_pcr_volume_dte45_error"),
     }
     return row
 

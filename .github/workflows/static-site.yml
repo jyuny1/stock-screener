@@ -16,6 +16,16 @@ on:
         required: false
         type: string
         default: ''
+      option_contract_d1_database_name:
+        description: "Optional D1 database name override for option-chain import."
+        required: false
+        type: string
+        default: ''
+      option_contract_d1_database_id:
+        description: "Optional D1 database id override for audit/logging."
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   # Serialize Schwab-backed static builds to avoid avoidable broker/API bursts.
@@ -252,8 +262,10 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ inputs.option_contract_d1_database_name || vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+          OPTION_CONTRACT_D1_DATABASE_ID: ${{ inputs.option_contract_d1_database_id || vars.OPTION_CONTRACT_D1_DATABASE_ID }}
         run: |
+          set -euo pipefail
           missing=0
           for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID OPTION_CONTRACT_D1_DATABASE_NAME; do
             if [ -z "${!name}" ]; then
@@ -261,13 +273,14 @@ jobs:
               missing=1
             fi
           done
+          echo "Option D1 target: ${OPTION_CONTRACT_D1_DATABASE_NAME} (${OPTION_CONTRACT_D1_DATABASE_ID:-id not provided})"
           exit "$missing"
 
       - name: Import fetched option chain liquidity into D1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ inputs.option_contract_d1_database_name || vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
         run: |
           set -euo pipefail
           alter_column() {
@@ -334,14 +347,46 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
+          OPTION_CONTRACT_D1_DATABASE_NAME: ${{ inputs.option_contract_d1_database_name || vars.OPTION_CONTRACT_D1_DATABASE_NAME }}
         run: |
           set -euo pipefail
           aggregate_json="/tmp/option-put-liquidity-aggregate.json"
           npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
+          WITH bucketed AS (
+            SELECT
+              snapshot_date,
+              underlying_symbol,
+              option_type,
+              volume,
+              open_interest,
+              asof,
+              CASE
+                WHEN dte_at_snapshot BETWEEN 0 AND 30 THEN 'dte0_30'
+                WHEN dte_at_snapshot BETWEEN 31 AND 60 THEN 'dte31_60'
+                WHEN dte_at_snapshot BETWEEN 61 AND 90 THEN 'dte61_90'
+                ELSE NULL
+              END AS bucket
+            FROM option_contract_liquidity_snapshots
+            WHERE dte_at_snapshot BETWEEN 0 AND 90
+          ),
+          scoped AS (
+            SELECT * FROM bucketed WHERE bucket IS NOT NULL
+            UNION ALL
+            SELECT
+              snapshot_date,
+              underlying_symbol,
+              option_type,
+              volume,
+              open_interest,
+              asof,
+              'dte0_90_total' AS bucket
+            FROM bucketed
+            WHERE bucket IN ('dte0_30', 'dte31_60', 'dte61_90')
+          )
           SELECT
             snapshot_date AS date,
             underlying_symbol AS symbol,
+            bucket,
             SUM(CASE WHEN option_type = 'PUT' THEN volume ELSE 0 END) AS put_volume,
             SUM(CASE WHEN option_type = 'CALL' THEN volume ELSE 0 END) AS call_volume,
             SUM(CASE WHEN option_type = 'PUT' THEN open_interest ELSE 0 END) AS put_oi,
@@ -368,15 +413,14 @@ jobs:
             SUM(CASE WHEN option_type = 'CALL' THEN 1 ELSE 0 END) AS call_contract_count,
             COUNT(*) AS contract_count,
             MAX(asof) AS asof
-          FROM option_contract_liquidity_snapshots
-          WHERE dte_at_snapshot BETWEEN 0 AND 90
-          GROUP BY snapshot_date, underlying_symbol
-          ORDER BY snapshot_date, underlying_symbol
+          FROM scoped
+          GROUP BY snapshot_date, underlying_symbol, bucket
+          ORDER BY snapshot_date, underlying_symbol, bucket
           " > "$aggregate_json"
           PYTHONPATH=backend python -m app.scripts.patch_option_liquidity_from_d1 \
             --static-data-dir frontend/public/static-data \
             --d1-aggregate-json "$aggregate_json" \
-            --history-window-days 7
+            --history-window-days 30
 
       - name: Validate static data contract
         run: |

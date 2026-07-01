@@ -166,27 +166,29 @@ describe('ResultsTable', () => {
       expect(screen.queryByText('+1')).not.toBeInTheDocument();
     });
 
-    it('renders option liquidity and PCR 7D trend sparklines with non-RS labels', () => {
-      const history = [1, 1.1, 1.2, 1.15, 1.25, 1.3, 1.4];
+    it('renders bucketed PCR 30D trend cell', () => {
+      const dates = ['2026-06-24', '2026-06-25', '2026-06-26', '2026-06-27', '2026-06-28', '2026-06-29', '2026-06-30'];
       renderWithProviders(
         <ResultsTable
           {...defaultProps}
           results={[{
             ...fullSeRow,
-            option_pcr_volume_14_28dte: 1.4,
-            option_pcr_volume_14_28dte_history: history,
-            option_put_volume_14_28dte: 1400,
-            option_put_volume_14_28dte_history: [1000, 1100, 1200, 1150, 1250, 1300, 1400],
-            option_put_oi_14_28dte: 2400,
-            option_put_oi_14_28dte_history: [2000, 2100, 2200, 2150, 2250, 2300, 2400],
-            option_put_liquidity_history_dates: ['2026-06-24', '2026-06-25', '2026-06-26', '2026-06-27', '2026-06-28', '2026-06-29', '2026-06-30'],
+            option_pcr_trend_30d: {
+              dates,
+              dte0_90_total: { current: 1.73, previous30d: 1.45, change30d: 0.28, history: [1.45, 1.5, 1.6, 1.73] },
+              dte0_30: { current: 1.91, previous30d: 1.42, change30d: 0.49, history: [1.42, 1.6, 1.91] },
+              dte31_60: { current: 1.35, previous30d: 1.32, change30d: 0.03, history: [1.32, 1.34, 1.35] },
+              dte61_90: { current: 1.12, previous30d: 1.30, change30d: -0.18, history: [1.30, 1.2, 1.12] },
+            },
+            option_put_liquidity_history_dates: dates,
           }]}
         />
       );
 
-      expect(screen.getByText('PCR 14–28D:7:1:no-tip')).toBeInTheDocument();
-      expect(screen.getByText('Put Vol 14–28D:7:1:no-tip')).toBeInTheDocument();
-      expect(screen.getByText('Put OI 14–28D:7:1:no-tip')).toBeInTheDocument();
+      expect(screen.getByText(/90D PCR/)).toBeInTheDocument();
+      expect(screen.getByText('0-30')).toBeInTheDocument();
+      expect(screen.getByText('31-60')).toBeInTheDocument();
+      expect(screen.getByText('61-90')).toBeInTheDocument();
     });
   });
 
