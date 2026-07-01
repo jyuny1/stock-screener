@@ -589,6 +589,30 @@ jobs:
           done
           exit "$missing"
 
+      - name: Configure Cloudflare R2 CORS for static data
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+        run: |
+          cat > /tmp/r2-static-data-cors.json <<'JSON'
+          {
+            "rules": [
+              {
+                "allowed": {
+                  "origins": ["*"],
+                  "methods": ["GET", "HEAD"],
+                  "headers": ["*"]
+                },
+                "exposeHeaders": ["ETag"],
+                "maxAgeSeconds": 3600
+              }
+            ]
+          }
+          JSON
+          npx --yes wrangler@latest r2 bucket cors set "$R2_BUCKET" --file /tmp/r2-static-data-cors.json
+          npx --yes wrangler@latest r2 bucket cors list "$R2_BUCKET"
+
       - name: Install rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
