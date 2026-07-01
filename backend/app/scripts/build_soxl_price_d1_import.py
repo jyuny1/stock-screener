@@ -19,6 +19,10 @@ from zoneinfo import ZoneInfo
 
 SCHWAB_PRICE_HISTORY_URL = "https://api.schwabapi.com/marketdata/v1/pricehistory"
 SCHEMA_VERSION = "soxl-price-d1-v1"
+# Keep a conservative margin below D1/SQLite remote import statement limits so
+# the GitHub Action fails early with actionable context instead of a generic
+# Wrangler ``SQLITE_TOOBIG`` error.
+MAX_SQL_STATEMENT_BYTES = 512 * 1024
 ET = ZoneInfo("America/New_York")
 UTC = timezone.utc
 
@@ -132,6 +136,116 @@ def _keep_latest_trading_dates(rows: list[dict[str, Any]], days: int) -> list[di
     return [row for row in rows if row["trading_date"] in keep]
 
 
+def _append_intraday_daily_bar_if_needed(
+    daily: list[dict[str, Any]],
+    intraday: list[dict[str, Any]],
+    *,
+    symbol: str,
+    created_at: str,
+) -> list[dict[str, Any]]:
+    """Use the latest intraday session as a provisional daily bar when Schwab daily lags.
+
+    The scheduled job runs shortly after the US close. Schwab's daily endpoint can
+    still report yesterday while the 1-minute endpoint already has the completed
+    current regular session. Without this guard the D1 support snapshot is marked
+    with today's intraday ``as_of`` but its daily support model is missing today's
+    OHLCV bar.
+    """
+
+    if not daily or not intraday:
+        return daily
+    latest_daily_date = str(daily[-1]["trading_date"])
+    latest_intraday_date = str(intraday[-1]["trading_date"])
+    if latest_intraday_date <= latest_daily_date:
+        return daily
+    session_rows = [row for row in intraday if str(row["trading_date"]) == latest_intraday_date]
+    if not session_rows:
+        return daily
+    synthetic = {
+        "symbol": symbol,
+        "trading_date": latest_intraday_date,
+        "open": session_rows[0]["open"],
+        "high": max(float(row["high"]) for row in session_rows),
+        "low": min(float(row["low"]) for row in session_rows),
+        "close": session_rows[-1]["close"],
+        "volume": sum(int(row.get("volume") or 0) for row in session_rows),
+        "provider": "schwab_intraday_provisional_daily",
+        "created_at": created_at,
+    }
+    return [*daily, synthetic]
+
+
+_DAILY_SUPPORT_KEYS = {
+    "status",
+    "spot",
+    "dailySpot",
+    "quoteSpot",
+    "asOf",
+    "barCount",
+    "atr14",
+    "atrPct",
+    "adr20",
+    "adr20Pct",
+    "highVelocity",
+    "clusterTolerance",
+    "clusterMaxWidth",
+    "levels",
+    "supportLevels",
+    "resistanceLevels",
+    "operationalFilter",
+    "pivotCounts",
+    "warnings",
+}
+
+_INTRADAY_SUPPORT_KEYS = {
+    "status",
+    "spot",
+    "asOf",
+    "barCount",
+    "dateCount",
+    "firstDate",
+    "lastDate",
+    "dailyAtrUsed",
+    "dailyAtrPct",
+    "median1mTrueRange",
+    "p90_1mTrueRange",
+    "clusterTolerance",
+    "maxZoneWidth",
+    "latestDayLow",
+    "latestDayHigh",
+    "zones",
+    "warnings",
+}
+
+
+def _compact_dict(payload: dict[str, Any], keys: set[str]) -> dict[str, Any]:
+    return {key: payload[key] for key in keys if key in payload}
+
+
+def _compact_support_payloads(
+    daily_support: dict[str, Any],
+    intraday_support: dict[str, Any],
+    merged_support: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Drop duplicate/verbose support internals before writing D1 SQL literals.
+
+    D1 remote imports can reject very large individual SQL statements with
+    ``SQLITE_TOOBIG``. The raw merged payload embeds the full daily and intraday
+    payloads again, and the daily payload also carries hidden historical/tactical
+    structures that are not needed by the SOXL snapshot endpoint. Keeping only
+    endpoint-facing fields makes the snapshot deterministic and import-safe.
+    """
+
+    compact_daily = _compact_dict(daily_support, _DAILY_SUPPORT_KEYS)
+    compact_intraday = _compact_dict(intraday_support, _INTRADAY_SUPPORT_KEYS)
+    compact_merged = {
+        "status": merged_support.get("status"),
+        "spot": merged_support.get("spot"),
+        "mergedZones": merged_support.get("mergedZones", []),
+    }
+    return compact_daily, compact_intraday, compact_merged
+
+
 def _schema_sql() -> list[str]:
     return [
         "CREATE TABLE IF NOT EXISTS soxl_intraday_candles (symbol TEXT NOT NULL DEFAULT 'SOXL', ts INTEGER NOT NULL, trading_date TEXT NOT NULL, datetime_et TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL, session TEXT NOT NULL DEFAULT 'regular', provider TEXT NOT NULL DEFAULT 'schwab', created_at TEXT NOT NULL, PRIMARY KEY (symbol, ts))",
@@ -146,6 +260,32 @@ def _schema_sql() -> list[str]:
 def _insert_sql(table: str, row: dict[str, Any], columns: list[str]) -> str:
     values = ", ".join(_sql_literal(row.get(column)) for column in columns)
     return f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) VALUES ({values})"
+
+
+def _statement_label(statement: str) -> str:
+    upper = statement.upper()
+    if upper.startswith("INSERT OR REPLACE INTO "):
+        return statement.split(" ", 5)[4]
+    if upper.startswith("CREATE TABLE IF NOT EXISTS "):
+        return statement.split(" ", 6)[5]
+    if upper.startswith("DELETE FROM "):
+        return statement.split(" ", 3)[2]
+    return statement[:80]
+
+
+def _validate_statement_sizes(statements: list[str], *, max_bytes: int = MAX_SQL_STATEMENT_BYTES) -> None:
+    oversized: list[tuple[int, int, str]] = []
+    for index, statement in enumerate(statements, start=1):
+        size = len((statement + ";").encode("utf-8"))
+        if size > max_bytes:
+            oversized.append((index, size, _statement_label(statement)))
+    if oversized:
+        detail = ", ".join(
+            f"No. {index} {label}={size} bytes" for index, size, label in oversized[:5]
+        )
+        raise RuntimeError(
+            f"SOXL D1 import SQL has statement(s) above {max_bytes} bytes: {detail}"
+        )
 
 
 def _service_daily_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -201,6 +341,11 @@ def build_support_snapshot(symbol: str, daily: list[dict[str, Any]], intraday: l
         intraday_support,
         quote_spot=quote_spot,
     )
+    daily_support, intraday_support, merged_support = _compact_support_payloads(
+        daily_support,
+        intraday_support,
+        merged_support,
+    )
     sell_put_buckets = classify_sell_put_support_buckets(merged_support)
     as_of = str(intraday[-1]["trading_date"])
     return {
@@ -242,6 +387,7 @@ def build_sql(symbol: str, daily: list[dict[str, Any]], intraday: list[dict[str,
     }
     for key, value in metadata.items():
         statements.append(f"INSERT OR REPLACE INTO soxl_price_metadata (key, value) VALUES ({_sql_literal(key)}, {_sql_literal(value)})")
+    _validate_statement_sizes(statements)
     return ";\n".join(statements) + ";\n"
 
 
@@ -292,7 +438,12 @@ def main() -> int:
         _normalize_intraday(intraday_raw, symbol, created_at),
         args.intraday_period_days,
     )
-    daily = _normalize_daily(daily_raw, symbol, created_at)
+    daily = _append_intraday_daily_bar_if_needed(
+        _normalize_daily(daily_raw, symbol, created_at),
+        intraday,
+        symbol=symbol,
+        created_at=created_at,
+    )
     if not daily:
         raise RuntimeError("No daily candles returned")
     if not intraday:
