@@ -351,7 +351,10 @@ jobs:
         run: |
           set -euo pipefail
           aggregate_json="/tmp/option-put-liquidity-aggregate.json"
-          symbol_filter="$(python - <<'PY'
+          aggregate_parts_dir="/tmp/option-d1-aggregate-parts"
+          rm -rf "$aggregate_parts_dir"
+          mkdir -p "$aggregate_parts_dir"
+          python - <<'PY' > /tmp/option-symbol-chunks.txt
           import json
           from pathlib import Path
           root = Path('frontend/public/static-data')
@@ -363,10 +366,18 @@ jobs:
           symbols = sorted({symbol.replace("'", "''") for symbol in symbols if symbol})
           if not symbols:
               raise SystemExit('No option-chain tracking symbols found for D1 aggregate repair')
-          print(','.join(f"'{symbol}'" for symbol in symbols))
+          chunk_size = 35
+          for index in range(0, len(symbols), chunk_size):
+              chunk = symbols[index:index + chunk_size]
+              print(','.join(f"'{symbol}'" for symbol in chunk))
           PY
-          )"
-          npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
+          chunk_count="$(wc -l < /tmp/option-symbol-chunks.txt | tr -d ' ')"
+          echo "Querying option D1 PCR aggregate in ${chunk_count} symbol chunks"
+          chunk_index=0
+          while IFS= read -r symbol_filter; do
+            chunk_index=$((chunk_index + 1))
+            echo "Querying D1 aggregate chunk ${chunk_index}/${chunk_count}"
+            npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
           WITH recent_dates AS (
             SELECT DISTINCT snapshot_date
             FROM option_contract_liquidity_snapshots
@@ -439,7 +450,24 @@ jobs:
           FROM scoped
           GROUP BY snapshot_date, underlying_symbol, bucket
           ORDER BY snapshot_date, underlying_symbol, bucket
-          " > "$aggregate_json"
+          " > "$aggregate_parts_dir/chunk-${chunk_index}.json"
+          done < /tmp/option-symbol-chunks.txt
+          AGGREGATE_JSON="$aggregate_json" AGGREGATE_PARTS_DIR="$aggregate_parts_dir" python - <<'PY'
+          import glob
+          import json
+          import os
+          parts = []
+          for path in sorted(glob.glob(os.path.join(os.environ['AGGREGATE_PARTS_DIR'], 'chunk-*.json'))):
+              with open(path, encoding='utf-8') as handle:
+                  payload = json.load(handle)
+              if isinstance(payload, list):
+                  parts.extend(payload)
+              else:
+                  parts.append(payload)
+          with open(os.environ['AGGREGATE_JSON'], 'w', encoding='utf-8') as handle:
+              json.dump(parts, handle)
+          print({'chunks': len(parts), 'aggregate_json': os.environ['AGGREGATE_JSON']})
+          PY
           PYTHONPATH=backend python -m app.scripts.patch_option_liquidity_from_d1 \
             --static-data-dir frontend/public/static-data \
             --d1-aggregate-json "$aggregate_json" \
