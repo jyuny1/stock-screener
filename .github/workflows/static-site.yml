@@ -351,6 +351,8 @@ jobs:
         run: |
           set -euo pipefail
           aggregate_json="/tmp/option-put-liquidity-aggregate.json"
+          npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --command \
+            "CREATE INDEX IF NOT EXISTS idx_opt_liq_snapshot_date_dte ON option_contract_liquidity_snapshots(snapshot_date, dte_at_snapshot)"
           npx --yes wrangler@latest d1 execute "$OPTION_CONTRACT_D1_DATABASE_NAME" --remote --json --command "
           WITH recent_dates AS (
             SELECT DISTINCT snapshot_date
