@@ -37,7 +37,6 @@ concurrency:
 permissions:
   contents: read
   actions: read
-  id-token: write
 
 jobs:
   import-soxl-price-d1:
@@ -48,8 +47,6 @@ jobs:
       INTRADAY_PERIOD_DAYS: ${{ inputs.intraday_period_days || '10' }}
       DAILY_PERIOD_YEARS: ${{ inputs.daily_period_years || '5' }}
       INTRADAY_RETENTION_DAYS: ${{ inputs.intraday_retention_days || '180' }}
-      SCHWAB_TOKEN_BROKER_URL: ${{ vars.SCHWAB_TOKEN_BROKER_URL }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -68,13 +65,20 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
         run: |
           set -euo pipefail
           missing=0
           for name in \
             CLOUDFLARE_API_TOKEN \
             CLOUDFLARE_ACCOUNT_ID \
-            SCHWAB_TOKEN_BROKER_URL \
+            SCHWAB_CLIENT_ID \
+            SCHWAB_CLIENT_SECRET \
+            SCHWAB_REFRESH_TOKEN \
+            GH_TOKEN \
             SOXL_D1_DATABASE_NAME; do
             if [ -z "${!name}" ]; then
               echo "Missing required SOXL D1 workflow setting: ${name}" >&2
@@ -107,25 +111,25 @@ jobs:
             npx --yes wrangler@latest d1 create "$SOXL_D1_DATABASE_NAME" --location apac
           fi
 
-      - name: Request Schwab access token from broker
+      - name: Refresh Schwab token and persist rotation
+        env:
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCHWAB_SECRET_WRITE_TOKEN }}
         run: |
           set -euo pipefail
-          oidc_token="$(curl -fsSL \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=schwab-token-broker" \
-            | jq -r '.value')"
-          response="$(curl -fsS \
-            -X POST \
-            -H "Authorization: Bearer ${oidc_token}" \
-            -H "Accept: application/json" \
-            "${SCHWAB_TOKEN_BROKER_URL%/}/v1/schwab/access-token")"
-          access_token="$(printf '%s' "$response" | jq -r '.access_token')"
-          if [ -z "$access_token" ] || [ "$access_token" = "null" ]; then
-            echo "Schwab token broker response did not include access_token" >&2
-            exit 1
-          fi
-          echo "::add-mask::${access_token}"
-          echo "SCHWAB_ACCESS_TOKEN=${access_token}" >> "$GITHUB_ENV"
+          cd backend
+          python -m app.scripts.refresh_schwab_oauth_token \
+            --access-token-file /tmp/schwab-access-token.txt \
+            --refresh-token-file /tmp/schwab-new-refresh-token.txt
+          echo "::add-mask::$(cat /tmp/schwab-access-token.txt)"
+          echo "::add-mask::$(cat /tmp/schwab-new-refresh-token.txt)"
+          echo "SCHWAB_ACCESS_TOKEN=$(cat /tmp/schwab-access-token.txt)" >> "$GITHUB_ENV"
+          echo "SCHWAB_REFRESH_TOKEN=$(cat /tmp/schwab-new-refresh-token.txt)" >> "$GITHUB_ENV"
+          cat /tmp/schwab-new-refresh-token.txt | gh secret set SCHWAB_REFRESH_TOKEN \
+            --repo "${{ github.repository }}" \
+            --app actions
 
       - name: Build SOXL price D1 import SQL
         run: |
