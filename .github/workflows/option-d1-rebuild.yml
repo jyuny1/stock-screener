@@ -66,7 +66,7 @@ jobs:
           echo "BACKUP_PATH=${backup}.gz" >> "$GITHUB_ENV"
 
       - name: Upload D1 backup artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: option-d1-backup-${{ github.run_id }}
           path: ${{ env.BACKUP_PATH }}

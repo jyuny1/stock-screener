@@ -227,7 +227,7 @@ jobs:
           python -u -m app.scripts.build_static_site_from_artifacts "${args[@]}"
 
       - name: Upload raw static data artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: static-data-raw-us
           path: frontend/public/static-data
@@ -253,7 +253,7 @@ jobs:
           node-version: 22
 
       - name: Download raw static data artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: static-data-raw-us
           path: frontend/public/static-data
@@ -523,7 +523,7 @@ jobs:
           PY
 
       - name: Upload D1-patched static data artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: static-data-patched-us
           path: frontend/public/static-data
@@ -550,7 +550,7 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Download D1-patched static data artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: static-data-patched-us
           path: frontend/public/static-data

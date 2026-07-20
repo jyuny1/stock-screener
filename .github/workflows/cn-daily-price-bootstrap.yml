@@ -257,7 +257,7 @@ jobs:
           PY
 
       - name: Upload pinned CN weekly reference bundle
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cn-weekly-reference
           path: /tmp/cn-weekly-reference
@@ -331,7 +331,7 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Download pinned CN weekly reference bundle
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: cn-weekly-reference
           path: /tmp/cn-weekly-reference
@@ -404,7 +404,7 @@ jobs:
             "${CHECKPOINT_ARGS[@]}"
 
       - name: Upload CN price shard artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cn-daily-price-shard-${{ matrix.shard }}-of-${{ needs.plan.outputs.shard_count }}
           path: /tmp/cn-price-shard
@@ -456,13 +456,13 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Download pinned CN weekly reference bundle
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: cn-weekly-reference
           path: /tmp/cn-weekly-reference
 
       - name: Download current shard artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: cn-daily-price-shard-*
           path: /tmp/cn-price-shards
