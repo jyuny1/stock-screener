@@ -66,10 +66,10 @@ jobs:
             echo "run_scan=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: ${{ steps.cadence.outputs.run_scan == 'true' }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: ${{ steps.cadence.outputs.run_scan == 'true' }}
         with:
           python-version: "3.11"
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload failed optionable diagnostics
         if: ${{ failure() && steps.cadence.outputs.run_scan == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: optionable-symbols-diagnostics
           path: |

@@ -102,8 +102,8 @@ jobs:
       REDIS_ENABLED: "false"
       DATABASE_URL: postgresql://stockscanner:stockscanner@localhost:5432/stockscanner
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -155,7 +155,7 @@ jobs:
 
       - name: Upload crosswalk artifact
         if: ${{ steps.seed.outputs.seeded == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ibd-crosswalk
           path: data/ibd_crosswalk.json
@@ -203,9 +203,9 @@ jobs:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -219,7 +219,7 @@ jobs:
       # produced none, the cascade runs embedding+LLM only.
       - name: Download IBD crosswalk
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: ibd-crosswalk
           path: data

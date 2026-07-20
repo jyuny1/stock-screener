@@ -37,9 +37,9 @@ jobs:
       as_of_compact: ${{ steps.plan.outputs.as_of_compact }}
       combine: ${{ steps.plan.outputs.combine }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -257,7 +257,7 @@ jobs:
           PY
 
       - name: Upload pinned CN weekly reference bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cn-weekly-reference
           path: /tmp/cn-weekly-reference
@@ -319,9 +319,9 @@ jobs:
       AS_OF_COMPACT: ${{ needs.plan.outputs.as_of_compact }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -331,7 +331,7 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Download pinned CN weekly reference bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: cn-weekly-reference
           path: /tmp/cn-weekly-reference
@@ -404,7 +404,7 @@ jobs:
             "${CHECKPOINT_ARGS[@]}"
 
       - name: Upload CN price shard artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cn-daily-price-shard-${{ matrix.shard }}-of-${{ needs.plan.outputs.shard_count }}
           path: /tmp/cn-price-shard
@@ -444,9 +444,9 @@ jobs:
       AS_OF_COMPACT: ${{ needs.plan.outputs.as_of_compact }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -456,13 +456,13 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Download pinned CN weekly reference bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: cn-weekly-reference
           path: /tmp/cn-weekly-reference
 
       - name: Download current shard artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: cn-daily-price-shard-*
           path: /tmp/cn-price-shards

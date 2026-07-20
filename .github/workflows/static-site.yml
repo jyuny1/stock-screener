@@ -49,9 +49,9 @@ jobs:
       SCHWAB_TOKEN_BROKER_URL: ${{ vars.SCHWAB_TOKEN_BROKER_URL }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -227,7 +227,7 @@ jobs:
           python -u -m app.scripts.build_static_site_from_artifacts "${args[@]}"
 
       - name: Upload raw static data artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: static-data-raw-us
           path: frontend/public/static-data
@@ -242,18 +242,18 @@ jobs:
       STATIC_DATA_DIR: frontend/public/static-data
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
       - name: Download raw static data artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: static-data-raw-us
           path: frontend/public/static-data
@@ -523,7 +523,7 @@ jobs:
           PY
 
       - name: Upload D1-patched static data artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: static-data-patched-us
           path: frontend/public/static-data
@@ -538,9 +538,9 @@ jobs:
       STATIC_DATA_DIR: frontend/public/static-data
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -550,7 +550,7 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Download D1-patched static data artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: static-data-patched-us
           path: frontend/public/static-data

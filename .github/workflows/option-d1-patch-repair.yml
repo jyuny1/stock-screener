@@ -36,13 +36,13 @@ jobs:
       SOURCE_STATIC_RUN_ID: ${{ inputs.source_static_run_id }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -265,7 +265,7 @@ jobs:
           PY
 
       - name: Upload D1-patched static data artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: static-data-d1-repair-us
           path: frontend/public/static-data

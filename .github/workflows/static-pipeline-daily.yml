@@ -34,7 +34,7 @@ jobs:
       MARKET: US
       PIPELINE_TYPE: daily
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install market calendar dependency
         if: ${{ github.event_name == 'schedule' }}

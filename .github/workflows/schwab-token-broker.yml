@@ -25,9 +25,9 @@ jobs:
       SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
       ADMIN_BOOTSTRAP_TOKEN: ${{ secrets.SCHWAB_BROKER_ADMIN_BOOTSTRAP_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm

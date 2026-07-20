@@ -43,7 +43,7 @@ jobs:
       PIPELINE_TYPE: repair
       REPAIR_LAYER: ${{ inputs.repair_layer }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Ensure pipeline-run-manifest release exists
         run: |

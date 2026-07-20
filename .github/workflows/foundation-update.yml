@@ -91,7 +91,7 @@ jobs:
           cp "/tmp/foundation-inputs/${PRIOR_BUNDLE_ASSET_NAME}" /tmp/foundation-inputs/prior-foundation.json.gz
 
       - name: Upload prepared foundation inputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: foundation-inputs
           path: /tmp/foundation-inputs
@@ -102,11 +102,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: foundation-inputs
           path: /tmp/foundation-inputs
@@ -121,7 +121,7 @@ jobs:
             --output-path /tmp/foundation-etf-us.json.gz \
             --stale-days 7 \
             --batch-sleep-seconds 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: foundation-etf-segment
           path: /tmp/foundation-etf-us.json.gz
@@ -132,14 +132,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
       - name: Install stock foundation dependencies
         run: pip install yfinance curl_cffi
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: foundation-inputs
           path: /tmp/foundation-inputs
@@ -154,7 +154,7 @@ jobs:
             --output-path /tmp/foundation-stock-us.json.gz \
             --stale-days 7 \
             --batch-sleep-seconds 0.10
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: foundation-stock-segment
           path: /tmp/foundation-stock-us.json.gz
@@ -168,19 +168,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: foundation-inputs
           path: /tmp/foundation-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: foundation-etf-segment
           path: /tmp/foundation-segments
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: foundation-stock-segment
           path: /tmp/foundation-segments
